@@ -83,7 +83,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
 /// "PokeIdle Multiview — 8 streams running", so it's clear the app is still working.
 pub fn set_tooltip(app: &AppHandle, panels: &HashMap<u8, PanelState>) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
-    let streams: usize = panels.values().map(|p| p.running.len()).sum();
+    let streams: usize = panels.values().map(|p| p.pages.len()).sum();
     let text = match streams {
         0 => "PokeIdle Multiview".to_string(),
         1 => "PokeIdle Multiview — 1 stream running".to_string(),

@@ -11,19 +11,23 @@ mod tray;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
+use tauri::webview::{NewWindowResponse, PageLoadEvent, PageLoadPayload, WebviewBuilder};
 use tauri::window::WindowBuilder;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl, WindowEvent,
 };
 
-use config::{Config, Platform, SavedPanel, SlotConfig, MAX_SLOTS};
+use config::{Config, Platform, SavedPanel, SlotConfig, MAX_PAGES_PER_PLATFORM, MAX_SLOTS};
 use layout::Rect;
 
-const TOOLBAR_HEIGHT: f64 = 40.0;
+/// The toolbar's first row (buttons and slot chips).
+const BAR_HEIGHT: f64 = 40.0;
+/// The second row, with a pill per Twitch/Kick page; only there while some page is running.
+const STREAMS_ROW_HEIGHT: f64 = 32.0;
 const GAME_URL: &str = "https://pokeidle.io/";
 const WEBAUTHN_BLOCK: &str = include_str!("../scripts/webauthn-block.js");
 const DESKTOP_LAYOUT: &str = include_str!("../scripts/desktop-layout.js");
@@ -34,7 +38,7 @@ struct AppState {
     config_path: PathBuf,
     data_root: PathBuf,
     hunt_dir: Option<PathBuf>,
-    /// Twitch/Kick pages per slot (not saved yet: they don't come back after a restart).
+    /// Twitch/Kick pages per slot (their URLs are saved in the config by `remember_panels`).
     panels: HashMap<u8, PanelState>,
 }
 
@@ -177,8 +181,11 @@ fn save_and_publish(app: &AppHandle, state: &AppState) {
     }
     let _ = app.emit_to("toolbar", "state", state_view(state));
     tray::set_tooltip(app, &state.panels);
-    let streams = state.panels.values().any(|p| !p.running.is_empty());
-    power::set_keep_awake(app, state.config.keep_awake && streams);
+    power::set_keep_awake(app, state.config.keep_awake && any_pages(state));
+}
+
+fn any_pages(state: &AppState) -> bool {
+    state.panels.values().any(|p| !p.pages.is_empty())
 }
 
 fn window_logical_size(app: &AppHandle) -> tauri::Result<LogicalSize<f64>> {
@@ -187,15 +194,22 @@ fn window_logical_size(app: &AppHandle) -> tauri::Result<LogicalSize<f64>> {
     Ok(window.inner_size()?.to_logical::<f64>(scale))
 }
 
+/// The toolbar gets its second row (the stream pills) while any slot has a Twitch/Kick page.
+/// Must not be called with the state locked.
+fn toolbar_height(app: &AppHandle) -> f64 {
+    let state = app.state::<Mutex<AppState>>();
+    if any_pages(&state.lock().unwrap()) {
+        BAR_HEIGHT + STREAMS_ROW_HEIGHT
+    } else {
+        BAR_HEIGHT
+    }
+}
+
 /// The part of the window below the toolbar, in logical pixels.
 fn game_area(app: &AppHandle) -> tauri::Result<Rect> {
     let size = window_logical_size(app)?;
-    Ok(Rect {
-        x: 0.0,
-        y: TOOLBAR_HEIGHT,
-        w: size.width,
-        h: (size.height - TOOLBAR_HEIGHT).max(0.0),
-    })
+    let top = toolbar_height(app);
+    Ok(Rect { x: 0.0, y: top, w: size.width, h: (size.height - top).max(0.0) })
 }
 
 fn current_layout(app: &AppHandle) -> tauri::Result<layout::Layout> {
@@ -251,36 +265,27 @@ fn apply_layout(app: &AppHandle) -> tauri::Result<()> {
     if app.get_window("main").is_none() {
         return Ok(());
     }
-    let size = window_logical_size(app)?;
+    let area = game_area(app)?;
     if let Some(toolbar) = app.get_webview("toolbar") {
         toolbar.set_position(LogicalPosition::new(0.0, 0.0))?;
-        toolbar.set_size(LogicalSize::new(size.width, TOOLBAR_HEIGHT))?;
+        toolbar.set_size(LogicalSize::new(area.w, area.y))?;
     }
-    let (fronts, ids): (HashMap<u8, Platform>, Vec<u8>) = {
+    let (panels, ids) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
-        (
-            state.panels.iter().filter_map(|(id, p)| Some((*id, p.front?))).collect(),
-            state.config.slots.iter().map(|s| s.id).collect(),
-        )
+        (state.panels.clone(), state.config.slots.iter().map(|s| s.id).collect::<Vec<u8>>())
     };
     let layout = current_layout(app)?;
     place_splitters(app, &layout.splitters)?;
     for (id, tile) in tiles_for(&ids, layout.tiles) {
-        // The shown panel (or the game) takes the slot's tile. Everything else in the slot
+        // The shown page (or the game) takes the slot's tile. Everything else in the slot
         // is hidden but keeps running, and keeps the tile's size so pages don't reflow.
-        let front_label = match fronts.get(&id) {
-            Some(p) => panel_label(id, *p),
-            None => slot_label(id),
-        };
-        let size = window_logical_size(app)?;
-        let tile_or_full = tile.unwrap_or(Rect {
-            x: 0.0,
-            y: TOOLBAR_HEIGHT,
-            w: size.width,
-            h: (size.height - TOOLBAR_HEIGHT).max(0.0),
-        });
-        let labels = std::iter::once(slot_label(id)).chain(PLATFORMS.map(|p| panel_label(id, p)));
+        let slot_panels = panels.get(&id);
+        let front_label =
+            slot_panels.and_then(|p| p.front.clone()).unwrap_or_else(|| slot_label(id));
+        let tile_or_full = tile.unwrap_or(area);
+        let labels = std::iter::once(slot_label(id))
+            .chain(slot_panels.into_iter().flat_map(|p| p.pages.iter().map(|pg| pg.label.clone())));
         for label in labels {
             let Some(webview) = app.get_webview(&label) else { continue };
             let is_panel = label != slot_label(id);
@@ -330,16 +335,7 @@ fn slot_session_builder(
     let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url.parse().unwrap()))
     .data_directory(data_dir)
     .zoom_hotkeys_enabled(true)
-    // Light background players drop to their lowest quality once loaded.
-    .on_page_load(|webview, payload| {
-        if payload.event() == PageLoadEvent::Finished
-            && payload.url().host_str() == Some("player.twitch.tv")
-        {
-            if let Err(e) = webview.eval(LOWEST_QUALITY) {
-                eprintln!("[panel] could not lower quality: {e}");
-            }
-        }
-    })
+    .on_page_load(|webview, payload| lower_player_quality(&webview, &payload))
     .on_navigation(|url| guard_navigation(url))
     // Popups (e.g. a sign-in window) open with WebView2's default window, which shares the
     // slot's environment and therefore its login. Other sites open in the default browser.
@@ -364,6 +360,17 @@ fn slot_session_builder(
         builder = builder.browser_extensions_enabled(true).extensions_path(dir);
     }
     builder
+}
+
+/// Light background players drop to their lowest quality once loaded.
+fn lower_player_quality(webview: &tauri::Webview, payload: &PageLoadPayload<'_>) {
+    if payload.event() == PageLoadEvent::Finished
+        && payload.url().host_str() == Some("player.twitch.tv")
+    {
+        if let Err(e) = webview.eval(LOWEST_QUALITY) {
+            eprintln!("[panel] could not lower quality: {e}");
+        }
+    }
 }
 
 fn tile_of(app: &AppHandle, slot_id: u8) -> tauri::Result<Option<Rect>> {
@@ -406,11 +413,11 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
         )?,
         // Hidden behind a focused slot: give it the full area so it still loads as desktop.
         None => {
-            let size = window_logical_size(app)?;
+            let r = game_area(app)?;
             let webview = window.add_child(
                 builder,
-                LogicalPosition::new(0.0, TOOLBAR_HEIGHT),
-                LogicalSize::new(size.width, (size.height - TOOLBAR_HEIGHT).max(0.0)),
+                LogicalPosition::new(r.x, r.y),
+                LogicalSize::new(r.w, r.h),
             )?;
             webview.hide()?;
             webview
@@ -424,10 +431,10 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
     Ok(())
 }
 
-// ---------------------------------------------------------------- Twitch/Kick panel
+// ---------------------------------------------------------------- Twitch/Kick pages
 
 impl Platform {
-    /// Where the panel opens: the sign-in page on Twitch, the home page on Kick (its
+    /// Where a new page opens: the sign-in page on Twitch, the home page on Kick (its
     /// "Log In" button opens a dialog there).
     fn start_url(self) -> &'static str {
         match self {
@@ -435,29 +442,63 @@ impl Platform {
             Platform::Kick => "https://kick.com/",
         }
     }
-}
 
-const PLATFORMS: [Platform; 2] = [Platform::Twitch, Platform::Kick];
-
-impl Platform {
     fn key(self) -> &'static str {
         match self {
             Platform::Twitch => "twitch",
             Platform::Kick => "kick",
         }
     }
+
+    fn name(self) -> &'static str {
+        match self {
+            Platform::Twitch => "Twitch",
+            Platform::Kick => "Kick",
+        }
+    }
 }
 
-fn panel_label(id: u8, platform: Platform) -> String {
-    format!("slot-{id}-{}", platform.key())
+/// Numbers page labels, so a page closed and opened again never reuses a webview label.
+static NEXT_PAGE: AtomicU32 = AtomicU32::new(1);
+
+/// A Twitch/Kick page running in a slot, in the slot's session. It is either shown in place of
+/// the game or running hidden and muted (so its stream keeps counting).
+#[derive(Serialize, Clone, Debug)]
+struct Page {
+    /// Webview label, also how the toolbar names the page.
+    label: String,
+    platform: Platform,
+    /// The channel it is on; None on other pages (login, home).
+    login: Option<String>,
 }
 
-/// Per slot: which platform panels exist (their page keeps running) and which one, if any,
-/// is shown in place of the game.
+/// Per slot: its Twitch/Kick pages, in the order they were opened, and the one (if any) shown
+/// in place of the game.
 #[derive(Serialize, Clone, Default, Debug)]
 struct PanelState {
-    front: Option<Platform>,
-    running: Vec<Platform>,
+    front: Option<String>,
+    pages: Vec<Page>,
+    /// Per platform, the page that was shown last: the platform button brings it back.
+    #[serde(skip)]
+    last_shown: HashMap<Platform, String>,
+}
+
+impl PanelState {
+    fn page(&self, label: &str) -> Option<&Page> {
+        self.pages.iter().find(|p| p.label == label)
+    }
+
+    fn front_page(&self) -> Option<&Page> {
+        self.page(self.front.as_deref()?)
+    }
+
+    fn forget(&mut self, label: &str) {
+        self.pages.retain(|p| p.label != label);
+        self.last_shown.retain(|_, l| l != label);
+        if self.front.as_deref() == Some(label) {
+            self.front = None;
+        }
+    }
 }
 
 /// Mutes or unmutes a webview with WebView2's own switch, so the page can't override it.
@@ -479,41 +520,81 @@ fn set_muted(webview: &tauri::Webview, muted: bool) {
     }
 }
 
-/// 📺/🟩 button. Not running → opens the site over the slot. Shown → back to the game, the
-/// page keeps running hidden and muted (so a stream keeps counting). Hidden → shown again,
-/// right where it was.
-fn toggle_panel_inner(app: &AppHandle, id: u8, platform: Platform) -> tauri::Result<()> {
+/// Shows page `label` in place of the slot's game, or the game again with None. The page shown
+/// before keeps running hidden and muted, on its light player.
+fn set_front(app: &AppHandle, id: u8, label: Option<String>) -> tauri::Result<()> {
     let state = app.state::<Mutex<AppState>>();
-    let label = panel_label(id, platform);
-    let front = state.lock().unwrap().panels.get(&id).and_then(|p| p.front);
-
-    if front == Some(platform) {
-        if let Some(panel) = app.get_webview(&label) {
-            set_muted(&panel, true);
-            switch_page(&panel, false);
+    let old = state.lock().unwrap().panels.get(&id).and_then(|p| p.front.clone());
+    if old != label {
+        if let Some(page) = old.as_deref().and_then(|l| app.get_webview(l)) {
+            set_muted(&page, true);
+            switch_page(&page, false);
         }
-        state.lock().unwrap().panels.entry(id).or_default().front = None;
-    } else {
-        // The other platform, if it was shown, goes to the background muted too.
-        if let Some(other) = front.and_then(|p| app.get_webview(&panel_label(id, p))) {
-            set_muted(&other, true);
-            switch_page(&other, false);
+        if let Some(page) = label.as_deref().and_then(|l| app.get_webview(l)) {
+            set_muted(&page, false);
+            switch_page(&page, true);
         }
-        match app.get_webview(&label) {
-            Some(panel) => {
-                set_muted(&panel, false);
-                switch_page(&panel, true);
-            }
-            None => create_panel(app, id, platform, platform.start_url(), false)?,
+    }
+    {
+        let mut state = state.lock().unwrap();
+        let panels = state.panels.entry(id).or_default();
+        panels.front = label.clone().filter(|l| panels.page(l).is_some());
+        if let Some(page) = panels.front_page().cloned() {
+            panels.last_shown.insert(page.platform, page.label);
         }
-        state.lock().unwrap().panels.entry(id).or_default().front = Some(platform);
     }
     remember_panels(app);
     apply_layout(app)
 }
 
-/// A panel on a channel moves between the full channel page (shown: chat, channel points) and
-/// the light player (hidden: just the video). Panels on other pages (login, home) stay put.
+/// 📺/🟩 button. Its platform shown → back to the game (the page keeps running hidden and
+/// muted). Otherwise it shows the platform's page that was shown last (or its first one), and
+/// with no page yet it opens the site over the slot, to log in.
+fn toggle_panel_inner(app: &AppHandle, id: u8, platform: Platform) -> tauri::Result<()> {
+    let (shown, target) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        let panels = state.panels.get(&id);
+        let shown = panels.and_then(|p| p.front_page()).map(|p| p.platform);
+        let target = panels.and_then(|p| {
+            p.last_shown
+                .get(&platform)
+                .filter(|l| p.page(l).is_some())
+                .cloned()
+                .or_else(|| p.pages.iter().find(|pg| pg.platform == platform).map(|pg| pg.label.clone()))
+        });
+        (shown, target)
+    };
+    if shown == Some(platform) {
+        return set_front(app, id, None);
+    }
+    let label = match target {
+        Some(label) => label,
+        None => create_page(app, id, platform, platform.start_url(), false)?,
+    };
+    set_front(app, id, Some(label))
+}
+
+/// A pill: shows that page in place of the game, or (if it is the one shown) goes back to it.
+fn show_page_inner(app: &AppHandle, id: u8, label: &str) -> tauri::Result<()> {
+    let (exists, shown) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        let panels = state.panels.get(&id);
+        (
+            panels.is_some_and(|p| p.page(label).is_some()),
+            panels.and_then(|p| p.front.as_deref()) == Some(label),
+        )
+    };
+    match (exists, shown) {
+        (false, _) => Ok(()),
+        (true, true) => set_front(app, id, None),
+        (true, false) => set_front(app, id, Some(label.to_string())),
+    }
+}
+
+/// A page on a channel moves between the full channel page (shown: chat, channel points) and
+/// the light player (hidden: just the video). Pages elsewhere (login, home) stay put.
 fn switch_page(panel: &tauri::Webview, shown: bool) {
     let Ok(current) = panel.url() else { return };
     let Some(channel) = channels::channel_from_url(&current) else { return };
@@ -537,97 +618,155 @@ fn spawn_route_channel(app: &AppHandle, id: u8, channel: channels::Channel) {
                 let state = app.state::<Mutex<AppState>>();
                 save_and_publish(&app, &state.lock().unwrap());
             }
-            Err(e) => eprintln!("[route] slot {id}: could not open {}: {e}", channel.page_url()),
+            Err(e) => {
+                eprintln!("[route] slot {id}: could not open {}: {e}", channel.page_url());
+                let _ = app.emit_to("toolbar", "error", e);
+            }
         }
     });
 }
 
-/// A channel link clicked in the game. The platform's panel switches to that channel and stays
-/// where it was (shown or in the background). The first time, there is no panel yet: it opens
-/// visible, so the player can check the slot is logged in, then sends it to the background.
-fn route_channel(app: &AppHandle, id: u8, channel: &channels::Channel) -> tauri::Result<()> {
-    let url = channel.page_url();
-    match app.get_webview(&panel_label(id, channel.platform)) {
-        Some(panel) => {
-            let shown = app
-                .state::<Mutex<AppState>>()
-                .lock()
-                .unwrap()
-                .panels
-                .get(&id)
-                .and_then(|p| p.front)
-                == Some(channel.platform);
-            let already_there = panel.url().is_ok_and(|u| channels::is_on(&u, channel, shown));
-            if !already_there {
-                panel.navigate(channel.url_for(shown).parse().unwrap())?;
-            }
-            remember_panels(app);
-            apply_layout(app)
+/// A channel link clicked in the game. Each channel gets its own page, so several streams per
+/// platform run in the background at once (up to MAX_PAGES_PER_PLATFORM):
+/// - already running in this slot → nothing to do;
+/// - first page of the platform → it opens visible, so the player can check the slot is
+///   logged in, then sends it to the background;
+/// - a page of the platform that isn't on a channel (login, home) is reused;
+/// - otherwise a new page starts in the background, muted.
+fn route_channel(app: &AppHandle, id: u8, channel: &channels::Channel) -> Result<(), String> {
+    let (same_platform, front) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        let panels = state.panels.get(&id).cloned().unwrap_or_default();
+        let same: Vec<Page> =
+            panels.pages.into_iter().filter(|p| p.platform == channel.platform).collect();
+        (same, panels.front)
+    };
+    if same_platform.iter().any(|p| p.login.as_deref() == Some(channel.login.as_str())) {
+        return Ok(());
+    }
+    if same_platform.is_empty() {
+        let label = create_page(app, id, channel.platform, &channel.page_url(), false)
+            .map_err(|e| e.to_string())?;
+        return set_front(app, id, Some(label)).map_err(|e| e.to_string());
+    }
+    // The shown page first, if it is one of them.
+    let reuse = same_platform
+        .iter()
+        .filter(|p| p.login.is_none())
+        .max_by_key(|p| front.as_deref() == Some(p.label.as_str()));
+    if let Some(page) = reuse {
+        let shown = front.as_deref() == Some(page.label.as_str());
+        if let Some(webview) = app.get_webview(&page.label) {
+            webview.navigate(channel.url_for(shown).parse().unwrap()).map_err(|e| e.to_string())?;
         }
-        None => {
-            create_panel(app, id, channel.platform, &url, false)?;
-            // Now running but not shown: toggling shows it (and mutes whatever was shown).
-            toggle_panel_inner(app, id, channel.platform)
+        set_page_login(app, &page.label, Some(channel.login.clone()));
+    } else if same_platform.len() >= MAX_PAGES_PER_PLATFORM {
+        return Err(format!(
+            "Slot {id} already runs {MAX_PAGES_PER_PLATFORM} {} streams; close one first",
+            channel.platform.name()
+        ));
+    } else {
+        create_page(app, id, channel.platform, &channel.url_for(false), true)
+            .map_err(|e| e.to_string())?;
+    }
+    remember_panels(app);
+    apply_layout(app).map_err(|e| e.to_string())
+}
+
+/// Records which channel a page is on; true if it changed.
+fn set_page_login(app: &AppHandle, label: &str, login: Option<String>) -> bool {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    let page = state.panels.values_mut().flat_map(|p| p.pages.iter_mut()).find(|p| p.label == label);
+    match page {
+        Some(page) if page.login != login => {
+            page.login = login;
+            true
         }
+        _ => false,
     }
 }
 
-/// Creates the platform page for a slot. `background` = hidden and muted from the start
-/// (used when streams come back at startup).
-fn create_panel(
+/// A page finished loading: its pill follows the channel it is on now (the player may have
+/// clicked to another channel inside it).
+fn page_loaded(app: &AppHandle, label: &str, url: &Url) {
+    let login = channels::channel_from_url(url).map(|c| c.login);
+    if set_page_login(app, label, login) {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        let _ = app.emit_to("toolbar", "state", state_view(&state));
+    }
+}
+
+/// Creates a Twitch/Kick page for a slot and returns its label. `background` = hidden and muted
+/// from the start (used for extra streams and when streams come back at startup).
+fn create_page(
     app: &AppHandle,
     id: u8,
     platform: Platform,
     url: &str,
     background: bool,
-) -> tauri::Result<()> {
+) -> tauri::Result<String> {
     let window = app.get_window("main").expect("main window exists");
-    let builder = slot_session_builder(app, id, panel_label(id, platform), url);
-    let mut r = tile_of(app, id)?.unwrap_or_else(|| {
+    let label = format!("slot-{id}-{}-{}", platform.key(), NEXT_PAGE.fetch_add(1, Ordering::SeqCst));
+    let load_app = app.clone();
+    let builder = slot_session_builder(app, id, label.clone(), url).on_page_load(
+        move |webview, payload| {
+            lower_player_quality(&webview, &payload);
+            if payload.event() == PageLoadEvent::Finished {
+                page_loaded(&load_app, webview.label(), payload.url());
+            }
+        },
+    );
+    let mut r = match tile_of(app, id)? {
+        Some(r) => r,
         // Slot hidden behind a focused one: use the whole area so the page lays out normally.
-        let size = window_logical_size(app).unwrap_or(LogicalSize::new(1280.0, 800.0));
-        Rect { x: 0.0, y: TOOLBAR_HEIGHT, w: size.width, h: (size.height - TOOLBAR_HEIGHT).max(0.0) }
-    });
+        None => game_area(app)?,
+    };
     if background {
         // Born off-screen (not hidden) so the player autoplays; see apply_layout.
         r = parked(r);
     }
-    let panel =
+    let page =
         window.add_child(builder, LogicalPosition::new(r.x, r.y), LogicalSize::new(r.w, r.h))?;
     if background {
-        set_muted(&panel, true);
+        set_muted(&page, true);
     }
-    native::attach(&panel, app.clone());
+    native::attach(&page, app.clone());
+    let login = url.parse::<Url>().ok().and_then(|u| channels::channel_from_url(&u)).map(|c| c.login);
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
-    let panels = state.panels.entry(id).or_default();
-    if !panels.running.contains(&platform) {
-        panels.running.push(platform);
-    }
-    Ok(())
+    state.panels.entry(id).or_default().pages.push(Page { label: label.clone(), platform, login });
+    Ok(label)
 }
 
-/// Writes every running panel and the page it is on into the config, so the streams come
-/// back after a restart. Called on each panel change and when the window closes (to catch
-/// channels the user switched to inside a panel).
+/// Writes every running page and where it is into the config, so the streams come back after
+/// a restart. Called on each page change and when the window closes (to catch channels the
+/// user switched to inside a page).
 fn remember_panels(app: &AppHandle) {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
     let running = state.panels.clone();
     for slot in &mut state.config.slots {
-        let platforms = running.get(&slot.id).map(|p| p.running.clone()).unwrap_or_default();
-        let previous = std::mem::take(&mut slot.panels);
-        slot.panels = platforms
+        let pages = running.get(&slot.id).map(|p| p.pages.clone()).unwrap_or_default();
+        slot.panels = pages
             .into_iter()
-            .filter_map(|platform| {
+            .map(|page| {
                 let url = app
-                    .get_webview(&panel_label(slot.id, platform))
+                    .get_webview(&page.label)
                     .and_then(|w| w.url().ok())
+                    // Not loaded yet (about:blank): fall back to what we know below.
+                    .filter(|u| u.scheme() == "https")
                     // Channels are saved as their full page, whichever player is running.
                     .map(|u| channels::channel_from_url(&u).map_or_else(|| u.to_string(), |c| c.page_url()))
-                    // Not readable right now (e.g. still being created): keep what we had.
-                    .or_else(|| previous.iter().find(|p| p.platform == platform).map(|p| p.url.clone()))?;
-                Some(SavedPanel { platform, url })
+                    .or_else(|| {
+                        page.login.clone().map(|login| {
+                            channels::Channel { platform: page.platform, login }.page_url()
+                        })
+                    })
+                    .unwrap_or_else(|| page.platform.start_url().to_string());
+                SavedPanel { platform: page.platform, url }
             })
             .collect();
     }
@@ -648,26 +787,36 @@ fn restore_panels(app: &AppHandle, slots: &[SlotConfig]) {
                 None => saved.platform.start_url().to_string(),
             };
             let url = url.as_str();
-            match create_panel(app, slot.id, saved.platform, url, true) {
-                Ok(()) => println!("[panel] slot {}: resumed {}", slot.id, url),
+            match create_page(app, slot.id, saved.platform, url, true) {
+                Ok(_) => println!("[panel] slot {}: resumed {}", slot.id, url),
                 Err(e) => eprintln!("[panel] slot {}: could not resume {url}: {e}", slot.id),
             }
         }
     }
 }
 
-/// ⏹: closes the platform's page for good (stops its stream).
-fn stop_panel_inner(app: &AppHandle, id: u8, platform: Platform) -> tauri::Result<()> {
-    if let Some(panel) = app.get_webview(&panel_label(id, platform)) {
-        panel.close()?;
-    }
-    {
+/// Closes pages for good (stops their streams). `labels` = None closes all of the slot's.
+fn stop_pages_inner(app: &AppHandle, id: u8, labels: Option<&[String]>) -> tauri::Result<()> {
+    let closing: Vec<String> = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
         let panels = state.panels.entry(id).or_default();
-        panels.running.retain(|p| *p != platform);
-        if panels.front == Some(platform) {
-            panels.front = None;
+        let closing: Vec<String> = panels
+            .pages
+            .iter()
+            .map(|p| p.label.clone())
+            .filter(|l| labels.is_none_or(|wanted| wanted.contains(l)))
+            .collect();
+        for label in &closing {
+            panels.forget(label);
+        }
+        closing
+    };
+    for label in &closing {
+        if let Some(page) = app.get_webview(label) {
+            if let Err(e) = page.close() {
+                eprintln!("[{label}] close failed: {e}");
+            }
         }
     }
     remember_panels(app);
@@ -703,16 +852,16 @@ async fn add_slot(app: AppHandle) -> Result<u8, String> {
 #[tauri::command]
 async fn close_slot(app: AppHandle, id: u8) -> Result<(), String> {
     // Forget the slot first, so a failed close never leaves it half-open in the config.
-    {
+    let pages = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
         state.config.slots.retain(|s| s.id != id);
         if state.config.focus == Some(id) {
             state.config.focus = None;
         }
-        state.panels.remove(&id);
-    }
-    for label in PLATFORMS.map(|p| panel_label(id, p)).into_iter().chain([slot_label(id)]) {
+        state.panels.remove(&id).map(|p| p.pages).unwrap_or_default()
+    };
+    for label in pages.into_iter().map(|p| p.label).chain([slot_label(id)]) {
         if let Some(webview) = app.get_webview(&label) {
             if let Err(e) = webview.close() {
                 eprintln!("[{label}] close failed: {e}");
@@ -735,8 +884,26 @@ async fn toggle_panel(app: AppHandle, id: u8, platform: Platform) -> Result<(), 
 }
 
 #[tauri::command]
-async fn stop_panel(app: AppHandle, id: u8, platform: Platform) -> Result<(), String> {
-    stop_panel_inner(&app, id, platform).map_err(|e| e.to_string())?;
+async fn show_page(app: AppHandle, id: u8, label: String) -> Result<(), String> {
+    show_page_inner(&app, id, &label).map_err(|e| e.to_string())?;
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(&app, &state.lock().unwrap());
+    Ok(())
+}
+
+/// ⏹ or a pill's ×: closes that page for good (stops its stream).
+#[tauri::command]
+async fn stop_page(app: AppHandle, id: u8, label: String) -> Result<(), String> {
+    stop_pages_inner(&app, id, Some(&[label])).map_err(|e| e.to_string())?;
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(&app, &state.lock().unwrap());
+    Ok(())
+}
+
+/// "Close all": stops every Twitch/Kick page of the slot.
+#[tauri::command]
+async fn stop_all_pages(app: AppHandle, id: u8) -> Result<(), String> {
+    stop_pages_inner(&app, id, None).map_err(|e| e.to_string())?;
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
     Ok(())
@@ -1006,7 +1173,7 @@ fn main() {
             for (label, axis) in [(SPLIT_V, "v"), (SPLIT_H, "h")] {
                 let splitter = window.add_child(
                     WebviewBuilder::new(label, WebviewUrl::App(format!("splitter.html?axis={axis}").into())),
-                    LogicalPosition::new(0.0, TOOLBAR_HEIGHT),
+                    LogicalPosition::new(0.0, BAR_HEIGHT),
                     LogicalSize::new(1.0, 1.0),
                 )?;
                 splitter.hide()?;
@@ -1016,7 +1183,7 @@ fn main() {
             window.add_child(
                 WebviewBuilder::new("toolbar", WebviewUrl::App("index.html".into())),
                 LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(1280.0, TOOLBAR_HEIGHT),
+                LogicalSize::new(1280.0, BAR_HEIGHT),
             )?;
             apply_layout(&handle)?;
 
@@ -1025,8 +1192,7 @@ fn main() {
             {
                 let state = handle.state::<Mutex<AppState>>();
                 let state = state.lock().unwrap();
-                let streams = state.panels.values().any(|p| !p.running.is_empty());
-                power::set_keep_awake(&handle, state.config.keep_awake && streams);
+                power::set_keep_awake(&handle, state.config.keep_awake && any_pages(&state));
             }
             start_auto_reload(handle.clone());
 
@@ -1063,7 +1229,9 @@ fn main() {
             close_slot,
             reload_slot,
             toggle_panel,
-            stop_panel,
+            show_page,
+            stop_page,
+            stop_all_pages,
             set_zoom,
             focus_slot,
             toggle_mute,
