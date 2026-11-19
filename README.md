@@ -43,15 +43,26 @@ under 10 MB.
 - **Remembers** the open slots, zoom, focused slot, background streams, and the window's size,
   position and maximized state.
 
-## Install and run
+## Download
 
-Requirements:
+Get the latest version from the [Releases](../../releases/latest) page. Pick one:
 
-- Windows 10 or 11 (x64).
-- [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-  It is already installed on Windows 11 and on most up-to-date Windows 10 PCs.
+| File | What it is |
+| --- | --- |
+| `PokeIdleMultiview_<version>_x64.msi` | Windows Installer package |
+| `PokeIdleMultiview_<version>_x64-setup.exe` | Installer; no admin rights needed |
+| `PokeIdleMultiview_<version>_x64_portable.exe` | Portable: no install, just run it |
 
-There are no prebuilt releases yet; build it from source (below).
+Requirements: Windows 10 or 11 (x64) and the
+[WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). WebView2 is
+already on Windows 11 and on most up-to-date Windows 10 PCs, and both installers add it if it is
+missing.
+
+The files are not code-signed, so Windows SmartScreen may show "Windows protected your PC" the
+first time. Choose **More info → Run anyway**.
+
+Settings and logins live in your user folder (see [Where data is kept](#where-data-is-kept)), so
+updating or reinstalling keeps them.
 
 ## Build from source
 
@@ -66,7 +77,27 @@ cargo test               # unit tests
 cargo build --release    # optimized build: target/release/pokeidle-multiview.exe
 ```
 
-The release build is a single executable with no console window.
+The release build is a single executable with no console window. To also build the MSI and
+setup installers (into `target/release/bundle/`), use the Tauri CLI:
+
+```bash
+npx @tauri-apps/cli@2 build
+```
+
+### Making a release
+
+1. Set the same new version in `Cargo.toml` and `tauri.conf.json`, and commit it.
+2. Tag the commit and push the tag:
+
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+The [Release workflow](.github/workflows/release.yml) checks that the tag matches both
+versions, runs the tests, builds the portable exe and both installers, and publishes them as a
+GitHub release. The [CI workflow](.github/workflows/ci.yml) runs the tests on every push and
+pull request.
 
 ### Development helpers
 
@@ -145,7 +176,6 @@ Planned, roughly in priority order:
 - [ ] Focus layout with the other slots in a side column, and draggable splitters.
 - [ ] Settings menu (⚙).
 - [ ] Light mode: Kick via its HLS feed and Twitch via authenticated chat, without video players.
-- [ ] Installer and release builds from CI.
 
 ## Disclaimer
 

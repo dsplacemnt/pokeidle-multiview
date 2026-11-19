@@ -14,7 +14,18 @@
     }
   },
   "bundle": {
-    "active": false,
-    "icon": ["icons/icon.ico"]
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "icon": ["icons/icon.ico"],
+    "publisher": "PokeIdle Multiview",
+    "category": "Game",
+    "shortDescription": "Up to 4 isolated pokeidle.io sessions in one window",
+    "longDescription": "Up to 4 isolated pokeidle.io sessions in one window, with Twitch and Kick streams running muted in the background.",
+    "copyright": "MIT License",
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": { "installMode": "currentUser" },
+      "wix": { "language": "en-US" }
+    }
   }
 }

@@ -1,0 +1,67 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching the version in Cargo.toml and tauri.conf.json) to build the
+# portable exe and the MSI/NSIS installers and attach them to a GitHub release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches the app version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $tauri = (Get-Content tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne $cargo -or $tag -ne $tauri) {
+            Write-Error "Tag v$tag does not match Cargo.toml ($cargo) and tauri.conf.json ($tauri)."
+            exit 1
+          }
+          "VERSION=$tag" >> $env:GITHUB_ENV
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - run: cargo test --locked
+
+      # Builds target/release/pokeidle-multiview.exe plus the MSI (WiX) and NSIS installers.
+      - run: npx --yes @tauri-apps/cli@2.12.6 build
+
+      - name: Collect the files to publish
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/pokeidle-multiview.exe "dist/PokeIdleMultiview_${env:VERSION}_x64_portable.exe"
+          Copy-Item (Get-ChildItem target/release/bundle/msi/*.msi | Select-Object -First 1).FullName "dist/PokeIdleMultiview_${env:VERSION}_x64.msi"
+          Copy-Item (Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1).FullName "dist/PokeIdleMultiview_${env:VERSION}_x64-setup.exe"
+          Get-ChildItem dist | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: PokeIdle Multiview ${{ env.VERSION }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ## Download
+
+            | File | What it is |
+            | --- | --- |
+            | `PokeIdleMultiview_${{ env.VERSION }}_x64.msi` | Windows Installer package |
+            | `PokeIdleMultiview_${{ env.VERSION }}_x64-setup.exe` | Installer (no admin rights needed) |
+            | `PokeIdleMultiview_${{ env.VERSION }}_x64_portable.exe` | Portable: no install, just run it |
+
+            Both installers add a Start menu shortcut and install the WebView2 runtime if it is missing.
+            The files are not code-signed, so Windows SmartScreen may warn the first time: choose
+            **More info → Run anyway**.
