@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Multiview test extension",
+  "version": "1.0.0",
+  "description": "Marks pokeidle.io pages so the extension loading path can be checked without /hunt.",
+  "content_scripts": [
+    {
+      "matches": ["https://pokeidle.io/*", "https://www.pokeidle.io/*"],
+      "js": ["mark.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

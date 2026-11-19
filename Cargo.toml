@@ -1,0 +1,20 @@
+[package]
+name = "pokeidle-multiview"
+version = "0.1.0"
+description = "Up to 4 isolated pokeidle.io sessions in a single window"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/dsplacemnt/pokeidle-multiview"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# "unstable" enables multiple webviews inside one window (Window::add_child).
+tauri = { version = "2", features = ["unstable"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-window-state = "2"
+webview2-com = "0.39"
+windows-core = "0.62"
