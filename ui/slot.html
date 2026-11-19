@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Slot header</title>
+  <style>
+    :root {
+      --bg: #16181d;
+      --chip: #23262e;
+      --chip-active: #3a4150;
+      --text: #e6e8ee;
+      --muted: #8a90a0;
+      --accent: #f2c14e;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font: 13px/1 "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
+    body { border-top: 2px solid transparent; }
+    body.focused { border-top-color: var(--accent); }
+    /* One row: the slot's controls (as wide as they need, at most 60%) | divider | its streams,
+       which get all the rest. Each part scrolls sideways when it doesn't fit. */
+    .bar { display: flex; align-items: center; height: 30px; }
+    .half { min-width: 0; height: 100%; display: flex; align-items: center; }
+    .half.left { flex: 0 1 auto; max-width: 60%; }
+    .half.streams { flex: 1 1 0; position: relative; }
+    .divider { flex: none; width: 2px; height: 20px; border-radius: 1px; background: var(--chip-active); }
+    .row { display: flex; align-items: center; gap: 2px; overflow-x: auto; overflow-y: hidden;
+      scrollbar-width: none; }
+    .row > * { flex-shrink: 0; }
+    .controls { flex: 1 1 auto; min-width: 0; height: 100%; padding: 0 6px; }
+    .streams { padding: 0 4px 0 6px; gap: 4px; }
+    .streams > * { flex-shrink: 0; }
+    .pills { flex: 1 1 auto; min-width: 0; height: 100%; gap: 5px; padding: 0 2px; }
+    /* When the pills don't fit: the hidden side fades out and gets an arrow that scrolls it. */
+    .pillbox { flex: 1 1 auto; min-width: 0; height: 100%; position: relative; display: flex; }
+    .pillbox.more-left .pills { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 36px); }
+    .pillbox.more-right .pills { -webkit-mask-image: linear-gradient(to left, transparent 0, #000 36px); }
+    .pillbox.more-left.more-right .pills { -webkit-mask-image:
+      linear-gradient(to right, transparent 0, #000 36px, #000 calc(100% - 36px), transparent 100%); }
+    .scroll { position: absolute; top: 4px; width: 22px; height: 22px; padding: 0; border-radius: 11px;
+      display: none; align-items: center; justify-content: center; z-index: 1;
+      background: var(--chip-active); color: var(--accent); font-size: 14px; font-weight: 700; }
+    .scroll.left { left: 0; }
+    .scroll.right { right: 0; }
+    .pillbox.more-left .scroll.left, .pillbox.more-right .scroll.right { display: inline-flex; }
+    .scroll:hover { background: var(--accent); color: #0b0e0f; }
+    .empty { color: var(--muted); font-size: 12px; white-space: nowrap; padding-left: 4px; }
+    button { background: transparent; color: var(--text); border: 0; border-radius: 5px;
+      height: 24px; padding: 0 6px; font: inherit; cursor: pointer; }
+    button:hover { background: var(--chip-active); }
+    .name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-weight: 600; background: var(--chip); }
+    body.focused .name { background: var(--chip-active); outline: 1px solid var(--accent); }
+    .showbar { width: 26px; padding: 0; margin-right: 4px; background: var(--chip); color: var(--accent);
+      font-size: 14px; }
+    .sep { width: 1px; height: 16px; background: var(--chip-active); margin: 0 4px; }
+    .zoom { color: var(--muted); min-width: 34px; text-align: center; }
+    .muted { opacity: .75; }
+    .armed { background: #8a2c2c; }
+    .spacer { flex: 1 1 auto; }
+    .error { color: #ff8a80; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      margin-left: 6px; }
+    .platform { position: relative; display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; padding: 0; }
+    .platform svg, .pick svg { width: 18px; height: 18px; display: block; }
+    .platform.panel-open { background: var(--chip-active); outline: 1px solid var(--accent); }
+    /* Dot = this platform has a stream running in the background; a number = how many. */
+    .platform.running::after { content: ''; position: absolute; right: 2px; bottom: 2px;
+      width: 7px; height: 7px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 0 1.5px var(--bg); }
+    .platform.running[data-count]::after { content: attr(data-count); width: auto; height: 11px;
+      min-width: 11px; padding: 0 2px; right: 0; bottom: 0; border-radius: 6px; color: #0b0e0f;
+      font: 700 9px/11px "Segoe UI", system-ui, sans-serif; text-align: center; }
+    .add { font-size: 16px; width: 26px; padding: 0; color: var(--muted); }
+    .add:hover, .add.open { color: var(--text); }
+    .add.open { background: var(--chip-active); }
+    .addbox { display: inline-flex; align-items: center; gap: 2px; margin-left: 2px; }
+    .pick { width: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+      opacity: .45; }
+    .pick.on { opacity: 1; background: var(--chip); }
+    input { width: 170px; height: 24px; margin: 0 2px; padding: 0 6px; border-radius: 5px;
+      border: 1px solid var(--accent); background: #101216; color: var(--text); font: inherit; }
+    .pill { display: inline-flex; align-items: center; background: var(--chip); border-radius: 12px; height: 22px;
+      touch-action: none; }
+    /* Hold and drag a pill sideways to move it. */
+    .pill.dragging { opacity: .7; outline: 1px dashed var(--accent); cursor: grabbing; }
+    .pill.dragging button { cursor: grabbing; }
+    .pill.shown { background: var(--chip-active); outline: 1px solid var(--accent); }
+    .pill button { height: 22px; border-radius: 11px; }
+    .pill .show { display: inline-flex; align-items: center; gap: 5px; padding: 0 3px 0 7px; max-width: 160px; }
+    .pill .show span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pill .show svg { width: 14px; height: 14px; flex-shrink: 0; display: block; }
+    .pill .stop { padding: 0 7px 0 3px; color: var(--muted); }
+    .pill .stop:hover { color: var(--text); background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <div class="half left"><div class="row controls" id="controls"></div></div>
+    <div class="divider" title="Left: this slot's controls · Right: its Twitch/Kick streams"></div>
+    <div class="half streams" id="streams">
+      <div class="pillbox" id="pillbox">
+        <button class="scroll left" id="scroll-left" title="Scroll the streams left">‹</button>
+        <div class="row pills" id="pills"></div>
+        <button class="scroll right" id="scroll-right" title="Scroll the streams right">›</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    // One slot's header, on top of its tile: the slot's controls, and a pill per Twitch/Kick
+    // stream running in it.
+    const { invoke } = window.__TAURI__.core;
+    const { listen } = window.__TAURI__.event;
+    const id = Number(new URLSearchParams(location.search).get('id'));
+    const controls = document.getElementById('controls');
+    const pills = document.getElementById('pills');
+    const streams = document.getElementById('streams');
+    const pillbox = document.getElementById('pillbox');
+
+    // Simplified platform marks, drawn inline so the page needs no image files.
+    const PLATFORMS = {
+      twitch: {
+        name: 'Twitch',
+        svg: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#9146FF" d="M4.3 2 2.5 6.5V20h5v2.5h2.8l2.5-2.5h4l4.7-4.7V2H4.3Z"/><path fill="#fff" d="M19.5 14.2 16.7 17h-4.5l-2.5 2.5V17H5.5V4h14v10.2Z"/><path fill="#9146FF" d="M15.2 7.2h2v5.6h-2zM10.6 7.2h2v5.6h-2z"/></svg>`,
+      },
+      kick: {
+        name: 'Kick',
+        svg: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#53FC18"/><path fill="#0B0E0F" d="M5.5 4.5h5v4h1.7V6.6h1.9V4.5h4.4v5.3h-2.1v1.9h-1.9v.6h1.9v1.9h2.1v5.3h-4.4v-2.1h-1.9v-1.9h-1.7v4h-5z"/></svg>`,
+      },
+    };
+
+    function button(text, title, onClick, className) {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.title = title;
+      if (className) b.className = className;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    function showError(err) {
+      const el = document.getElementById('error');
+      if (!el) return;
+      el.textContent = String(err);
+      el.title = String(err);
+      clearTimeout(showError.timer);
+      showError.timer = setTimeout(() => { el.textContent = ''; }, 6000);
+    }
+
+    const call = (cmd, args = {}) => invoke(cmd, { id, ...args }).catch(showError);
+
+    // Destructive buttons ask inline (native confirm() is cut off in this short page): the first
+    // click arms the button, a second one within 3 s does it.
+    function confirmButton(text, armedText, title, className, onConfirm) {
+      const b = button(text, title, () => {
+        if (b.classList.contains('armed')) return onConfirm();
+        b.classList.add('armed');
+        b.textContent = armedText;
+        setTimeout(() => {
+          b.classList.remove('armed');
+          b.textContent = text;
+        }, 3000);
+      }, className);
+      return b;
+    }
+
+    const slotName = (slot) => slot.name || `Slot ${slot.id}`;
+    const frontPage = (panels) => panels?.pages?.find((p) => p.label === panels.front);
+    const pageName = (page) => page.login || `${PLATFORMS[page.platform].name} (not on a channel)`;
+
+    // While the player types (renaming, adding a channel), state updates don't redraw the row.
+    let editing = false;
+    let latest = null;
+    const redraw = () => { editing = false; if (latest) render(latest); };
+
+    // Click = show the slot fullscreen (again = grid). Double-click = rename it in place
+    // (Enter saves, Esc cancels, empty = default name).
+    function nameButton(slot, focused) {
+      const b = button(slotName(slot), `${focused ? 'Back to the grid' : 'Show this slot fullscreen'} (Ctrl+${slot.id}) · double-click to rename`, () => {
+        clearTimeout(b.clickTimer);
+        b.clickTimer = setTimeout(() => invoke('focus_slot', { id }).catch(showError), 220);
+      }, 'name');
+      b.addEventListener('dblclick', () => {
+        clearTimeout(b.clickTimer);
+        editing = true;
+        const input = document.createElement('input');
+        input.value = slot.name || '';
+        input.placeholder = `Slot ${slot.id}`;
+        input.maxLength = 40;
+        input.style.width = '130px';
+        let done = false;
+        const finish = (saveIt) => {
+          if (done) return;
+          done = true;
+          (saveIt ? call('rename_slot', { name: input.value }) : Promise.resolve()).finally(redraw);
+        };
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') finish(true);
+          if (e.key === 'Escape') finish(false);
+        });
+        input.addEventListener('blur', () => finish(true));
+        b.replaceWith(input);
+        input.focus();
+        input.select();
+      });
+      return b;
+    }
+
+    // Opens the platform's site in place of the game, in this slot's session (log in there).
+    // Going back to the game leaves it running hidden and muted; ⏹ closes it for good.
+    function platformButton(platform, panels) {
+      const { svg, name } = PLATFORMS[platform];
+      const shown = frontPage(panels)?.platform === platform;
+      const count = panels?.pages?.filter((p) => p.platform === platform).length ?? 0;
+      const title = shown
+        ? `Back to the game (${name} keeps running muted)`
+        : count
+          ? `${count} ${name} stream${count > 1 ? 's' : ''} running in the background — click to show one (the pills pick which)`
+          : `Open ${name} in this slot (log in here)`;
+      const b = button('', title, () => call('toggle_panel', { platform }), 'platform');
+      b.innerHTML = svg;
+      b.setAttribute('aria-label', title);
+      if (shown) b.classList.add('panel-open');
+      if (count && !shown) {
+        b.classList.add('running');
+        if (count > 1) b.dataset.count = count;
+      }
+      return b;
+    }
+
+    // "+": type a channel name (on the picked platform) or paste a Twitch/Kick link; Enter opens
+    // it as a stream in this slot.
+    let addPlatform = 'twitch';
+    function addButton() {
+      const b = button('+', 'Add a Twitch or Kick channel to this slot', () => openAddBox(b), 'add');
+      return b;
+    }
+
+    function openAddBox(addBtn) {
+      editing = true;
+      addBtn.classList.add('open');
+      const box = document.createElement('span');
+      box.className = 'addbox';
+      const picks = ['twitch', 'kick'].map((platform) => {
+        const p = button('', `Channel on ${PLATFORMS[platform].name}`, () => {
+          addPlatform = platform;
+          picks.forEach((x) => x.classList.toggle('on', x.dataset.platform === platform));
+          input.focus();
+        }, 'pick');
+        p.dataset.platform = platform;
+        p.innerHTML = PLATFORMS[platform].svg;
+        p.classList.toggle('on', platform === addPlatform);
+        // Keep the focus in the box, so picking a platform doesn't close it.
+        p.addEventListener('mousedown', (e) => e.preventDefault());
+        return p;
+      });
+      const input = document.createElement('input');
+      input.placeholder = 'channel name or link';
+      input.maxLength = 200;
+      let busy = false;
+      const close = () => { box.remove(); redraw(); };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') close();
+        if (e.key !== 'Enter' || busy || !input.value.trim()) return;
+        busy = true;
+        invoke('add_channel', { id, text: input.value, platform: addPlatform })
+          .then(close)
+          .catch((err) => { busy = false; showError(err); input.select(); });
+      });
+      input.addEventListener('blur', () => { if (!busy) close(); });
+      box.append(...picks, input);
+      addBtn.after(box);
+      input.focus();
+    }
+
+    function stopButton(panels) {
+      const page = frontPage(panels);
+      if (!page) return [];
+      return [button('⏹', `Stop ${pageName(page)} (${PLATFORMS[page.platform].name})`,
+        () => call('stop_page', { label: page.label }))];
+    }
+
+    function pill(page, shown) {
+      const { svg, name } = PLATFORMS[page.platform];
+      const el = document.createElement('span');
+      el.className = 'pill' + (shown ? ' shown' : '');
+      el.dataset.label = page.label;
+      const show = button('', shown
+        ? `Back to the game (${pageName(page)} keeps running muted)`
+        : `Show ${pageName(page)} (${name}) in this slot`,
+        () => call('show_page', { label: page.label }), 'show');
+      show.innerHTML = svg;
+      const text = document.createElement('span');
+      text.textContent = page.login || name;
+      show.append(text);
+      el.append(show, button('×', `Stop ${pageName(page)}`, () => call('stop_page', { label: page.label }), 'stop'));
+      return el;
+    }
+
+    function render(state) {
+      latest = state;
+      if (editing) return;
+      const slot = state.slots.find((s) => s.id === id);
+      if (!slot) return; // being closed
+      const panels = state.panels[id];
+      const focused = state.focus === id;
+      document.body.classList.toggle('focused', focused);
+
+      const scroll = controls.scrollLeft;
+      const zoom = document.createElement('span');
+      zoom.className = 'zoom';
+      zoom.textContent = Math.round(slot.zoom * 100) + '%';
+      const error = document.createElement('span');
+      error.className = 'error';
+      error.id = 'error';
+      const mute = button(slot.muted ? '🔇' : '🔊', slot.muted ? 'Unmute this game' : 'Mute this game',
+        () => call('toggle_mute'), slot.muted ? 'muted' : '');
+      const sep = () => Object.assign(document.createElement('span'), { className: 'sep' });
+      // While the top toolbar is hidden, the top-left slot's header has the button that brings
+      // it back.
+      const showBar = state.toolbar_hidden && state.corner === id
+        ? [button('▾', 'Show the top bar (+ Slot, Grid, settings…)',
+            () => invoke('set_toolbar_hidden', { hidden: false }).catch(showError), 'showbar')]
+        : [];
+      controls.replaceChildren(
+        ...showBar,
+        nameButton(slot, focused),
+        mute,
+        button('−', 'Zoom out', () => call('set_zoom', { zoom: slot.zoom - 0.1 })),
+        zoom,
+        button('+', 'Zoom in', () => call('set_zoom', { zoom: slot.zoom + 0.1 })),
+        sep(),
+        platformButton('twitch', panels),
+        platformButton('kick', panels),
+        ...stopButton(panels),
+        error,
+        Object.assign(document.createElement('span'), { className: 'spacer' }),
+        button('⟳', 'Reload the game', () => call('reload_slot')),
+        confirmButton('×', 'Close?', 'Close slot (keeps its login)', '', () => call('close_slot')),
+      );
+      controls.scrollLeft = scroll;
+
+      // Right part: "+", then the pills (they scroll).
+      const pillScroll = pills.scrollLeft;
+      const pages = panels?.pages ?? [];
+      pills.replaceChildren(...(pages.length
+        ? pages.map((p) => pill(p, p.label === panels.front))
+        : [Object.assign(document.createElement('span'), {
+            className: 'empty', textContent: 'No streams · + adds a channel' })]));
+      streams.replaceChildren(addButton(), pillbox);
+      pills.scrollLeft = pillScroll;
+      updateScrollHints();
+    }
+
+    // Shows which sides of the pill row have more pills hidden (fade + arrow).
+    function updateScrollHints() {
+      const max = pills.scrollWidth - pills.clientWidth;
+      pillbox.classList.toggle('more-left', pills.scrollLeft > 1);
+      pillbox.classList.toggle('more-right', pills.scrollLeft < max - 1);
+    }
+    pills.addEventListener('scroll', updateScrollHints);
+    new ResizeObserver(updateScrollHints).observe(pills);
+    for (const [btnId, dir] of [['scroll-left', -1], ['scroll-right', 1]]) {
+      document.getElementById(btnId).addEventListener('click', () => {
+        pills.scrollBy({ left: dir * Math.max(120, pills.clientWidth * 0.6), behavior: 'smooth' });
+      });
+    }
+
+    // Hold a pill and drag it sideways to reorder; the new order is saved. A short press
+    // without moving is still a normal click.
+    let drag = null;
+    let swallowClick = false;
+    pills.addEventListener('pointerdown', (e) => {
+      const el = e.target.closest('.pill');
+      if (!el || e.button !== 0) return;
+      drag = { el, startX: e.clientX, pointerId: e.pointerId, moved: false };
+    });
+    pills.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      if (!drag.moved) {
+        if (Math.abs(e.clientX - drag.startX) < 6) return;
+        drag.moved = true;
+        editing = true;
+        drag.el.classList.add('dragging');
+        pills.setPointerCapture(drag.pointerId);
+      }
+      // Near an edge, the row scrolls so the pill can reach hidden places.
+      const box = pills.getBoundingClientRect();
+      if (e.clientX < box.left + 24) pills.scrollLeft -= 10;
+      else if (e.clientX > box.right - 24) pills.scrollLeft += 10;
+      const before = [...pills.querySelectorAll('.pill')]
+        .filter((p) => p !== drag.el)
+        .find((p) => {
+          const r = p.getBoundingClientRect();
+          return e.clientX < r.left + r.width / 2;
+        });
+      if (before) {
+        if (drag.el.nextElementSibling !== before) pills.insertBefore(drag.el, before);
+      } else if (pills.lastElementChild !== drag.el) {
+        pills.appendChild(drag.el);
+      }
+    });
+    const endDrag = () => {
+      const d = drag;
+      drag = null;
+      if (!d?.moved) return;
+      d.el.classList.remove('dragging');
+      swallowClick = true;
+      setTimeout(() => { swallowClick = false; }, 0);
+      const labels = [...pills.querySelectorAll('.pill')].map((p) => p.dataset.label);
+      invoke('reorder_pages', { id, labels }).catch(showError).finally(redraw);
+    };
+    pills.addEventListener('pointerup', endDrag);
+    pills.addEventListener('pointercancel', endDrag);
+    // The click that ends a drag must not show or stop the pill.
+    pills.addEventListener('click', (e) => {
+      if (swallowClick) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    }, true);
+
+    // Mouse wheel scrolls a row sideways.
+    for (const row of [controls, pills]) {
+      row.addEventListener('wheel', (e) => {
+        if (e.deltaY) {
+          row.scrollLeft += e.deltaY;
+          e.preventDefault();
+        }
+      }, { passive: false });
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key >= '1' && e.key <= '4') invoke('focus_slot', { id: Number(e.key) }).catch(showError);
+    });
+
+    listen('state', (e) => render(e.payload));
+    listen('error', (e) => showError(e.payload));
+    invoke('get_state').then(render);
+  </script>
+</body>
+</html>

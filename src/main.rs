@@ -24,10 +24,10 @@ use tauri::{
 use config::{Config, Platform, SavedPanel, SlotConfig, MAX_PAGES_PER_PLATFORM, MAX_SLOTS};
 use layout::Rect;
 
-/// The toolbar's first row (buttons and slot chips).
+/// The toolbar across the top of the window (app-wide buttons).
 const BAR_HEIGHT: f64 = 40.0;
-/// The second row, with a pill per Twitch/Kick page; only there while some page is running.
-const STREAMS_ROW_HEIGHT: f64 = 32.0;
+/// Each slot's header, on top of its tile: the slot's controls and its stream pills, side by side.
+const HEADER_HEIGHT: f64 = 32.0;
 const GAME_URL: &str = "https://pokeidle.io/";
 const WEBAUTHN_BLOCK: &str = include_str!("../scripts/webauthn-block.js");
 const DESKTOP_LAYOUT: &str = include_str!("../scripts/desktop-layout.js");
@@ -49,6 +49,15 @@ struct StateView {
     max_slots: u8,
     hunt_dir: Option<String>,
     panels: HashMap<u8, PanelState>,
+    /// The top toolbar is hidden (only while there are slots: with none it always shows).
+    toolbar_hidden: bool,
+    /// The slot in the top-left corner, whose header shows the button that brings the toolbar
+    /// back.
+    corner: Option<u8>,
+}
+
+fn header_label(id: u8) -> String {
+    format!("head-{id}")
 }
 
 fn slot_label(id: u8) -> String {
@@ -172,16 +181,36 @@ fn state_view(state: &AppState) -> StateView {
         max_slots: MAX_SLOTS,
         hunt_dir: state.hunt_dir.as_ref().map(|p| p.display().to_string()),
         panels: state.panels.clone(),
+        toolbar_hidden: toolbar_hidden(state),
+        // The layout always puts the focused slot (or the first one) in the top-left corner.
+        corner: state
+            .config
+            .focus
+            .filter(|f| state.config.slots.iter().any(|s| s.id == *f))
+            .or_else(|| state.config.slots.first().map(|s| s.id)),
     }
+}
+
+fn toolbar_hidden(state: &AppState) -> bool {
+    state.config.toolbar_hidden && !state.config.slots.is_empty()
 }
 
 fn save_and_publish(app: &AppHandle, state: &AppState) {
     if let Err(e) = state.config.save(&state.config_path) {
         eprintln!("[config] could not save: {e}");
     }
-    let _ = app.emit_to("toolbar", "state", state_view(state));
+    publish(app, state);
     tray::set_tooltip(app, &state.panels);
     power::set_keep_awake(app, state.config.keep_awake && any_pages(state));
+}
+
+/// Sends the state to the app's own pages: the toolbar and every slot header.
+fn publish(app: &AppHandle, state: &AppState) {
+    let view = state_view(state);
+    let _ = app.emit_to("toolbar", "state", view.clone());
+    for id in 1..=MAX_SLOTS {
+        let _ = app.emit_to(header_label(id).as_str(), "state", view.clone());
+    }
 }
 
 fn any_pages(state: &AppState) -> bool {
@@ -194,22 +223,22 @@ fn window_logical_size(app: &AppHandle) -> tauri::Result<LogicalSize<f64>> {
     Ok(window.inner_size()?.to_logical::<f64>(scale))
 }
 
-/// The toolbar gets its second row (the stream pills) while any slot has a Twitch/Kick page.
-/// Must not be called with the state locked.
-fn toolbar_height(app: &AppHandle) -> f64 {
-    let state = app.state::<Mutex<AppState>>();
-    if any_pages(&state.lock().unwrap()) {
-        BAR_HEIGHT + STREAMS_ROW_HEIGHT
-    } else {
-        BAR_HEIGHT
-    }
-}
-
-/// The part of the window below the toolbar, in logical pixels.
+/// The part of the window below the toolbar (the whole window while it is hidden), in logical
+/// pixels. Must not be called with the state locked.
 fn game_area(app: &AppHandle) -> tauri::Result<Rect> {
     let size = window_logical_size(app)?;
-    let top = toolbar_height(app);
+    let hidden = toolbar_hidden(&app.state::<Mutex<AppState>>().lock().unwrap());
+    let top = if hidden { 0.0 } else { BAR_HEIGHT };
     Ok(Rect { x: 0.0, y: top, w: size.width, h: (size.height - top).max(0.0) })
+}
+
+/// Splits a slot's tile into its header strip (top) and the rest, where its pages go.
+fn split_tile(tile: Rect) -> (Rect, Rect) {
+    let header = HEADER_HEIGHT.min(tile.h);
+    (
+        Rect { h: header, ..tile },
+        Rect { y: tile.y + header, h: tile.h - header, ..tile },
+    )
 }
 
 fn current_layout(app: &AppHandle) -> tauri::Result<layout::Layout> {
@@ -240,78 +269,174 @@ fn tiles_for(ids: &[u8], tiles: Vec<(u8, Rect)>) -> Vec<(u8, Option<Rect>)> {
 const SPLIT_V: &str = "split-v";
 const SPLIT_H: &str = "split-h";
 
-/// Places the two splitter strips over the gaps (or hides the ones the layout doesn't use).
-fn place_splitters(app: &AppHandle, splitters: &[(layout::SplitKind, Rect)]) -> tauri::Result<()> {
-    for (label, vertical) in [(SPLIT_V, true), (SPLIT_H, false)] {
-        let Some(webview) = app.get_webview(label) else { continue };
-        match splitters.iter().find(|(kind, _)| kind.is_vertical() == vertical) {
-            Some((_, r)) => {
-                webview.set_position(LogicalPosition::new(r.x, r.y))?;
-                webview.set_size(LogicalSize::new(r.w, r.h))?;
-                webview.show()?;
-            }
-            None => webview.hide()?,
-        }
-    }
-    Ok(())
-}
-
 /// Same size as the tile, but entirely left of the window's client area.
 fn parked(r: Rect) -> Rect {
     Rect { x: -(r.w + 100.0), ..r }
 }
 
+/// Where one webview goes in a layout.
+enum Placement {
+    /// Visible in the window at this rect.
+    Show(Rect),
+    /// Running but parked off-screen (background streams; see `parked`).
+    Park(Rect),
+    /// Hidden; moved to the rect first if there is one, so it reappears in the right place.
+    Hide(Option<Rect>),
+}
+
+/// Bumped by every layout, so an animation still running stops when a newer layout arrives.
+static LAYOUT_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+const ANIMATION_MS: u64 = 180;
+const FRAME_MS: u64 = 15;
+
+/// Places every webview for the current layout at once (dragging a splitter, window resizes,
+/// showing a stream).
 fn apply_layout(app: &AppHandle) -> tauri::Result<()> {
-    if app.get_window("main").is_none() {
-        return Ok(());
-    }
+    run_layout(app, false)
+}
+
+/// Same, but slots that move or change size slide there (fullscreen, grid reset, toolbar,
+/// adding or closing a slot), unless smooth transitions are off in the settings.
+fn apply_layout_smooth(app: &AppHandle) -> tauri::Result<()> {
+    let smooth = app.state::<Mutex<AppState>>().lock().unwrap().config.smooth_transitions;
+    run_layout(app, smooth)
+}
+
+fn layout_plan(app: &AppHandle) -> tauri::Result<Vec<(String, Placement)>> {
+    let mut plan = Vec::new();
     let area = game_area(app)?;
-    if let Some(toolbar) = app.get_webview("toolbar") {
-        toolbar.set_position(LogicalPosition::new(0.0, 0.0))?;
-        toolbar.set_size(LogicalSize::new(area.w, area.y))?;
-    }
+    // The toolbar never animates: it shows or hides, and the slots slide into its place.
+    plan.push((
+        "toolbar".to_string(),
+        if area.y > 0.0 {
+            Placement::Show(Rect { x: 0.0, y: 0.0, w: area.w, h: area.y })
+        } else {
+            Placement::Hide(None)
+        },
+    ));
     let (panels, ids) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
         (state.panels.clone(), state.config.slots.iter().map(|s| s.id).collect::<Vec<u8>>())
     };
     let layout = current_layout(app)?;
-    place_splitters(app, &layout.splitters)?;
-    for (id, tile) in tiles_for(&ids, layout.tiles) {
+    for (label, vertical) in [(SPLIT_V, true), (SPLIT_H, false)] {
+        let placement = match layout.splitters.iter().find(|(kind, _)| kind.is_vertical() == vertical) {
+            Some((_, r)) => Placement::Show(*r),
+            None => Placement::Hide(None),
+        };
+        plan.push((label.to_string(), placement));
+    }
+    for (id, full_tile) in tiles_for(&ids, layout.tiles) {
+        let slot_panels = panels.get(&id);
+        // The header sits on top of the tile; the slot's pages get the rest.
+        plan.push((
+            header_label(id),
+            match full_tile {
+                Some(t) => Placement::Show(split_tile(t).0),
+                None => Placement::Hide(None),
+            },
+        ));
+        let tile = full_tile.map(|t| split_tile(t).1);
         // The shown page (or the game) takes the slot's tile. Everything else in the slot
         // is hidden but keeps running, and keeps the tile's size so pages don't reflow.
-        let slot_panels = panels.get(&id);
         let front_label =
             slot_panels.and_then(|p| p.front.clone()).unwrap_or_else(|| slot_label(id));
-        let tile_or_full = tile.unwrap_or(area);
+        let tile_or_full = tile.unwrap_or_else(|| split_tile(area).1);
         let labels = std::iter::once(slot_label(id))
             .chain(slot_panels.into_iter().flat_map(|p| p.pages.iter().map(|pg| pg.label.clone())));
         for label in labels {
-            let Some(webview) = app.get_webview(&label) else { continue };
             let is_panel = label != slot_label(id);
-            if label == front_label && tile.is_some() {
-                let r = tile_or_full;
-                webview.set_position(LogicalPosition::new(r.x, r.y))?;
-                webview.set_size(LogicalSize::new(r.w, r.h))?;
-                webview.show()?;
+            let placement = if label == front_label && tile.is_some() {
+                Placement::Show(tile_or_full)
             } else if is_panel {
                 // Background streams are parked outside the window instead of hidden: the
                 // page still counts as visible, so players start (and keep) playing.
-                let r = parked(tile_or_full);
-                webview.set_position(LogicalPosition::new(r.x, r.y))?;
-                webview.set_size(LogicalSize::new(r.w, r.h))?;
-                webview.show()?;
+                Placement::Park(parked(tile_or_full))
             } else {
                 // The game behind a shown panel, or a slot behind a focused one.
-                if let Some(r) = tile {
-                    webview.set_position(LogicalPosition::new(r.x, r.y))?;
-                    webview.set_size(LogicalSize::new(r.w, r.h))?;
+                Placement::Hide(tile)
+            };
+            plan.push((label, placement));
+        }
+    }
+    Ok(plan)
+}
+
+fn set_rect(webview: &tauri::Webview, r: Rect) -> tauri::Result<()> {
+    webview.set_position(LogicalPosition::new(r.x, r.y))?;
+    webview.set_size(LogicalSize::new(r.w, r.h))
+}
+
+/// Where a webview is now, in logical pixels.
+fn current_rect(webview: &tauri::Webview, scale: f64) -> Option<Rect> {
+    let pos = webview.position().ok()?.to_logical::<f64>(scale);
+    let size = webview.size().ok()?.to_logical::<f64>(scale);
+    Some(Rect { x: pos.x, y: pos.y, w: size.width, h: size.height })
+}
+
+fn run_layout(app: &AppHandle, animate: bool) -> tauri::Result<()> {
+    let Some(window) = app.get_window("main") else { return Ok(()) };
+    let generation = LAYOUT_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let scale = window.scale_factor()?;
+    let mut moves = Vec::new();
+    for (label, placement) in layout_plan(app)? {
+        let Some(webview) = app.get_webview(&label) else { continue };
+        match placement {
+            Placement::Show(to) => {
+                // Slide only webviews that are already in the window somewhere else; anything
+                // coming from off-screen or a 1×1 placeholder just appears.
+                let from = current_rect(&webview, scale)
+                    .filter(|r| animate && r.x >= 0.0 && r.w > 2.0 && r.h > 2.0 && *r != to);
+                match from {
+                    Some(from) => moves.push((webview.clone(), from, to)),
+                    None => set_rect(&webview, to)?,
+                }
+                webview.show()?;
+            }
+            Placement::Park(r) => {
+                set_rect(&webview, r)?;
+                webview.show()?;
+            }
+            Placement::Hide(r) => {
+                if let Some(r) = r {
+                    set_rect(&webview, r)?;
                 }
                 webview.hide()?;
             }
         }
     }
+    if !moves.is_empty() {
+        std::thread::spawn(move || animate_moves(moves, generation));
+    }
     Ok(())
+}
+
+/// Moves webviews from `from` to `to` with an ease-out curve; stops early (leaving the newer
+/// layout in charge) if another layout starts meanwhile.
+fn animate_moves(moves: Vec<(tauri::Webview, Rect, Rect)>, generation: u64) {
+    let lerp = |a: f64, b: f64, t: f64| a + (b - a) * t;
+    let start = std::time::Instant::now();
+    loop {
+        if LAYOUT_GEN.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let p = (start.elapsed().as_millis() as f64 / ANIMATION_MS as f64).min(1.0);
+        let t = 1.0 - (1.0 - p).powi(3);
+        for (webview, from, to) in &moves {
+            let r = Rect {
+                x: lerp(from.x, to.x, t),
+                y: lerp(from.y, to.y, t),
+                w: lerp(from.w, to.w, t),
+                h: lerp(from.h, to.h, t),
+            };
+            let _ = set_rect(webview, r);
+        }
+        if p >= 1.0 {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(FRAME_MS));
+    }
 }
 
 /// A webview in slot `slot_id`'s browser session. The game and its Twitch/Kick panel both
@@ -373,11 +498,34 @@ fn lower_player_quality(webview: &tauri::Webview, payload: &PageLoadPayload<'_>)
     }
 }
 
+/// Where a slot's pages go: its tile below the header. None = the slot is hidden behind a
+/// fullscreen one.
 fn tile_of(app: &AppHandle, slot_id: u8) -> tauri::Result<Option<Rect>> {
     Ok(slot_tiles(app)?
         .into_iter()
         .find(|(id, _)| *id == slot_id)
-        .and_then(|(_, tile)| tile))
+        .and_then(|(_, tile)| tile)
+        .map(|t| split_tile(t).1))
+}
+
+/// Pages of a slot hidden behind a fullscreen one still lay out at full size.
+fn hidden_tile_of(app: &AppHandle) -> tauri::Result<Rect> {
+    Ok(split_tile(game_area(app)?).1)
+}
+
+/// The slot's header: a local page with the slot's controls and its stream pills. It is created
+/// after the slot's pages exist, so it reads the right state when it loads.
+fn create_slot_header(app: &AppHandle, id: u8) -> tauri::Result<()> {
+    if app.get_webview(&header_label(id)).is_some() {
+        return Ok(());
+    }
+    let window = app.get_window("main").expect("main window exists");
+    window.add_child(
+        WebviewBuilder::new(header_label(id), WebviewUrl::App(format!("slot.html?id={id}").into())),
+        LogicalPosition::new(0.0, BAR_HEIGHT),
+        LogicalSize::new(1.0, 1.0),
+    )?;
+    Ok(())
 }
 
 fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> {
@@ -413,7 +561,7 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
         )?,
         // Hidden behind a focused slot: give it the full area so it still loads as desktop.
         None => {
-            let r = game_area(app)?;
+            let r = hidden_tile_of(app)?;
             let webview = window.add_child(
                 builder,
                 LogicalPosition::new(r.x, r.y),
@@ -620,7 +768,7 @@ fn spawn_route_channel(app: &AppHandle, id: u8, channel: channels::Channel) {
             }
             Err(e) => {
                 eprintln!("[route] slot {id}: could not open {}: {e}", channel.page_url());
-                let _ = app.emit_to("toolbar", "error", e);
+                let _ = app.emit_to(header_label(id).as_str(), "error", e);
             }
         }
     });
@@ -694,8 +842,7 @@ fn page_loaded(app: &AppHandle, label: &str, url: &Url) {
     let login = channels::channel_from_url(url).map(|c| c.login);
     if set_page_login(app, label, login) {
         let state = app.state::<Mutex<AppState>>();
-        let state = state.lock().unwrap();
-        let _ = app.emit_to("toolbar", "state", state_view(&state));
+        publish(app, &state.lock().unwrap());
     }
 }
 
@@ -722,7 +869,7 @@ fn create_page(
     let mut r = match tile_of(app, id)? {
         Some(r) => r,
         // Slot hidden behind a focused one: use the whole area so the page lays out normally.
-        None => game_area(app)?,
+        None => hidden_tile_of(app)?,
     };
     if background {
         // Born off-screen (not hidden) so the player autoplays; see apply_layout.
@@ -843,7 +990,8 @@ async fn add_slot(app: AppHandle) -> Result<u8, String> {
         slot
     };
     create_slot_webview(&app, &slot).map_err(|e| e.to_string())?;
-    apply_layout(&app).map_err(|e| e.to_string())?;
+    create_slot_header(&app, slot.id).map_err(|e| e.to_string())?;
+    apply_layout_smooth(&app).map_err(|e| e.to_string())?;
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
     Ok(slot.id)
@@ -861,14 +1009,14 @@ async fn close_slot(app: AppHandle, id: u8) -> Result<(), String> {
         }
         state.panels.remove(&id).map(|p| p.pages).unwrap_or_default()
     };
-    for label in pages.into_iter().map(|p| p.label).chain([slot_label(id)]) {
+    for label in pages.into_iter().map(|p| p.label).chain([slot_label(id), header_label(id)]) {
         if let Some(webview) = app.get_webview(&label) {
             if let Err(e) = webview.close() {
                 eprintln!("[{label}] close failed: {e}");
             }
         }
     }
-    apply_layout(&app).map_err(|e| e.to_string())?;
+    apply_layout_smooth(&app).map_err(|e| e.to_string())?;
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
     Ok(())
@@ -895,6 +1043,42 @@ async fn show_page(app: AppHandle, id: u8, label: String) -> Result<(), String> 
 #[tauri::command]
 async fn stop_page(app: AppHandle, id: u8, label: String) -> Result<(), String> {
     stop_pages_inner(&app, id, Some(&[label])).map_err(|e| e.to_string())?;
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(&app, &state.lock().unwrap());
+    Ok(())
+}
+
+/// The header's "+": a channel typed by name (on `platform`) or pasted as a Twitch/Kick link.
+/// It opens like a channel link clicked in the game.
+#[tauri::command]
+async fn add_channel(app: AppHandle, id: u8, text: String, platform: Platform) -> Result<(), String> {
+    let channel = channels::parse_input(&text, platform)
+        .ok_or_else(|| format!("\"{}\" is not a Twitch or Kick channel", text.trim()))?;
+    route_channel(&app, id, &channel)?;
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(&app, &state.lock().unwrap());
+    Ok(())
+}
+
+/// Pills dragged into a new order: `labels` lists the slot's pages in the order wanted (pages it
+/// leaves out keep their place at the end). The order is saved and comes back at startup.
+#[tauri::command]
+async fn reorder_pages(app: AppHandle, id: u8, labels: Vec<String>) -> Result<(), String> {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        let panels = state.panels.entry(id).or_default();
+        let mut rest = std::mem::take(&mut panels.pages);
+        let mut ordered = Vec::with_capacity(rest.len());
+        for label in &labels {
+            if let Some(i) = rest.iter().position(|p| &p.label == label) {
+                ordered.push(rest.remove(i));
+            }
+        }
+        ordered.extend(rest);
+        panels.pages = ordered;
+    }
+    remember_panels(&app);
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
     Ok(())
@@ -940,7 +1124,7 @@ fn toggle_focus(app: &AppHandle, id: Option<u8>) {
         let exists = id.is_some_and(|id| state.config.slots.iter().any(|s| s.id == id));
         state.config.focus = if !exists || state.config.focus == id { None } else { id };
     }
-    if let Err(e) = apply_layout(app) {
+    if let Err(e) = apply_layout_smooth(app) {
         eprintln!("[layout] {e}");
     }
     let state = app.state::<Mutex<AppState>>();
@@ -1003,6 +1187,17 @@ fn drag_split_end(app: AppHandle) {
     save_and_publish(&app, &state.lock().unwrap());
 }
 
+/// Hides the top toolbar (the slots take its room) or brings it back. Saved.
+#[tauri::command]
+fn set_toolbar_hidden(app: AppHandle, hidden: bool) {
+    app.state::<Mutex<AppState>>().lock().unwrap().config.toolbar_hidden = hidden;
+    if let Err(e) = apply_layout_smooth(&app) {
+        eprintln!("[layout] {e}");
+    }
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(&app, &state.lock().unwrap());
+}
+
 /// Back to the starting layout: leaves fullscreen and puts the splitters in the middle, so
 /// every slot gets the same size.
 #[tauri::command]
@@ -1013,7 +1208,7 @@ fn reset_layout(app: AppHandle) {
         state.config.focus = None;
         state.config.grid_split = config::default_grid_split();
     }
-    if let Err(e) = apply_layout(&app) {
+    if let Err(e) = apply_layout_smooth(&app) {
         eprintln!("[layout] {e}");
     }
     let state = app.state::<Mutex<AppState>>();
@@ -1028,6 +1223,7 @@ struct Settings {
     minimize_to_tray: bool,
     keep_awake: bool,
     auto_reload_minutes: u32,
+    smooth_transitions: bool,
 }
 
 #[tauri::command]
@@ -1038,6 +1234,7 @@ fn get_settings(state: tauri::State<'_, Mutex<AppState>>) -> Settings {
         minimize_to_tray: config.minimize_to_tray,
         keep_awake: config.keep_awake,
         auto_reload_minutes: config.auto_reload_minutes,
+        smooth_transitions: config.smooth_transitions,
     }
 }
 
@@ -1049,6 +1246,7 @@ fn set_settings(app: AppHandle, settings: Settings) {
     state.config.minimize_to_tray = settings.minimize_to_tray;
     state.config.keep_awake = settings.keep_awake;
     state.config.auto_reload_minutes = settings.auto_reload_minutes;
+    state.config.smooth_transitions = settings.smooth_transitions;
     state.config = state.config.clone().normalized();
     save_and_publish(&app, &state);
 }
@@ -1061,9 +1259,28 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         return existing.set_focus().map_err(|e| e.to_string());
     }
     let main = app.get_window("main").ok_or("No window")?;
-    tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
-        .title("Settings — PokeIdle Multiview")
-        .inner_size(420.0, 500.0)
+    let (w, h) = (420.0, 650.0);
+    let builder =
+        tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+            .title("Settings — PokeIdle Multiview")
+            .inner_size(w, h);
+    // Centered over the main window (or the screen, if it is minimized or can't be read).
+    let over_main = (|| -> tauri::Result<Option<(f64, f64)>> {
+        if main.is_minimized()? || !main.is_visible()? {
+            return Ok(None);
+        }
+        let scale = main.scale_factor()?;
+        let pos = main.outer_position()?.to_logical::<f64>(scale);
+        let size = main.outer_size()?.to_logical::<f64>(scale);
+        Ok(Some((pos.x + (size.width - w) / 2.0, pos.y + (size.height - h) / 2.0)))
+    })()
+    .ok()
+    .flatten();
+    let builder = match over_main {
+        Some((x, y)) => builder.position(x, y),
+        None => builder.center(),
+    };
+    builder
         .resizable(false)
         .minimizable(false)
         .maximizable(false)
@@ -1168,6 +1385,9 @@ fn main() {
                 create_slot_webview(&handle, slot)?;
             }
             restore_panels(&handle, &slots);
+            for slot in &slots {
+                create_slot_header(&handle, slot.id)?;
+            }
             // The two splitter strips (local page, same environment as the toolbar); placed
             // over the gaps between slots by apply_layout.
             for (label, axis) in [(SPLIT_V, "v"), (SPLIT_H, "h")] {
@@ -1232,6 +1452,8 @@ fn main() {
             show_page,
             stop_page,
             stop_all_pages,
+            add_channel,
+            reorder_pages,
             set_zoom,
             focus_slot,
             toggle_mute,
@@ -1239,6 +1461,7 @@ fn main() {
             drag_split,
             drag_split_end,
             reset_layout,
+            set_toolbar_hidden,
             get_settings,
             set_settings,
             open_settings

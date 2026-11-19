@@ -96,6 +96,14 @@ pub struct Config {
     /// closing goes to the tray).
     #[serde(default)]
     pub minimize_to_tray: bool,
+    /// The top toolbar is hidden to give the slots more room; a button in the top-left slot's
+    /// header brings it back.
+    #[serde(default)]
+    pub toolbar_hidden: bool,
+    /// Slots slide into place when the layout changes (fullscreen, grid reset, toolbar...).
+    /// Off by default.
+    #[serde(default)]
+    pub smooth_transitions: bool,
 }
 
 fn enabled() -> bool {
@@ -117,6 +125,8 @@ impl Default for Config {
             auto_reload_minutes: 0,
             close_to_tray: true,
             minimize_to_tray: false,
+            toolbar_hidden: false,
+            smooth_transitions: false,
         }
     }
 }
@@ -275,6 +285,7 @@ mod comfort_tests {
     fn old_files_get_comfort_defaults() {
         let cfg: Config = serde_json::from_str(r#"{"slots":[{"id":1,"zoom":1.0}]}"#).unwrap();
         assert!(cfg.keep_awake);
+        assert!(!cfg.smooth_transitions && !cfg.toolbar_hidden);
         assert_eq!(cfg.auto_reload_minutes, 0);
         assert_eq!(cfg.slots[0].name, None);
         assert!(!cfg.slots[0].muted);
