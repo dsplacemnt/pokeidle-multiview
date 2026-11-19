@@ -2,6 +2,7 @@
 
 mod channels;
 mod config;
+mod external;
 mod hunt;
 mod layout;
 
@@ -90,6 +91,27 @@ fn slot_may_navigate(url: &Url) -> bool {
         }),
         _ => false,
     }
+}
+
+/// Navigation in a slot page: allowed sites load in the slot; any other web page is opened in
+/// the default browser instead, and the slot stays where it is.
+fn guard_navigation(url: &Url) -> bool {
+    if slot_may_navigate(url) {
+        return true;
+    }
+    eprintln!("[nav] not in slot: {url}");
+    external::open_in_browser(url);
+    false
+}
+
+/// `window.open` / `target=_blank` from a slot page, same rule as `guard_navigation`.
+fn guard_popup(url: &Url) -> NewWindowResponse<tauri::Wry> {
+    if slot_may_navigate(url) {
+        return NewWindowResponse::Allow;
+    }
+    eprintln!("[popup] not in slot: {url}");
+    external::open_in_browser(url);
+    NewWindowResponse::Deny
 }
 
 #[cfg(test)]
@@ -263,23 +285,10 @@ fn slot_session_builder(
     let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url.parse().unwrap()))
     .data_directory(data_dir)
     .zoom_hotkeys_enabled(true)
-    .on_navigation(|url| {
-        let ok = slot_may_navigate(url);
-        if !ok {
-            eprintln!("[nav] blocked {url}");
-        }
-        ok
-    })
+    .on_navigation(|url| guard_navigation(url))
     // Popups (e.g. a sign-in window) open with WebView2's default window, which shares the
-    // slot's environment and therefore its login. Anything off the allow list is dropped.
-    .on_new_window(|url, _features| {
-        if slot_may_navigate(&url) {
-            NewWindowResponse::Allow
-        } else {
-            eprintln!("[popup] blocked {url}");
-            NewWindowResponse::Deny
-        }
-    });
+    // slot's environment and therefore its login. Other sites open in the default browser.
+    .on_new_window(|url, _features| guard_popup(&url));
 
     if std::env::var_os("MULTIVIEW_ALLOW_WEBAUTHN").is_none() {
         builder = builder.initialization_script_for_all_frames(WEBAUTHN_BLOCK);
@@ -322,23 +331,14 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
                 spawn_route_channel(&nav_app, id, channel);
                 return false;
             }
-            let ok = slot_may_navigate(url);
-            if !ok {
-                eprintln!("[nav] blocked {url}");
-            }
-            ok
+            guard_navigation(url)
         })
         .on_new_window(move |url, _features| {
             if let Some(channel) = channels::channel_from_url(&url) {
                 spawn_route_channel(&popup_app, id, channel);
                 return NewWindowResponse::Deny;
             }
-            if slot_may_navigate(&url) {
-                NewWindowResponse::Allow
-            } else {
-                eprintln!("[popup] blocked {url}");
-                NewWindowResponse::Deny
-            }
+            guard_popup(&url)
         });
 
     // Start at the final tile size: the game picks its layout from the size it loads at.
@@ -691,6 +691,16 @@ fn focus_slot(app: AppHandle, id: Option<u8>) -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
+        // Must be the first plugin. Two copies would share the slots' data folders and run every
+        // background stream twice, so a second launch exits and brings this window forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            println!("[app] another copy was started; showing this one instead");
+            if let Some(window) = app.get_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         // Remembers the main window's size, position and maximized state between runs.
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {

@@ -40,6 +40,8 @@ under 10 MB.
   game, your choice is kept.
 - **Per-slot controls.** Zoom from 50% to 200%, reload, and close. Closing asks for a second click
   and keeps the slot's login.
+- **One copy at a time.** Starting the app again brings the open window to the front instead
+  of running a second copy, which would play every background stream twice.
 - **Remembers** the open slots, zoom, focused slot, background streams, and the window's size,
   position and maximized state.
 
@@ -143,7 +145,9 @@ Some details that are easy to miss:
   muted with WebView2's own switch, which the page cannot undo.
 - **The navigation guard runs on every navigation, server redirects included.** Slots may only
   reach pokeidle.io, twitch.tv, kick.com, and the Google and Discord sign-in pages. Popups on
-  those hosts open in the slot's session; everything else is blocked.
+  those hosts open in the slot's session. Any other web link (a vote page, a streamer's
+  socials…) opens in your default browser instead, never inside the app; the same link isn't
+  reopened within 10 s, and at most 3 links open per 30 s, so a page can't flood your browser.
 
 ## Privacy and security
 
@@ -169,7 +173,6 @@ Planned, roughly in priority order:
 - [ ] Stream health: a ⚠ on the slot when a stream crashes or stalls, with automatic restarts.
 - [ ] Recovering a game page that crashed or stopped responding.
 - [ ] `Ctrl+1`…`Ctrl+4` while a game page has focus (today they only work from the toolbar).
-- [ ] Allow only one copy of the app at a time.
 - [ ] Permission allowlist (notifications, fullscreen, pointer lock) instead of WebView2's prompts.
 - [ ] Close to tray, and keep Windows awake while streams run.
 - [ ] Per-slot mute, renaming slots, and automatic reload of all game pages on a timer.

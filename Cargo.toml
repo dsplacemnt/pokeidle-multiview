@@ -1,6 +1,6 @@
 [package]
 name = "pokeidle-multiview"
-version = "0.1.0"
+version = "0.1.1"
 description = "Up to 4 isolated pokeidle.io sessions in a single window"
 edition = "2021"
 license = "MIT"
@@ -18,3 +18,5 @@ serde_json = "1"
 tauri-plugin-window-state = "2"
 webview2-com = "0.39"
 windows-core = "0.62"
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
