@@ -202,12 +202,25 @@ fn current_layout(app: &AppHandle) -> tauri::Result<layout::Layout> {
     let area = game_area(app)?;
     let config = app.state::<Mutex<AppState>>().lock().unwrap().config.clone();
     let ids: Vec<u8> = config.slots.iter().map(|s| s.id).collect();
-    Ok(layout::compute(area, &ids, config.focus, config.grid_split, config.focus_split))
+    Ok(layout::compute(area, &ids, config.focus, config.grid_split))
 }
 
-/// Where each open slot goes for the current window size and layout.
+/// Where each open slot goes for the current window size and layout (None = hidden behind
+/// a fullscreen slot).
 fn slot_tiles(app: &AppHandle) -> tauri::Result<Vec<(u8, Option<Rect>)>> {
-    Ok(current_layout(app)?.tiles.into_iter().map(|(id, r)| (id, Some(r))).collect())
+    let ids: Vec<u8> = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        state.config.slots.iter().map(|s| s.id).collect()
+    };
+    Ok(tiles_for(&ids, current_layout(app)?.tiles))
+}
+
+/// Every id in `ids`, with its tile from the layout or None when the layout leaves it out.
+fn tiles_for(ids: &[u8], tiles: Vec<(u8, Rect)>) -> Vec<(u8, Option<Rect>)> {
+    ids.iter()
+        .map(|id| (*id, tiles.iter().find(|(t, _)| t == id).map(|(_, r)| *r)))
+        .collect()
 }
 
 const SPLIT_V: &str = "split-v";
@@ -243,15 +256,17 @@ fn apply_layout(app: &AppHandle) -> tauri::Result<()> {
         toolbar.set_position(LogicalPosition::new(0.0, 0.0))?;
         toolbar.set_size(LogicalSize::new(size.width, TOOLBAR_HEIGHT))?;
     }
-    let fronts: HashMap<u8, Platform> = {
+    let (fronts, ids): (HashMap<u8, Platform>, Vec<u8>) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
-        state.panels.iter().filter_map(|(id, p)| Some((*id, p.front?))).collect()
+        (
+            state.panels.iter().filter_map(|(id, p)| Some((*id, p.front?))).collect(),
+            state.config.slots.iter().map(|s| s.id).collect(),
+        )
     };
     let layout = current_layout(app)?;
     place_splitters(app, &layout.splitters)?;
-    let tiles = layout.tiles.into_iter().map(|(id, r)| (id, Some(r)));
-    for (id, tile) in tiles {
+    for (id, tile) in tiles_for(&ids, layout.tiles) {
         // The shown panel (or the game) takes the slot's tile. Everything else in the slot
         // is hidden but keeps running, and keeps the tile's size so pages don't reflow.
         let front_label = match fronts.get(&id) {
@@ -748,8 +763,9 @@ fn set_zoom(app: AppHandle, id: u8, zoom: f64) -> Result<(), String> {
     Ok(())
 }
 
-/// Shows `id` large with the other slots in a side column; the same slot again (or None)
-/// goes back to the grid. Used by the slot chips, Grid button and Ctrl+1…Ctrl+4.
+/// Shows `id` alone, filling the whole game area (the other slots hide and keep running);
+/// the same slot again (or None) goes back to the grid as it was. Used by the slot chips,
+/// Grid button and Ctrl+1…Ctrl+4.
 fn toggle_focus(app: &AppHandle, id: Option<u8>) {
     {
         let state = app.state::<Mutex<AppState>>();
@@ -804,14 +820,9 @@ fn drag_split(app: AppHandle, vertical: bool, x: f64, y: f64) -> Result<(), Stri
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
         let config = &mut state.config;
-        let kind = match (vertical, config.focus.is_some()) {
-            (true, true) => layout::SplitKind::Focus,
-            (true, false) => layout::SplitKind::GridV,
-            (false, _) => layout::SplitKind::GridH,
-        };
+        let kind = if vertical { layout::SplitKind::GridV } else { layout::SplitKind::GridH };
         let fraction = config::clamp_split(layout::fraction_at(area, kind, px, py), 0.5);
         match kind {
-            layout::SplitKind::Focus => config.focus_split = fraction,
             layout::SplitKind::GridV => config.grid_split.v = fraction,
             layout::SplitKind::GridH => config.grid_split.h = fraction,
         }
@@ -821,6 +832,23 @@ fn drag_split(app: AppHandle, vertical: bool, x: f64, y: f64) -> Result<(), Stri
 
 #[tauri::command]
 fn drag_split_end(app: AppHandle) {
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(&app, &state.lock().unwrap());
+}
+
+/// Back to the starting layout: leaves fullscreen and puts the splitters in the middle, so
+/// every slot gets the same size.
+#[tauri::command]
+fn reset_layout(app: AppHandle) {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        state.config.focus = None;
+        state.config.grid_split = config::default_grid_split();
+    }
+    if let Err(e) = apply_layout(&app) {
+        eprintln!("[layout] {e}");
+    }
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
 }
@@ -1042,6 +1070,7 @@ fn main() {
             rename_slot,
             drag_split,
             drag_split_end,
+            reset_layout,
             get_settings,
             set_settings,
             open_settings

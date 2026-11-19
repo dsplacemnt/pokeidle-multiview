@@ -67,7 +67,8 @@
       PokeIdle Multiview
     </span>
     <button id="add">+ Slot</button>
-    <button id="grid" title="Grid: all slots the same size (click a slot's name to focus it instead)">Grid</button>
+    <button id="grid" title="Grid: show all slots (click a slot's name to show it fullscreen instead)">Grid</button>
+    <button id="reset" class="icon" title="Reset the grid: leave fullscreen and make all slots the same size">⊞</button>
     <div class="chips" id="chips"></div>
     <span class="error" id="error"></span>
     <span class="status" id="hunt"></span>
@@ -153,12 +154,12 @@
 
     const slotName = (slot) => slot.name || `Slot ${slot.id}`;
 
-    // Click = focus the slot (large, others in a side column; again = grid).
+    // Click = show the slot fullscreen (others hidden, still running; again = grid).
     // Double-click = rename it in place (Enter saves, Esc cancels, empty = default name).
     let editing = null;
     let latest = null;
     function nameButton(slot, focused) {
-      const b = button(slotName(slot), `${focused ? 'Back to the grid' : 'Focus this slot'} (Ctrl+${slot.id}) · double-click to rename`, () => {
+      const b = button(slotName(slot), `${focused ? 'Back to the grid' : 'Show this slot fullscreen'} (Ctrl+${slot.id}) · double-click to rename`, () => {
         clearTimeout(b.clickTimer);
         b.clickTimer = setTimeout(() => invoke('focus_slot', { id: slot.id }).catch(showError), 220);
       });
@@ -232,6 +233,7 @@
 
     addBtn.addEventListener('click', () => invoke('add_slot').catch(showError));
     document.getElementById('grid').addEventListener('click', () => invoke('focus_slot', { id: null }).catch(showError));
+    document.getElementById('reset').addEventListener('click', () => invoke('reset_layout').catch(showError));
     document.getElementById('settings').addEventListener('click', () => invoke('open_settings').catch(showError));
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key >= '1' && e.key <= '4') invoke('focus_slot', { id: Number(e.key) }).catch(showError);

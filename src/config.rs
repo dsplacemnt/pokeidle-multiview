@@ -76,14 +76,11 @@ pub const AUTO_RELOAD_OPTIONS: [u32; 8] = [0, 15, 30, 60, 180, 360, 720, 1440];
 pub struct Config {
     #[serde(default)]
     pub slots: Vec<SlotConfig>,
-    /// The slot shown large in focus mode (others in a side column); None = grid.
+    /// The slot shown fullscreen (the others hidden); None = grid.
     #[serde(default)]
     pub focus: Option<u8>,
     #[serde(default = "default_grid_split")]
     pub grid_split: GridSplit,
-    /// Width of the focused slot in focus mode.
-    #[serde(default = "default_focus_split")]
-    pub focus_split: f64,
     /// Keep Windows from sleeping while background streams run.
     #[serde(default = "enabled")]
     pub keep_awake: bool,
@@ -103,12 +100,9 @@ fn enabled() -> bool {
     true
 }
 
-fn default_grid_split() -> GridSplit {
+/// Splitters in the middle: every slot the same size.
+pub fn default_grid_split() -> GridSplit {
     GridSplit { v: 0.5, h: 0.5 }
-}
-
-fn default_focus_split() -> f64 {
-    0.7
 }
 
 impl Default for Config {
@@ -117,7 +111,6 @@ impl Default for Config {
             slots: Vec::new(),
             focus: None,
             grid_split: default_grid_split(),
-            focus_split: default_focus_split(),
             keep_awake: true,
             auto_reload_minutes: 0,
             close_to_tray: true,
@@ -154,7 +147,6 @@ impl Config {
             v: clamp_split(self.grid_split.v, 0.5),
             h: clamp_split(self.grid_split.h, 0.5),
         };
-        self.focus_split = clamp_split(self.focus_split, default_focus_split());
         if !AUTO_RELOAD_OPTIONS.contains(&self.auto_reload_minutes) {
             self.auto_reload_minutes = 0;
         }
@@ -260,7 +252,6 @@ mod comfort_tests {
         .unwrap();
         let cfg = cfg.normalized();
         assert_eq!(cfg.grid_split, GridSplit { v: MIN_SPLIT, h: MAX_SPLIT });
-        assert_eq!(cfg.focus_split, MIN_SPLIT);
         assert_eq!(cfg.auto_reload_minutes, 0);
     }
 
@@ -269,7 +260,6 @@ mod comfort_tests {
         let cfg: Config = serde_json::from_str(r#"{"slots":[{"id":1,"zoom":1.0}]}"#).unwrap();
         assert!(cfg.keep_awake);
         assert_eq!(cfg.auto_reload_minutes, 0);
-        assert_eq!(cfg.focus_split, 0.7);
         assert_eq!(cfg.slots[0].name, None);
         assert!(!cfg.slots[0].muted);
     }
