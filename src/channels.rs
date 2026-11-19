@@ -124,9 +124,44 @@ pub fn channel_from_url(url: &Url) -> Option<Channel> {
     }
 }
 
+/// What the player typed in a slot's "+" box: a Twitch/Kick link (with or without https://),
+/// or a channel name (an optional leading @ is fine) on `platform`. None = not a channel.
+pub fn parse_input(text: &str, platform: Platform) -> Option<Channel> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let looks_like_link = text.contains('/') || text.contains("twitch.tv") || text.contains("kick.com");
+    let url = if looks_like_link {
+        if text.starts_with("http://") || text.starts_with("https://") {
+            text.replacen("http://", "https://", 1)
+        } else {
+            format!("https://{text}")
+        }
+    } else {
+        let login = text.trim_start_matches('@').to_ascii_lowercase();
+        Channel { platform, login }.page_url()
+    };
+    channel_from_url(&url.parse().ok()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_typed_channels() {
+        let p = |text: &str, platform| parse_input(text, platform).map(|c| (c.platform, c.login));
+        assert_eq!(p("Gaules", Platform::Twitch), Some((Platform::Twitch, "gaules".into())));
+        assert_eq!(p(" @xqc ", Platform::Kick), Some((Platform::Kick, "xqc".into())));
+        // A link picks its own platform, whatever was selected.
+        assert_eq!(p("https://kick.com/some-one", Platform::Twitch), Some((Platform::Kick, "some-one".into())));
+        assert_eq!(p("twitch.tv/abcd", Platform::Kick), Some((Platform::Twitch, "abcd".into())));
+        assert_eq!(p("http://www.twitch.tv/abcd", Platform::Kick), Some((Platform::Twitch, "abcd".into())));
+        for bad in ["", "ab", "has space", "https://example.com/abcd", "twitch.tv/login", "a/b"] {
+            assert_eq!(p(bad, Platform::Twitch), None, "{bad}");
+        }
+    }
 
     fn ch(url: &str) -> Option<(Platform, String)> {
         channel_from_url(&url.parse().unwrap()).map(|c| (c.platform, c.login))

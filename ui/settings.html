@@ -13,7 +13,11 @@
     section { background: var(--card); border-radius: 10px; padding: 12px 14px; display: grid; gap: 10px; }
     h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
     label.row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
-    label.row > span { flex: 1; min-width: 0; }
+    label.row > span, div.row > span { flex: 1; min-width: 0; }
+    div.row { display: flex; align-items: center; gap: 10px; }
+    button { background: #2a2e37; color: var(--text); border: 1px solid #3a3f4b; border-radius: 6px;
+      padding: 5px 12px; font: inherit; cursor: pointer; }
+    button:hover { border-color: var(--accent); }
     label.row select { flex: none; align-self: center; }
     label.row input { margin-top: 3px; accent-color: var(--accent); }
     .hint { display: block; color: var(--muted); font-size: 12px; }
@@ -32,6 +36,16 @@
         <span>Close to the tray<span class="hint">× keeps the app and its streams running near the clock. Quit from the tray icon.</span></span></label>
       <label class="row"><input type="checkbox" id="minimize_to_tray">
         <span>Minimize to the tray<span class="hint">Minimizing hides the app from the taskbar too.</span></span></label>
+    </section>
+
+    <section>
+      <h2>Layout</h2>
+      <label class="row"><input type="checkbox" id="smooth_transitions">
+        <span>Smooth transitions<span class="hint">Slots slide into place when you go fullscreen, reset the grid or hide the top bar. Off by default: changes are instant.</span></span></label>
+      <div class="row">
+        <span>Reset the grid<span class="hint">Leaves fullscreen and makes every slot the same size again.</span></span>
+        <button id="reset">Reset</button>
+      </div>
     </section>
 
     <section>
@@ -61,7 +75,7 @@
   </main>
   <script>
     const { invoke } = window.__TAURI__.core;
-    const boxes = ['close_to_tray', 'minimize_to_tray', 'keep_awake'];
+    const boxes = ['close_to_tray', 'minimize_to_tray', 'keep_awake', 'smooth_transitions'];
     const reload = document.getElementById('auto_reload_minutes');
     const saved = document.getElementById('saved');
 
@@ -87,6 +101,16 @@
       reload.value = String(s.auto_reload_minutes);
       for (const id of boxes) document.getElementById(id).addEventListener('change', save);
       reload.addEventListener('change', save);
+    });
+    document.getElementById('reset').addEventListener('click', async () => {
+      try {
+        await invoke('reset_layout');
+        saved.textContent = 'Grid reset';
+        clearTimeout(save.t);
+        save.t = setTimeout(() => { saved.textContent = ''; }, 1500);
+      } catch (e) {
+        saved.textContent = String(e);
+      }
     });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close(); });
   </script>

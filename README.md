@@ -14,12 +14,19 @@ under 10 MB.
 
 - **Up to 4 slots.** Each slot has its own WebView2 data folder, so cookies, storage and logins
   stay separate and are kept between runs.
+- **A header on each slot.** Every slot has its own strip on top: its controls (name, sound,
+  zoom, Twitch/Kick, reload, close) on the left and its stream pills on the right, past a
+  divider. Everything about one account sits next to its game. The toolbar at the top keeps
+  the app-wide buttons and a quick switch between slots; **▴** in its top-left corner hides it
+  for more room, and **▾** in the same corner (on the top-left slot) brings it back.
+- **Smooth transitions.** Slots slide into place when you go fullscreen, reset the grid, hide
+  the toolbar or add/close a slot. Off by default; turn it on in ⚙ → Layout.
 - **Layouts.** Grid: one slot fills the window, two sit side by side, three put two on top and
-  one wide below, four make a 2×2 grid. Fullscreen: click a slot's name (or press
-  `Ctrl+1`…`Ctrl+4`, which also works while a game page has focus) to show only that slot,
-  filling the window (the others keep running hidden); click it again or press **Grid** to go
-  back. **Drag the bars between slots** to resize them; the sizes are remembered. **⊞** resets
-  the grid: leaves fullscreen and makes every slot the same size again.
+  one wide below, four make a 2×2 grid. Fullscreen: click a slot's name (in its header or the
+  toolbar, or press `Ctrl+1`…`Ctrl+4`, which also works while a game page has focus) to show
+  only that slot, filling the window (the others keep running hidden); click it again or press
+  **Grid** to go back. **Drag the bars between slots** to resize them; the sizes are remembered. **Reset**
+  in ⚙ → Layout leaves fullscreen and makes every slot the same size again.
 - **Per-slot names and sound.** Double-click a slot's name to rename it (Enter saves, Esc
   cancels, empty goes back to "Slot N"). 🔊/🔇 mutes that slot's game.
 - **Settings (⚙).** Close or minimize to the tray, keep the PC awake while streams run (on by
@@ -36,10 +43,13 @@ under 10 MB.
   - Clicking a button with a dot brings the stream back on its full channel page, for example to
     claim channel points. **⏹** stops it.
   - **Several channels per slot.** Each slot can keep up to 8 Twitch and 8 Kick streams running
-    at once. A second row in the toolbar shows a **pill per stream**, grouped by slot: click a
-    pill to show that channel in the slot (again to go back to the game), **×** stops it, and
-    **Close all** (two clicks) stops every stream of that slot. The row only appears while some
-    stream is running.
+    at once. The slot's header shows a **pill per stream**: click a pill to show that channel
+    in the slot (again to go back to the game) and **×** stops it. **Hold and drag a pill**
+    sideways to put the streams in the order you like (saved). When they don't fit, the row
+    fades on the hidden side and shows an arrow that scrolls it (the mouse wheel works too).
+  - **Add any channel.** The header's **+** opens a box: type a channel name (pick Twitch or
+    Kick next to it) or paste a Twitch/Kick link, and press Enter. It opens like a channel
+    link clicked in the game.
   - **Light players in the background.** A hidden Twitch stream runs on Twitch's own embed
     player at its lowest quality instead of the full site (no chat, sidebars or site
     around it). It still earns channel points: in a side-by-side test the embed and the
