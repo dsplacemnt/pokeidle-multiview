@@ -15,10 +15,11 @@ under 10 MB.
 - **Up to 4 slots.** Each slot has its own WebView2 data folder, so cookies, storage and logins
   stay separate and are kept between runs.
 - **Layouts.** Grid: one slot fills the window, two sit side by side, three put two on top and
-  one wide below, four make a 2×2 grid. Focus: click a slot's name (or press `Ctrl+1`…`Ctrl+4`,
-  which also works while a game page has focus) to show it large with the others in a column
-  on the right; click it again or press **Grid** to go back. **Drag the bars between slots** to
-  resize them; the sizes are remembered.
+  one wide below, four make a 2×2 grid. Fullscreen: click a slot's name (or press
+  `Ctrl+1`…`Ctrl+4`, which also works while a game page has focus) to show only that slot,
+  filling the window (the others keep running hidden); click it again or press **Grid** to go
+  back. **Drag the bars between slots** to resize them; the sizes are remembered. **⊞** resets
+  the grid: leaves fullscreen and makes every slot the same size again.
 - **Per-slot names and sound.** Double-click a slot's name to rename it (Enter saves, Esc
   cancels, empty goes back to "Slot N"). 🔊/🔇 mutes that slot's game.
 - **Settings (⚙).** Close or minimize to the tray, keep the PC awake while streams run (on by

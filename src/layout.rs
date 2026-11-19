@@ -2,8 +2,8 @@
 //!
 //! - Grid: 1 slot fills the area; 2 sit side by side; 3 use two on top and one wide below;
 //!   4 make a 2×2 grid. The vertical and horizontal splitters move the column/row boundary.
-//! - Focus: the focused slot is large on the left, the others share a column on the right;
-//!   one splitter moves the boundary.
+//! - Fullscreen (focus): the focused slot fills the whole area; the others get no tile, so
+//!   they are hidden (and keep running). No splitters.
 
 use serde::Serialize;
 
@@ -28,13 +28,11 @@ pub enum SplitKind {
     GridV,
     /// Grid row boundary (horizontal bar, drag up/down).
     GridH,
-    /// Focus mode boundary (vertical bar).
-    Focus,
 }
 
 impl SplitKind {
     pub fn is_vertical(self) -> bool {
-        matches!(self, SplitKind::GridV | SplitKind::Focus)
+        matches!(self, SplitKind::GridV)
     }
 }
 
@@ -44,12 +42,17 @@ pub struct Layout {
     pub splitters: Vec<(SplitKind, Rect)>,
 }
 
-/// `ids` in display order; `focus` = the large slot in focus mode (None = grid).
-pub fn compute(area: Rect, ids: &[u8], focus: Option<u8>, grid: GridSplit, focus_split: f64) -> Layout {
+/// `ids` in display order; `focus` = the slot shown fullscreen (None = grid). Slots left out
+/// of `tiles` are not shown.
+pub fn compute(area: Rect, ids: &[u8], focus: Option<u8>, grid: GridSplit) -> Layout {
     let mut tiles = Vec::new();
     let mut splitters = Vec::new();
     let n = ids.len();
     if n == 0 {
+        return Layout { tiles, splitters };
+    }
+    if let Some(focused) = focus.filter(|f| ids.contains(f)) {
+        tiles.push((focused, area));
         return Layout { tiles, splitters };
     }
     if n == 1 {
@@ -60,22 +63,6 @@ pub fn compute(area: Rect, ids: &[u8], focus: Option<u8>, grid: GridSplit, focus
     // Splits the area's width at `fraction`, leaving GAP between the two parts.
     let left_w = |fraction: f64| ((area.w - GAP) * fraction).max(0.0);
     let top_h = |fraction: f64| ((area.h - GAP) * fraction).max(0.0);
-
-    if let Some(focused) = focus.filter(|f| ids.contains(f)) {
-        let lw = left_w(focus_split);
-        let rx = area.x + lw + GAP;
-        let rw = (area.w - lw - GAP).max(0.0);
-        tiles.push((focused, Rect { x: area.x, y: area.y, w: lw, h: area.h }));
-        let rest: Vec<u8> = ids.iter().copied().filter(|id| *id != focused).collect();
-        let count = rest.len() as f64;
-        let each = ((area.h - GAP * (count - 1.0)) / count).max(0.0);
-        for (i, id) in rest.into_iter().enumerate() {
-            let y = area.y + i as f64 * (each + GAP);
-            tiles.push((id, Rect { x: rx, y, w: rw, h: each }));
-        }
-        splitters.push((SplitKind::Focus, Rect { x: area.x + lw, y: area.y, w: GAP, h: area.h }));
-        return Layout { tiles, splitters };
-    }
 
     let lw = left_w(grid.v);
     let rx = area.x + lw + GAP;
@@ -130,14 +117,14 @@ mod tests {
 
     #[test]
     fn single_slot_fills_area() {
-        let l = compute(AREA, &[1], None, HALF, 0.7);
+        let l = compute(AREA, &[1], None, HALF);
         assert_eq!(l.tiles, vec![(1, AREA)]);
         assert!(l.splitters.is_empty());
     }
 
     #[test]
     fn four_slots_make_a_2x2_grid_with_two_splitters() {
-        let l = compute(AREA, &[1, 2, 3, 4], None, HALF, 0.7);
+        let l = compute(AREA, &[1, 2, 3, 4], None, HALF);
         assert_eq!(tile(&l, 4), Rect { x: 506.0, y: 346.0, w: 500.0, h: 300.0 });
         assert_eq!(l.splitters.len(), 2);
         assert_eq!(l.splitters[0], (SplitKind::GridV, Rect { x: 500.0, y: 40.0, w: GAP, h: 606.0 }));
@@ -146,7 +133,7 @@ mod tests {
 
     #[test]
     fn three_slots_put_the_third_across_the_bottom() {
-        let l = compute(AREA, &[1, 2, 3], None, HALF, 0.7);
+        let l = compute(AREA, &[1, 2, 3], None, HALF);
         assert_eq!(tile(&l, 3), Rect { x: 0.0, y: 346.0, w: 1006.0, h: 300.0 });
         // The column splitter only covers the top row.
         assert_eq!(l.splitters[0].1.h, 300.0);
@@ -154,23 +141,21 @@ mod tests {
 
     #[test]
     fn grid_split_moves_the_boundary() {
-        let l = compute(AREA, &[1, 2], None, GridSplit { v: 0.25, h: 0.5 }, 0.7);
+        let l = compute(AREA, &[1, 2], None, GridSplit { v: 0.25, h: 0.5 });
         assert_eq!(tile(&l, 1).w, 250.0);
         assert_eq!(tile(&l, 2), Rect { x: 256.0, y: 40.0, w: 750.0, h: 606.0 });
     }
 
     #[test]
-    fn focus_puts_others_in_a_side_column() {
-        let l = compute(AREA, &[1, 2, 3], Some(2), HALF, 0.7);
-        assert_eq!(tile(&l, 2), Rect { x: 0.0, y: 40.0, w: 700.0, h: 606.0 });
-        assert_eq!(tile(&l, 1), Rect { x: 706.0, y: 40.0, w: 300.0, h: 300.0 });
-        assert_eq!(tile(&l, 3), Rect { x: 706.0, y: 346.0, w: 300.0, h: 300.0 });
-        assert_eq!(l.splitters, vec![(SplitKind::Focus, Rect { x: 700.0, y: 40.0, w: GAP, h: 606.0 })]);
+    fn focus_shows_only_that_slot_fullscreen() {
+        let l = compute(AREA, &[1, 2, 3, 4], Some(2), GridSplit { v: 0.3, h: 0.7 });
+        assert_eq!(l.tiles, vec![(2, AREA)]);
+        assert!(l.splitters.is_empty());
     }
 
     #[test]
     fn focus_on_a_missing_slot_falls_back_to_grid() {
-        let l = compute(AREA, &[1, 2], Some(4), HALF, 0.7);
+        let l = compute(AREA, &[1, 2], Some(4), HALF);
         assert_eq!(l.splitters[0].0, SplitKind::GridV);
     }
 
@@ -185,7 +170,7 @@ mod tests {
 
     #[test]
     fn no_slots_no_tiles() {
-        let l = compute(AREA, &[], None, HALF, 0.7);
+        let l = compute(AREA, &[], None, HALF);
         assert!(l.tiles.is_empty() && l.splitters.is_empty());
     }
 }
