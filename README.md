@@ -40,6 +40,10 @@ under 10 MB.
   game, your choice is kept.
 - **Per-slot controls.** Zoom from 50% to 200%, reload, and close. Closing asks for a second click
   and keeps the slot's login.
+- **Tray.** Closing (×) or minimizing hides the app to the tray (the Poké Ball near the clock),
+  and streams keep running; its tooltip shows how many. Click it to bring the window back, or
+  right-click → **Quit** to exit. Either behavior can be turned off in `config.json`
+  (`"close_to_tray": false`, `"minimize_to_tray": false`).
 - **One copy at a time.** Starting the app again brings the open window to the front instead
   of running a second copy, which would play every background stream twice.
 - **Remembers** the open slots, zoom, focused slot, background streams, and the window's size,
@@ -129,11 +133,13 @@ To reset a slot's login, close the app and delete its `slot-N` folder.
 src/main.rs      window, slot and stream webviews, navigation guard, toolbar commands
 src/layout.rs    grid math (pure, unit-tested)
 src/config.rs    saved settings: load, normalize, atomic save
+src/tray.rs      tray icon, close/minimize to tray, quit
 src/hunt.rs      finds the installed /hunt extension and copies it for WebView2
 src/channels.rs  recognizes Twitch/Kick channel links
 ui/index.html    the toolbar; the only page allowed to call into Rust
 scripts/         scripts injected into the game pages
 tests/fixtures/  a tiny extension used to test extension loading
+icons/           app icon; icon.svg is the source (regenerate with `npx @tauri-apps/cli@2 icon icons/icon.png`)
 ```
 
 Some details that are easy to miss:
@@ -174,7 +180,7 @@ Planned, roughly in priority order:
 - [ ] Recovering a game page that crashed or stopped responding.
 - [ ] `Ctrl+1`…`Ctrl+4` while a game page has focus (today they only work from the toolbar).
 - [ ] Permission allowlist (notifications, fullscreen, pointer lock) instead of WebView2's prompts.
-- [ ] Close to tray, and keep Windows awake while streams run.
+- [ ] Keep Windows awake while streams run.
 - [ ] Per-slot mute, renaming slots, and automatic reload of all game pages on a timer.
 - [ ] Focus layout with the other slots in a side column, and draggable splitters.
 - [ ] Settings menu (⚙).

@@ -5,6 +5,7 @@ mod config;
 mod external;
 mod hunt;
 mod layout;
+mod tray;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -172,6 +173,7 @@ fn save_and_publish(app: &AppHandle, state: &AppState) {
         eprintln!("[config] could not save: {e}");
     }
     let _ = app.emit_to("toolbar", "state", state_view(state));
+    tray::set_tooltip(app, &state.panels);
 }
 
 fn window_logical_size(app: &AppHandle) -> tauri::Result<LogicalSize<f64>> {
@@ -695,11 +697,7 @@ fn main() {
         // background stream twice, so a second launch exits and brings this window forward.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             println!("[app] another copy was started; showing this one instead");
-            if let Some(window) = app.get_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            tray::show_main(app);
         }))
         // Remembers the main window's size, position and maximized state between runs.
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -759,13 +757,32 @@ fn main() {
             )?;
             apply_layout(&handle)?;
 
+            tray::create(&handle)?;
+            tray::update_tooltip(&handle);
+
             let event_handle = handle.clone();
+            let event_window = window.clone();
             window.on_window_event(move |event| match event {
-                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                WindowEvent::Resized(_) => {
+                    let (to_tray, quitting) = tray::settings(&event_handle);
+                    if to_tray.minimize && !quitting && event_window.is_minimized().unwrap_or(false) {
+                        let _ = event_window.hide();
+                        return;
+                    }
                     let _ = apply_layout(&event_handle);
                 }
-                // Last chance to record which channel each panel ended up on.
-                WindowEvent::CloseRequested { .. } => remember_panels(&event_handle),
+                WindowEvent::ScaleFactorChanged { .. } => {
+                    let _ = apply_layout(&event_handle);
+                }
+                WindowEvent::CloseRequested { api, .. } => {
+                    // Record which channel each panel ended up on, whether we hide or quit.
+                    remember_panels(&event_handle);
+                    let (to_tray, quitting) = tray::settings(&event_handle);
+                    if to_tray.close && !quitting {
+                        api.prevent_close();
+                        let _ = event_window.hide();
+                    }
+                }
                 _ => {}
             });
             Ok(())

@@ -34,12 +34,28 @@ impl SlotConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Config {
     #[serde(default)]
     pub slots: Vec<SlotConfig>,
     #[serde(default)]
     pub focus: Option<u8>,
+    /// × hides the window to the tray (streams keep running); "Quit" in the tray menu exits.
+    #[serde(default = "enabled")]
+    pub close_to_tray: bool,
+    /// Minimizing hides the window to the tray instead of the taskbar.
+    #[serde(default = "enabled")]
+    pub minimize_to_tray: bool,
+}
+
+fn enabled() -> bool {
+    true
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config { slots: Vec::new(), focus: None, close_to_tray: true, minimize_to_tray: true }
+    }
 }
 
 impl Config {
@@ -104,7 +120,7 @@ mod tests {
             panel(Platform::Kick, "https://kick.com/b"),
             panel(Platform::Twitch, "https://www.twitch.tv/c"),
         ];
-        let cfg = Config { slots: vec![slot], focus: None }.normalized();
+        let cfg = Config { slots: vec![slot], ..Config::default() }.normalized();
         assert_eq!(
             cfg.slots[0].panels,
             vec![
@@ -128,6 +144,7 @@ mod tests {
                 s(3, 1.0),
             ],
             focus: Some(7),
+            ..Config::default()
         }
         .normalized();
         assert_eq!(
@@ -141,8 +158,22 @@ mod tests {
     fn next_free_id_fills_gaps() {
         let cfg = Config {
             slots: vec![s(1, 1.0), s(3, 1.0)],
-            focus: None,
+            ..Config::default()
         };
         assert_eq!(cfg.next_free_id(), Some(2));
+    }
+}
+
+#[cfg(test)]
+mod tray_tests {
+    use super::*;
+
+    #[test]
+    fn tray_options_default_on_even_for_old_files() {
+        let old: Config = serde_json::from_str(r#"{"slots":[]}"#).unwrap();
+        assert!(old.close_to_tray && old.minimize_to_tray);
+        let off: Config =
+            serde_json::from_str(r#"{"close_to_tray":false,"minimize_to_tray":false}"#).unwrap();
+        assert!(!off.close_to_tray && !off.minimize_to_tray);
     }
 }

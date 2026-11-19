@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- App icon source. Regenerate the icon files with: npx @tauri-apps/cli@2 icon icons/icon.png -->
+  <defs>
+    <linearGradient id="top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff6a6a"/>
+      <stop offset="0.55" stop-color="#ee2b3b"/>
+      <stop offset="1" stop-color="#c3112a"/>
+    </linearGradient>
+    <linearGradient id="bottom" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d3d9e3"/>
+    </linearGradient>
+    <radialGradient id="button" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.7" stop-color="#eef1f5"/>
+      <stop offset="1" stop-color="#c9d0db"/>
+    </radialGradient>
+    <radialGradient id="shade" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.75" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.22"/>
+    </radialGradient>
+    <clipPath id="ball">
+      <circle cx="512" cy="512" r="436"/>
+    </clipPath>
+  </defs>
+
+  <!-- Outline -->
+  <circle cx="512" cy="512" r="476" fill="#1c1f26"/>
+
+  <g clip-path="url(#ball)">
+    <rect width="1024" height="512" fill="url(#top)"/>
+    <rect y="512" width="1024" height="512" fill="url(#bottom)"/>
+    <!-- Rim shading for a rounder look -->
+    <circle cx="512" cy="512" r="436" fill="url(#shade)"/>
+    <!-- Gloss on the top half -->
+    <ellipse cx="372" cy="262" rx="168" ry="92" fill="#fff" opacity="0.38" transform="rotate(-32 372 262)"/>
+    <ellipse cx="268" cy="372" rx="34" ry="22" fill="#fff" opacity="0.45" transform="rotate(-58 268 372)"/>
+    <!-- Middle band -->
+    <rect y="466" width="1024" height="92" fill="#1c1f26"/>
+  </g>
+
+  <!-- Button -->
+  <circle cx="512" cy="512" r="158" fill="#1c1f26"/>
+  <circle cx="512" cy="512" r="112" fill="url(#button)"/>
+  <circle cx="512" cy="512" r="64" fill="none" stroke="#c3cad6" stroke-width="12"/>
+  <ellipse cx="478" cy="476" rx="30" ry="18" fill="#fff" opacity="0.9" transform="rotate(-35 478 476)"/>
+</svg>

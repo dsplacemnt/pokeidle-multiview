@@ -17,7 +17,9 @@
       font: 13px/1 "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
     .bar { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 10px; }
     .bar > * { flex-shrink: 0; }
-    .brand { font-weight: 600; color: var(--accent); margin-right: 6px; }
+    .brand { display: flex; align-items: center; gap: 7px; font-weight: 600; color: var(--accent);
+      margin-right: 6px; }
+    .brand .logo { width: 20px; height: 20px; display: block; }
     @media (max-width: 1100px) { .brand { display: none; } }
     button { background: var(--chip); color: var(--text); border: 0; border-radius: 6px;
       height: 28px; padding: 0 10px; font: inherit; cursor: pointer; }
@@ -46,7 +48,18 @@
 </head>
 <body>
   <div class="bar">
-    <span class="brand">PokeIdle Multiview</span>
+    <span class="brand">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="27" fill="#f4f6f9"/>
+        <path d="M5 32a27 27 0 0 1 54 0z" fill="#ee2b3b"/>
+        <rect x="5" y="29" width="54" height="6" fill="#1c1f26"/>
+        <circle cx="32" cy="32" r="28.5" fill="none" stroke="#1c1f26" stroke-width="3"/>
+        <circle cx="32" cy="32" r="10" fill="#1c1f26"/>
+        <circle cx="32" cy="32" r="6.5" fill="#f4f6f9"/>
+        <ellipse cx="22" cy="15" rx="8" ry="4.5" fill="#fff" opacity=".35" transform="rotate(-32 22 15)"/>
+      </svg>
+      PokeIdle Multiview
+    </span>
     <button id="add">+ Slot</button>
     <button id="grid" title="Show all slots">Grid</button>
     <div class="chips" id="chips"></div>
