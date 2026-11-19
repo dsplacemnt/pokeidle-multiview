@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::webview::{NewWindowResponse, WebviewBuilder};
+use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::window::WindowBuilder;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl, WindowEvent,
@@ -25,6 +25,7 @@ const TOOLBAR_HEIGHT: f64 = 40.0;
 const GAME_URL: &str = "https://pokeidle.io/";
 const WEBAUTHN_BLOCK: &str = include_str!("../scripts/webauthn-block.js");
 const DESKTOP_LAYOUT: &str = include_str!("../scripts/desktop-layout.js");
+const LOWEST_QUALITY: &str = include_str!("../scripts/lowest-quality.js");
 
 struct AppState {
     config: Config,
@@ -287,6 +288,16 @@ fn slot_session_builder(
     let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url.parse().unwrap()))
     .data_directory(data_dir)
     .zoom_hotkeys_enabled(true)
+    // Light background players drop to their lowest quality once loaded.
+    .on_page_load(|webview, payload| {
+        if payload.event() == PageLoadEvent::Finished
+            && payload.url().host_str() == Some("player.twitch.tv")
+        {
+            if let Err(e) = webview.eval(LOWEST_QUALITY) {
+                eprintln!("[panel] could not lower quality: {e}");
+            }
+        }
+    })
     .on_navigation(|url| guard_navigation(url))
     // Popups (e.g. a sign-in window) open with WebView2's default window, which shares the
     // slot's environment and therefore its login. Other sites open in the default browser.
@@ -433,21 +444,40 @@ fn toggle_panel_inner(app: &AppHandle, id: u8, platform: Platform) -> tauri::Res
     if front == Some(platform) {
         if let Some(panel) = app.get_webview(&label) {
             set_muted(&panel, true);
+            switch_page(&panel, false);
         }
         state.lock().unwrap().panels.entry(id).or_default().front = None;
     } else {
         // The other platform, if it was shown, goes to the background muted too.
         if let Some(other) = front.and_then(|p| app.get_webview(&panel_label(id, p))) {
             set_muted(&other, true);
+            switch_page(&other, false);
         }
         match app.get_webview(&label) {
-            Some(panel) => set_muted(&panel, false),
+            Some(panel) => {
+                set_muted(&panel, false);
+                switch_page(&panel, true);
+            }
             None => create_panel(app, id, platform, platform.start_url(), false)?,
         }
         state.lock().unwrap().panels.entry(id).or_default().front = Some(platform);
     }
     remember_panels(app);
     apply_layout(app)
+}
+
+/// A panel on a channel moves between the full channel page (shown: chat, channel points) and
+/// the light player (hidden: just the video). Panels on other pages (login, home) stay put.
+fn switch_page(panel: &tauri::Webview, shown: bool) {
+    let Ok(current) = panel.url() else { return };
+    let Some(channel) = channels::channel_from_url(&current) else { return };
+    if channels::is_on(&current, &channel, shown) {
+        return;
+    }
+    let target = channel.url_for(shown);
+    if let Err(e) = panel.navigate(target.parse().unwrap()) {
+        eprintln!("[panel] could not switch to {target}: {e}");
+    }
 }
 
 /// Webview event handlers run on the UI thread, where creating another webview can deadlock,
@@ -473,13 +503,17 @@ fn route_channel(app: &AppHandle, id: u8, channel: &channels::Channel) -> tauri:
     let url = channel.page_url();
     match app.get_webview(&panel_label(id, channel.platform)) {
         Some(panel) => {
-            let already_there = panel
-                .url()
-                .ok()
-                .and_then(|u| channels::channel_from_url(&u))
-                .is_some_and(|c| &c == channel);
+            let shown = app
+                .state::<Mutex<AppState>>()
+                .lock()
+                .unwrap()
+                .panels
+                .get(&id)
+                .and_then(|p| p.front)
+                == Some(channel.platform);
+            let already_there = panel.url().is_ok_and(|u| channels::is_on(&u, channel, shown));
             if !already_there {
-                panel.navigate(url.parse().unwrap())?;
+                panel.navigate(channel.url_for(shown).parse().unwrap())?;
             }
             remember_panels(app);
             apply_layout(app)
@@ -542,7 +576,8 @@ fn remember_panels(app: &AppHandle) {
                 let url = app
                     .get_webview(&panel_label(slot.id, platform))
                     .and_then(|w| w.url().ok())
-                    .map(|u| u.to_string())
+                    // Channels are saved as their full page, whichever player is running.
+                    .map(|u| channels::channel_from_url(&u).map_or_else(|| u.to_string(), |c| c.page_url()))
                     // Not readable right now (e.g. still being created): keep what we had.
                     .or_else(|| previous.iter().find(|p| p.platform == platform).map(|p| p.url.clone()))?;
                 Some(SavedPanel { platform, url })
@@ -558,8 +593,14 @@ fn remember_panels(app: &AppHandle) {
 fn restore_panels(app: &AppHandle, slots: &[SlotConfig]) {
     for slot in slots {
         for saved in &slot.panels {
-            let allowed = saved.url.parse::<Url>().is_ok_and(|u| slot_may_navigate(&u));
-            let url = if allowed { saved.url.as_str() } else { saved.platform.start_url() };
+            let parsed = saved.url.parse::<Url>().ok().filter(slot_may_navigate);
+            // A channel comes back on its light player; other pages as they were.
+            let url = match parsed.as_ref().and_then(channels::channel_from_url) {
+                Some(channel) => channel.url_for(false),
+                None if parsed.is_some() => saved.url.clone(),
+                None => saved.platform.start_url().to_string(),
+            };
+            let url = url.as_str();
             match create_panel(app, slot.id, saved.platform, url, true) {
                 Ok(()) => println!("[panel] slot {}: resumed {}", slot.id, url),
                 Err(e) => eprintln!("[panel] slot {}: could not resume {url}: {e}", slot.id),

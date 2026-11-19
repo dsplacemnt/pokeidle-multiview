@@ -43,8 +43,9 @@ pub struct Config {
     /// × hides the window to the tray (streams keep running); "Quit" in the tray menu exits.
     #[serde(default = "enabled")]
     pub close_to_tray: bool,
-    /// Minimizing hides the window to the tray instead of the taskbar.
-    #[serde(default = "enabled")]
+    /// Minimizing hides the window to the tray instead of the taskbar (off by default: only
+    /// closing goes to the tray).
+    #[serde(default)]
     pub minimize_to_tray: bool,
 }
 
@@ -54,7 +55,7 @@ fn enabled() -> bool {
 
 impl Default for Config {
     fn default() -> Config {
-        Config { slots: Vec::new(), focus: None, close_to_tray: true, minimize_to_tray: true }
+        Config { slots: Vec::new(), focus: None, close_to_tray: true, minimize_to_tray: false }
     }
 }
 
@@ -169,9 +170,9 @@ mod tray_tests {
     use super::*;
 
     #[test]
-    fn tray_options_default_on_even_for_old_files() {
+    fn only_close_goes_to_tray_by_default() {
         let old: Config = serde_json::from_str(r#"{"slots":[]}"#).unwrap();
-        assert!(old.close_to_tray && old.minimize_to_tray);
+        assert!(old.close_to_tray && !old.minimize_to_tray);
         let off: Config =
             serde_json::from_str(r#"{"close_to_tray":false,"minimize_to_tray":false}"#).unwrap();
         assert!(!off.close_to_tray && !off.minimize_to_tray);

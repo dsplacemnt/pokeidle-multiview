@@ -45,6 +45,42 @@ impl Channel {
             Platform::Kick => format!("https://kick.com/{}", self.login),
         }
     }
+
+    /// A lighter page for a stream running hidden: just the video, without chat, sidebars or
+    /// the site around it. None = keep the full page in the background too.
+    ///
+    /// - Twitch: the official embed player. It runs on twitch.tv, so the slot stays logged in.
+    /// - Kick: its embed player (player.kick.com) reports live channels as offline, so Kick
+    ///   keeps the full page.
+    pub fn background_url(&self) -> Option<String> {
+        match self.platform {
+            Platform::Twitch => Some(format!(
+                "https://player.twitch.tv/?channel={}&parent=twitch.tv&muted=true",
+                self.login
+            )),
+            Platform::Kick => None,
+        }
+    }
+
+    /// The URL a panel should be on: the full page when shown, the light player when hidden.
+    pub fn url_for(&self, shown: bool) -> String {
+        if shown {
+            self.page_url()
+        } else {
+            self.background_url().unwrap_or_else(|| self.page_url())
+        }
+    }
+}
+
+/// Whether `url` is already the page `url_for` would pick (ignoring query details).
+pub fn is_on(url: &Url, channel: &Channel, shown: bool) -> bool {
+    let wanted: Url = match channel.url_for(shown).parse() {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+    channel_from_url(url).as_ref() == Some(channel)
+        && url.host_str() == wanted.host_str()
+        && url.path().trim_end_matches('/') == wanted.path().trim_end_matches('/')
 }
 
 /// `https://www.twitch.tv/somechannel` → Twitch "somechannel"; `https://kick.com/foo` → Kick
@@ -70,6 +106,14 @@ pub fn channel_from_url(url: &Url) -> Option<Channel> {
             };
             (!TWITCH_RESERVED.contains(&first.as_str()) && valid_twitch_login(first))
                 .then(|| Channel { platform: Platform::Twitch, login: first.clone() })
+        }
+        // Embed player: https://player.twitch.tv/?channel=<login>&parent=…
+        "player.twitch.tv" => {
+            let login = url
+                .query_pairs()
+                .find(|(k, _)| k == "channel")
+                .map(|(_, v)| v.to_ascii_lowercase())?;
+            valid_twitch_login(&login).then_some(Channel { platform: Platform::Twitch, login })
         }
         "kick.com" | "www.kick.com" | "player.kick.com" => {
             let first = segments.first()?;
@@ -115,6 +159,26 @@ mod tests {
         ] {
             assert_eq!(ch(url), None, "{url}");
         }
+    }
+
+    #[test]
+    fn background_and_shown_urls() {
+        let twitch = Channel { platform: Platform::Twitch, login: "abcd".into() };
+        let bg = twitch.url_for(false);
+        assert_eq!(bg, "https://player.twitch.tv/?channel=abcd&parent=twitch.tv&muted=true");
+        assert_eq!(ch(&bg), Some((Platform::Twitch, "abcd".into())));
+        assert_eq!(twitch.url_for(true), "https://www.twitch.tv/abcd");
+
+        let on = |url: &str, shown| is_on(&url.parse().unwrap(), &twitch, shown);
+        assert!(on("https://player.twitch.tv/?channel=abcd&muted=true&parent=twitch.tv", false));
+        assert!(!on("https://player.twitch.tv/?channel=abcd", true));
+        assert!(on("https://www.twitch.tv/abcd", true));
+        assert!(!on("https://www.twitch.tv/other", true));
+
+        // Kick keeps its full page in the background.
+        let kick = Channel { platform: Platform::Kick, login: "foo".into() };
+        assert_eq!(kick.url_for(false), "https://kick.com/foo");
+        assert!(is_on(&"https://kick.com/foo".parse().unwrap(), &kick, false));
     }
 
     #[test]

@@ -22,8 +22,14 @@ under 10 MB.
     slot's own session. Log in there; the login belongs to that slot only.
   - Clicking the button again takes you back to the game. The page **keeps running, muted, in
     the background**, and the button gets a green dot.
-  - Clicking a button with a dot brings the stream back exactly where it was, for example to
+  - Clicking a button with a dot brings the stream back on its full channel page, for example to
     claim channel points. **⏹** stops it.
+  - **Light players in the background.** A hidden Twitch stream runs on Twitch's own embed
+    player at its lowest quality instead of the full site (no chat, sidebars or site
+    around it). It still earns channel points: in a side-by-side test the embed and the
+    full page both earned +20 points in 12 minutes. With 4 Twitch + 4 Kick streams this
+    took the app from ~8.3 GB of RAM and ~4.6 CPU cores to ~5.4 GB and ~0.7 cores. Kick
+    keeps its full page, as its embed player shows live channels as offline.
   - **Official channel links clicked inside the game** go to that slot's Twitch/Kick page
     instead of a separate window. The first time, the page opens visible so you can check you
     are logged in. After that, a new channel replaces the one running for that platform and
@@ -40,10 +46,11 @@ under 10 MB.
   game, your choice is kept.
 - **Per-slot controls.** Zoom from 50% to 200%, reload, and close. Closing asks for a second click
   and keeps the slot's login.
-- **Tray.** Closing (×) or minimizing hides the app to the tray (the Poké Ball near the clock),
-  and streams keep running; its tooltip shows how many. Click it to bring the window back, or
-  right-click → **Quit** to exit. Either behavior can be turned off in `config.json`
-  (`"close_to_tray": false`, `"minimize_to_tray": false`).
+- **Tray.** Closing (×) hides the app to the tray (the Poké Ball near the clock), and streams
+  keep running; its tooltip shows how many. Click it to bring the window back, or right-click →
+  **Quit** to exit. Minimizing works as usual (taskbar). In `config.json`,
+  `"close_to_tray": false` makes × quit, and `"minimize_to_tray": true` sends minimize to the
+  tray as well.
 - **One copy at a time.** Starting the app again brings the open window to the front instead
   of running a second copy, which would play every background stream twice.
 - **Remembers** the open slots, zoom, focused slot, background streams, and the window's size,
@@ -174,8 +181,7 @@ Planned, roughly in priority order:
 
 - [ ] Several channels per platform in each slot (up to 8), shown as pills you can bring back
       or close.
-- [ ] Lighter background players: Twitch's popout player and Kick's embed player instead of the
-      full site, plus lowest-quality selection.
+- [ ] A lighter background page for Kick (Twitch already uses its embed player).
 - [ ] Stream health: a ⚠ on the slot when a stream crashes or stalls, with automatic restarts.
 - [ ] Recovering a game page that crashed or stopped responding.
 - [ ] `Ctrl+1`…`Ctrl+4` while a game page has focus (today they only work from the toolbar).
