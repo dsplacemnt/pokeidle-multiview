@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "toolbar",
-  "description": "Only the local toolbar webview may talk to the Rust side. Game slots load remote pages and get no IPC access.",
-  "windows": ["main"],
-  "webviews": ["toolbar"],
+  "identifier": "app-ui",
+  "description": "Only the app's own local pages (toolbar, splitters, settings) may talk to the Rust side. Game, Twitch and Kick pages load remote sites and get no IPC access.",
+  "windows": ["main", "settings"],
+  "webviews": ["toolbar", "split-v", "split-h", "settings"],
   "permissions": ["core:default"]
 }

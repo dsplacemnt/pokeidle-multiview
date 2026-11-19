@@ -44,6 +44,12 @@
     .chip button { background: transparent; height: 24px; padding: 0 5px; }
     .chip .zoom { color: var(--muted); min-width: 32px; text-align: center; }
     .status { color: var(--muted); }
+    #grid.on { background: var(--chip-active); }
+    button.icon { width: 30px; padding: 0; font-size: 16px; }
+    .chip .name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .chip .muted { opacity: .75; }
+    .chip input.rename { width: 120px; height: 24px; margin: 0 2px; padding: 0 6px; border-radius: 5px;
+      border: 1px solid var(--accent); background: #101216; color: var(--text); font: inherit; }
   </style>
 </head>
 <body>
@@ -61,10 +67,11 @@
       PokeIdle Multiview
     </span>
     <button id="add">+ Slot</button>
-    <button id="grid" title="Show all slots">Grid</button>
+    <button id="grid" title="Grid: all slots the same size (click a slot's name to focus it instead)">Grid</button>
     <div class="chips" id="chips"></div>
     <span class="error" id="error"></span>
     <span class="status" id="hunt"></span>
+    <button id="settings" class="icon" title="Settings">⚙</button>
   </div>
   <script>
     const { invoke } = window.__TAURI__.core;
@@ -144,7 +151,57 @@
         () => invoke('stop_panel', { id, platform: panels.front }).catch(showError))];
     }
 
+    const slotName = (slot) => slot.name || `Slot ${slot.id}`;
+
+    // Click = focus the slot (large, others in a side column; again = grid).
+    // Double-click = rename it in place (Enter saves, Esc cancels, empty = default name).
+    let editing = null;
+    let latest = null;
+    function nameButton(slot, focused) {
+      const b = button(slotName(slot), `${focused ? 'Back to the grid' : 'Focus this slot'} (Ctrl+${slot.id}) · double-click to rename`, () => {
+        clearTimeout(b.clickTimer);
+        b.clickTimer = setTimeout(() => invoke('focus_slot', { id: slot.id }).catch(showError), 220);
+      });
+      b.classList.add('name');
+      b.addEventListener('dblclick', () => {
+        clearTimeout(b.clickTimer);
+        editing = slot.id;
+        const input = document.createElement('input');
+        input.className = 'rename';
+        input.value = slot.name || '';
+        input.placeholder = `Slot ${slot.id}`;
+        input.maxLength = 40;
+        let done = false;
+        const finish = (saveIt) => {
+          if (done) return;
+          done = true;
+          editing = null;
+          const next = saveIt ? invoke('rename_slot', { id: slot.id, name: input.value }) : Promise.resolve();
+          next.catch(showError).finally(() => { if (latest) render(latest); });
+        };
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') finish(true);
+          if (e.key === 'Escape') finish(false);
+        });
+        input.addEventListener('blur', () => finish(true));
+        b.replaceWith(input);
+        input.focus();
+        input.select();
+      });
+      return b;
+    }
+
+    function muteButton(slot) {
+      const b = button(slot.muted ? '🔇' : '🔊', slot.muted ? 'Unmute this game' : 'Mute this game',
+        () => invoke('toggle_mute', { id: slot.id }).catch(showError));
+      if (slot.muted) b.classList.add('muted');
+      return b;
+    }
+
     function render(state) {
+      latest = state;
+      if (editing !== null) return; // don't replace the rename box while typing
+      document.getElementById('grid').classList.toggle('on', state.focus == null);
       chips.replaceChildren();
       for (const slot of state.slots) {
         const chip = document.createElement('div');
@@ -153,7 +210,8 @@
         zoom.className = 'zoom';
         zoom.textContent = Math.round(slot.zoom * 100) + '%';
         chip.append(
-          button(`Slot ${slot.id}`, 'Focus this slot (Ctrl+' + slot.id + ')', () => invoke('focus_slot', { id: slot.id }).catch(showError)),
+          nameButton(slot, state.focus === slot.id),
+          muteButton(slot),
           button('−', 'Zoom out', () => invoke('set_zoom', { id: slot.id, zoom: slot.zoom - 0.1 }).catch(showError)),
           zoom,
           button('+', 'Zoom in', () => invoke('set_zoom', { id: slot.id, zoom: slot.zoom + 0.1 }).catch(showError)),
@@ -165,14 +223,16 @@
         chips.append(chip);
       }
       addBtn.disabled = state.slots.length >= state.max_slots;
-      document.getElementById('hunt').textContent = state.hunt_dir
-        ? '/hunt extension loaded'
-        : '/hunt extension not found';
-      document.getElementById('hunt').title = state.hunt_dir ?? '';
+      const hunt = document.getElementById('hunt');
+      hunt.textContent = state.hunt_dir ? '/hunt ✓' : '/hunt ✗';
+      hunt.title = state.hunt_dir
+        ? '"/hunt for PokeIdle" extension loaded'
+        : '"/hunt for PokeIdle" not found in any installed browser';
     }
 
     addBtn.addEventListener('click', () => invoke('add_slot').catch(showError));
     document.getElementById('grid').addEventListener('click', () => invoke('focus_slot', { id: null }).catch(showError));
+    document.getElementById('settings').addEventListener('click', () => invoke('open_settings').catch(showError));
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key >= '1' && e.key <= '4') invoke('focus_slot', { id: Number(e.key) }).catch(showError);
     });

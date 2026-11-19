@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Splitter</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #16181d; }
+    .bar { position: absolute; inset: 0; transition: background .12s; }
+    .bar.v { cursor: col-resize; }
+    .bar.h { cursor: row-resize; }
+    .bar:hover, .bar.dragging { background: #f2c14e; }
+  </style>
+</head>
+<body>
+  <div class="bar" id="bar"></div>
+  <script>
+    // A thin strip between slots. Dragging it sends the pointer's screen position to the app,
+    // which moves the boundary live and saves it on release.
+    const { invoke } = window.__TAURI__.core;
+    const vertical = new URLSearchParams(location.search).get('axis') !== 'h';
+    const bar = document.getElementById('bar');
+    bar.classList.add(vertical ? 'v' : 'h');
+
+    let dragging = false;
+    let pending = null;
+    let busy = false;
+
+    function flush() {
+      if (!pending || busy) return;
+      const { x, y } = pending;
+      pending = null;
+      busy = true;
+      invoke('drag_split', { vertical, x, y }).catch(() => {}).finally(() => {
+        busy = false;
+        if (pending) requestAnimationFrame(flush);
+      });
+    }
+
+    bar.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      bar.classList.add('dragging');
+      bar.setPointerCapture(e.pointerId);
+    });
+    bar.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      pending = { x: e.screenX, y: e.screenY };
+      requestAnimationFrame(flush);
+    });
+    const stop = () => {
+      if (!dragging) return;
+      dragging = false;
+      bar.classList.remove('dragging');
+      invoke('drag_split_end').catch(() => {});
+    };
+    bar.addEventListener('pointerup', stop);
+    bar.addEventListener('lostpointercapture', stop);
+  </script>
+</body>
+</html>

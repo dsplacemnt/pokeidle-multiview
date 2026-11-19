@@ -1,4 +1,4 @@
-//! Persisted settings: which slots are open, their zoom and the focused slot.
+//! Persisted settings: slots (name, zoom, mute, streams), layout, tray and comfort options.
 
 use std::path::Path;
 
@@ -24,22 +24,72 @@ pub struct SavedPanel {
 pub struct SlotConfig {
     pub id: u8,
     pub zoom: f64,
+    /// Shown on the slot's chip; None = "Slot N".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The game page's sound is off (its Twitch/Kick pages are muted anyway when hidden).
+    #[serde(default)]
+    pub muted: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub panels: Vec<SavedPanel>,
 }
 
 impl SlotConfig {
     pub fn new(id: u8) -> SlotConfig {
-        SlotConfig { id, zoom: 1.0, panels: Vec::new() }
+        SlotConfig { id, zoom: 1.0, name: None, muted: false, panels: Vec::new() }
     }
 }
+
+pub const MAX_NAME_CHARS: usize = 40;
+
+/// Normalizes a slot name typed by the user: trimmed, at most 40 characters, empty = default.
+pub fn clean_name(raw: &str) -> Option<String> {
+    let name: String = raw.trim().chars().take(MAX_NAME_CHARS).collect();
+    let name = name.trim().to_string();
+    (!name.is_empty()).then_some(name)
+}
+
+/// Where the splitters sit, as fractions of the game area.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct GridSplit {
+    /// Left column width.
+    pub v: f64,
+    /// Top row height.
+    pub h: f64,
+}
+
+pub const MIN_SPLIT: f64 = 0.15;
+pub const MAX_SPLIT: f64 = 0.85;
+
+pub fn clamp_split(raw: f64, fallback: f64) -> f64 {
+    if raw.is_finite() {
+        raw.clamp(MIN_SPLIT, MAX_SPLIT)
+    } else {
+        fallback
+    }
+}
+
+/// Allowed auto-reload intervals in minutes; 0 = off.
+pub const AUTO_RELOAD_OPTIONS: [u32; 8] = [0, 15, 30, 60, 180, 360, 720, 1440];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Config {
     #[serde(default)]
     pub slots: Vec<SlotConfig>,
+    /// The slot shown large in focus mode (others in a side column); None = grid.
     #[serde(default)]
     pub focus: Option<u8>,
+    #[serde(default = "default_grid_split")]
+    pub grid_split: GridSplit,
+    /// Width of the focused slot in focus mode.
+    #[serde(default = "default_focus_split")]
+    pub focus_split: f64,
+    /// Keep Windows from sleeping while background streams run.
+    #[serde(default = "enabled")]
+    pub keep_awake: bool,
+    /// Reload every game page this often (minutes); 0 = off.
+    #[serde(default)]
+    pub auto_reload_minutes: u32,
     /// × hides the window to the tray (streams keep running); "Quit" in the tray menu exits.
     #[serde(default = "enabled")]
     pub close_to_tray: bool,
@@ -53,9 +103,26 @@ fn enabled() -> bool {
     true
 }
 
+fn default_grid_split() -> GridSplit {
+    GridSplit { v: 0.5, h: 0.5 }
+}
+
+fn default_focus_split() -> f64 {
+    0.7
+}
+
 impl Default for Config {
     fn default() -> Config {
-        Config { slots: Vec::new(), focus: None, close_to_tray: true, minimize_to_tray: false }
+        Config {
+            slots: Vec::new(),
+            focus: None,
+            grid_split: default_grid_split(),
+            focus_split: default_focus_split(),
+            keep_awake: true,
+            auto_reload_minutes: 0,
+            close_to_tray: true,
+            minimize_to_tray: false,
+        }
     }
 }
 
@@ -83,8 +150,17 @@ impl Config {
         self.slots.retain(|s| (1..=MAX_SLOTS).contains(&s.id));
         self.slots.sort_by_key(|s| s.id);
         self.slots.dedup_by_key(|s| s.id);
+        self.grid_split = GridSplit {
+            v: clamp_split(self.grid_split.v, 0.5),
+            h: clamp_split(self.grid_split.h, 0.5),
+        };
+        self.focus_split = clamp_split(self.focus_split, default_focus_split());
+        if !AUTO_RELOAD_OPTIONS.contains(&self.auto_reload_minutes) {
+            self.auto_reload_minutes = 0;
+        }
         for slot in &mut self.slots {
             slot.zoom = if slot.zoom.is_finite() { slot.zoom.clamp(0.5, 2.0) } else { 1.0 };
+            slot.name = slot.name.as_deref().and_then(clean_name);
             // One page per platform; the URL is checked against the nav policy at restore.
             let mut seen = Vec::new();
             slot.panels.retain(|p| {
@@ -162,6 +238,40 @@ mod tests {
             ..Config::default()
         };
         assert_eq!(cfg.next_free_id(), Some(2));
+    }
+}
+
+#[cfg(test)]
+mod comfort_tests {
+    use super::*;
+
+    #[test]
+    fn names_are_trimmed_and_capped() {
+        assert_eq!(clean_name("  Main  "), Some("Main".into()));
+        assert_eq!(clean_name("   "), None);
+        assert_eq!(clean_name(&"x".repeat(60)).unwrap().chars().count(), MAX_NAME_CHARS);
+    }
+
+    #[test]
+    fn normalizes_splits_and_reload() {
+        let cfg: Config = serde_json::from_str(
+            r#"{"grid_split":{"v":0.01,"h":2},"focus_split":-1,"auto_reload_minutes":7}"#,
+        )
+        .unwrap();
+        let cfg = cfg.normalized();
+        assert_eq!(cfg.grid_split, GridSplit { v: MIN_SPLIT, h: MAX_SPLIT });
+        assert_eq!(cfg.focus_split, MIN_SPLIT);
+        assert_eq!(cfg.auto_reload_minutes, 0);
+    }
+
+    #[test]
+    fn old_files_get_comfort_defaults() {
+        let cfg: Config = serde_json::from_str(r#"{"slots":[{"id":1,"zoom":1.0}]}"#).unwrap();
+        assert!(cfg.keep_awake);
+        assert_eq!(cfg.auto_reload_minutes, 0);
+        assert_eq!(cfg.focus_split, 0.7);
+        assert_eq!(cfg.slots[0].name, None);
+        assert!(!cfg.slots[0].muted);
     }
 }
 

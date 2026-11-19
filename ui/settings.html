@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Settings</title>
+  <style>
+    :root { --bg: #16181d; --card: #1f2229; --text: #e6e8ee; --muted: #8a90a0; --accent: #f2c14e; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text);
+      font: 14px/1.4 "Segoe UI", system-ui, sans-serif; user-select: none; }
+    main { padding: 18px 20px; display: grid; gap: 14px; }
+    h1 { margin: 0 0 2px; font-size: 17px; font-weight: 600; color: var(--accent); }
+    section { background: var(--card); border-radius: 10px; padding: 12px 14px; display: grid; gap: 10px; }
+    h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+    label.row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+    label.row > span { flex: 1; min-width: 0; }
+    label.row select { flex: none; align-self: center; }
+    label.row input { margin-top: 3px; accent-color: var(--accent); }
+    .hint { display: block; color: var(--muted); font-size: 12px; }
+    select { background: #2a2e37; color: var(--text); border: 1px solid #3a3f4b; border-radius: 6px;
+      padding: 5px 8px; font: inherit; }
+    .saved { color: var(--muted); font-size: 12px; min-height: 16px; text-align: right; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Settings</h1>
+
+    <section>
+      <h2>Window</h2>
+      <label class="row"><input type="checkbox" id="close_to_tray">
+        <span>Close to the tray<span class="hint">× keeps the app and its streams running near the clock. Quit from the tray icon.</span></span></label>
+      <label class="row"><input type="checkbox" id="minimize_to_tray">
+        <span>Minimize to the tray<span class="hint">Minimizing hides the app from the taskbar too.</span></span></label>
+    </section>
+
+    <section>
+      <h2>Streams</h2>
+      <label class="row"><input type="checkbox" id="keep_awake">
+        <span>Keep the PC awake while streams run<span class="hint">Windows won't go to sleep and cut the streams. The screen can still turn off.</span></span></label>
+    </section>
+
+    <section>
+      <h2>Game</h2>
+      <label class="row" for="auto_reload_minutes">
+        <span>Reload all game pages<span class="hint">Useful to pick up the game's daily updates.</span></span>
+        <select id="auto_reload_minutes">
+          <option value="0">Never</option>
+          <option value="15">Every 15 min</option>
+          <option value="30">Every 30 min</option>
+          <option value="60">Every hour</option>
+          <option value="180">Every 3 hours</option>
+          <option value="360">Every 6 hours</option>
+          <option value="720">Every 12 hours</option>
+          <option value="1440">Every 24 hours</option>
+        </select>
+      </label>
+    </section>
+
+    <div class="saved" id="saved"></div>
+  </main>
+  <script>
+    const { invoke } = window.__TAURI__.core;
+    const boxes = ['close_to_tray', 'minimize_to_tray', 'keep_awake'];
+    const reload = document.getElementById('auto_reload_minutes');
+    const saved = document.getElementById('saved');
+
+    function read() {
+      const s = { auto_reload_minutes: Number(reload.value) };
+      for (const id of boxes) s[id] = document.getElementById(id).checked;
+      return s;
+    }
+
+    async function save() {
+      try {
+        await invoke('set_settings', { settings: read() });
+        saved.textContent = 'Saved';
+        clearTimeout(save.t);
+        save.t = setTimeout(() => { saved.textContent = ''; }, 1500);
+      } catch (e) {
+        saved.textContent = String(e);
+      }
+    }
+
+    invoke('get_settings').then((s) => {
+      for (const id of boxes) document.getElementById(id).checked = s[id];
+      reload.value = String(s.auto_reload_minutes);
+      for (const id of boxes) document.getElementById(id).addEventListener('change', save);
+      reload.addEventListener('change', save);
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close(); });
+  </script>
+</body>
+</html>

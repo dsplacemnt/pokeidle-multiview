@@ -5,6 +5,8 @@ mod config;
 mod external;
 mod hunt;
 mod layout;
+mod native;
+mod power;
 mod tray;
 
 use std::collections::HashMap;
@@ -175,6 +177,8 @@ fn save_and_publish(app: &AppHandle, state: &AppState) {
     }
     let _ = app.emit_to("toolbar", "state", state_view(state));
     tray::set_tooltip(app, &state.panels);
+    let streams = state.panels.values().any(|p| !p.running.is_empty());
+    power::set_keep_awake(app, state.config.keep_awake && streams);
 }
 
 fn window_logical_size(app: &AppHandle) -> tauri::Result<LogicalSize<f64>> {
@@ -183,26 +187,46 @@ fn window_logical_size(app: &AppHandle) -> tauri::Result<LogicalSize<f64>> {
     Ok(window.inner_size()?.to_logical::<f64>(scale))
 }
 
-/// Where each open slot goes for the current window size and focus (None = hidden).
-fn slot_tiles(app: &AppHandle) -> tauri::Result<Vec<(u8, Option<Rect>)>> {
+/// The part of the window below the toolbar, in logical pixels.
+fn game_area(app: &AppHandle) -> tauri::Result<Rect> {
     let size = window_logical_size(app)?;
-    let config = app.state::<Mutex<AppState>>().lock().unwrap().config.clone();
-    let ids: Vec<u8> = config.slots.iter().map(|s| s.id).collect();
-    let visible: Vec<u8> = match config.focus {
-        Some(f) if ids.contains(&f) => vec![f],
-        _ => ids.clone(),
-    };
-    let area = Rect {
+    Ok(Rect {
         x: 0.0,
         y: TOOLBAR_HEIGHT,
         w: size.width,
         h: (size.height - TOOLBAR_HEIGHT).max(0.0),
-    };
-    let tiles = layout::grid(area, visible.len());
-    Ok(ids
-        .into_iter()
-        .map(|id| (id, visible.iter().position(|v| *v == id).map(|i| tiles[i])))
-        .collect())
+    })
+}
+
+fn current_layout(app: &AppHandle) -> tauri::Result<layout::Layout> {
+    let area = game_area(app)?;
+    let config = app.state::<Mutex<AppState>>().lock().unwrap().config.clone();
+    let ids: Vec<u8> = config.slots.iter().map(|s| s.id).collect();
+    Ok(layout::compute(area, &ids, config.focus, config.grid_split, config.focus_split))
+}
+
+/// Where each open slot goes for the current window size and layout.
+fn slot_tiles(app: &AppHandle) -> tauri::Result<Vec<(u8, Option<Rect>)>> {
+    Ok(current_layout(app)?.tiles.into_iter().map(|(id, r)| (id, Some(r))).collect())
+}
+
+const SPLIT_V: &str = "split-v";
+const SPLIT_H: &str = "split-h";
+
+/// Places the two splitter strips over the gaps (or hides the ones the layout doesn't use).
+fn place_splitters(app: &AppHandle, splitters: &[(layout::SplitKind, Rect)]) -> tauri::Result<()> {
+    for (label, vertical) in [(SPLIT_V, true), (SPLIT_H, false)] {
+        let Some(webview) = app.get_webview(label) else { continue };
+        match splitters.iter().find(|(kind, _)| kind.is_vertical() == vertical) {
+            Some((_, r)) => {
+                webview.set_position(LogicalPosition::new(r.x, r.y))?;
+                webview.set_size(LogicalSize::new(r.w, r.h))?;
+                webview.show()?;
+            }
+            None => webview.hide()?,
+        }
+    }
+    Ok(())
 }
 
 /// Same size as the tile, but entirely left of the window's client area.
@@ -224,7 +248,10 @@ fn apply_layout(app: &AppHandle) -> tauri::Result<()> {
         let state = state.lock().unwrap();
         state.panels.iter().filter_map(|(id, p)| Some((*id, p.front?))).collect()
     };
-    for (id, tile) in slot_tiles(app)? {
+    let layout = current_layout(app)?;
+    place_splitters(app, &layout.splitters)?;
+    let tiles = layout.tiles.into_iter().map(|(id, r)| (id, Some(r)));
+    for (id, tile) in tiles {
         // The shown panel (or the game) takes the slot's tile. Everything else in the slot
         // is hidden but keeps running, and keeps the tile's size so pages don't reflow.
         let front_label = match fronts.get(&id) {
@@ -375,6 +402,10 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
         }
     };
     webview.set_zoom(slot.zoom)?;
+    if slot.muted {
+        set_muted(&webview, true);
+    }
+    native::attach(&webview, app.clone());
     Ok(())
 }
 
@@ -551,6 +582,7 @@ fn create_panel(
     if background {
         set_muted(&panel, true);
     }
+    native::attach(&panel, app.clone());
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
     let panels = state.panels.entry(id).or_default();
@@ -716,18 +748,170 @@ fn set_zoom(app: AppHandle, id: u8, zoom: f64) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-fn focus_slot(app: AppHandle, id: Option<u8>) -> Result<(), String> {
+/// Shows `id` large with the other slots in a side column; the same slot again (or None)
+/// goes back to the grid. Used by the slot chips, Grid button and Ctrl+1…Ctrl+4.
+fn toggle_focus(app: &AppHandle, id: Option<u8>) {
     {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
-        // Clicking the focused slot again goes back to the grid.
-        state.config.focus = if state.config.focus == id { None } else { id };
+        let exists = id.is_some_and(|id| state.config.slots.iter().any(|s| s.id == id));
+        state.config.focus = if !exists || state.config.focus == id { None } else { id };
     }
-    apply_layout(&app).map_err(|e| e.to_string())?;
+    if let Err(e) = apply_layout(app) {
+        eprintln!("[layout] {e}");
+    }
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(app, &state.lock().unwrap());
+}
+
+#[tauri::command]
+fn focus_slot(app: AppHandle, id: Option<u8>) {
+    toggle_focus(&app, id);
+}
+
+#[tauri::command]
+fn toggle_mute(app: AppHandle, id: u8) -> Result<(), String> {
+    let webview = app.get_webview(&slot_label(id)).ok_or("No such slot")?;
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    let slot = state.config.slots.iter_mut().find(|s| s.id == id).ok_or("No such slot")?;
+    slot.muted = !slot.muted;
+    set_muted(&webview, slot.muted);
+    save_and_publish(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn rename_slot(app: AppHandle, id: u8, name: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    let slot = state.config.slots.iter_mut().find(|s| s.id == id).ok_or("No such slot")?;
+    slot.name = config::clean_name(&name);
+    save_and_publish(&app, &state);
+    Ok(())
+}
+
+/// A splitter is being dragged; (x, y) is the pointer in screen coordinates (CSS pixels).
+/// Moves the boundary live; `drag_split_end` saves it.
+#[tauri::command]
+fn drag_split(app: AppHandle, vertical: bool, x: f64, y: f64) -> Result<(), String> {
+    let window = app.get_window("main").ok_or("No window")?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let origin = window.inner_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let area = game_area(&app).map_err(|e| e.to_string())?;
+    let (px, py) = (x - origin.x, y - origin.y);
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        let config = &mut state.config;
+        let kind = match (vertical, config.focus.is_some()) {
+            (true, true) => layout::SplitKind::Focus,
+            (true, false) => layout::SplitKind::GridV,
+            (false, _) => layout::SplitKind::GridH,
+        };
+        let fraction = config::clamp_split(layout::fraction_at(area, kind, px, py), 0.5);
+        match kind {
+            layout::SplitKind::Focus => config.focus_split = fraction,
+            layout::SplitKind::GridV => config.grid_split.v = fraction,
+            layout::SplitKind::GridH => config.grid_split.h = fraction,
+        }
+    }
+    apply_layout(&app).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn drag_split_end(app: AppHandle) {
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
+}
+
+// ---------------------------------------------------------------- settings window
+
+#[derive(Serialize, serde::Deserialize, Clone)]
+struct Settings {
+    close_to_tray: bool,
+    minimize_to_tray: bool,
+    keep_awake: bool,
+    auto_reload_minutes: u32,
+}
+
+#[tauri::command]
+fn get_settings(state: tauri::State<'_, Mutex<AppState>>) -> Settings {
+    let config = &state.lock().unwrap().config;
+    Settings {
+        close_to_tray: config.close_to_tray,
+        minimize_to_tray: config.minimize_to_tray,
+        keep_awake: config.keep_awake,
+        auto_reload_minutes: config.auto_reload_minutes,
+    }
+}
+
+#[tauri::command]
+fn set_settings(app: AppHandle, settings: Settings) {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    state.config.close_to_tray = settings.close_to_tray;
+    state.config.minimize_to_tray = settings.minimize_to_tray;
+    state.config.keep_awake = settings.keep_awake;
+    state.config.auto_reload_minutes = settings.auto_reload_minutes;
+    state.config = state.config.clone().normalized();
+    save_and_publish(&app, &state);
+}
+
+// Async: creates a window.
+#[tauri::command]
+async fn open_settings(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window("settings") {
+        let _ = existing.unminimize();
+        return existing.set_focus().map_err(|e| e.to_string());
+    }
+    let main = app.get_window("main").ok_or("No window")?;
+    tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+        .title("Settings — PokeIdle Multiview")
+        .inner_size(420.0, 500.0)
+        .resizable(false)
+        .minimizable(false)
+        .maximizable(false)
+        // Owned by the main window: stays in front of it and closes with it.
+        .owner_raw(main.hwnd().map_err(|e| e.to_string())?)
+        .build()
+        .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ---------------------------------------------------------------- auto-reload
+
+/// Reloads every game page every `auto_reload_minutes` (checked twice a minute). Turning the
+/// option on or changing it restarts the countdown.
+fn start_auto_reload(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last = std::time::Instant::now();
+        let mut minutes = 0u32;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            let (wanted, ids) = {
+                let state = app.state::<Mutex<AppState>>();
+                let state = state.lock().unwrap();
+                let ids: Vec<u8> = state.config.slots.iter().map(|s| s.id).collect();
+                (state.config.auto_reload_minutes, ids)
+            };
+            if wanted != minutes {
+                minutes = wanted;
+                last = std::time::Instant::now();
+                continue;
+            }
+            if minutes == 0 || last.elapsed() < std::time::Duration::from_secs(u64::from(minutes) * 60) {
+                continue;
+            }
+            last = std::time::Instant::now();
+            println!("[reload] auto-reloading {} game page(s) (every {minutes} min)", ids.len());
+            for id in ids {
+                if let Some(webview) = app.get_webview(&slot_label(id)) {
+                    let _ = webview.reload();
+                }
+            }
+        }
+    });
 }
 
 // ---------------------------------------------------------------- startup
@@ -789,6 +973,16 @@ fn main() {
                 create_slot_webview(&handle, slot)?;
             }
             restore_panels(&handle, &slots);
+            // The two splitter strips (local page, same environment as the toolbar); placed
+            // over the gaps between slots by apply_layout.
+            for (label, axis) in [(SPLIT_V, "v"), (SPLIT_H, "h")] {
+                let splitter = window.add_child(
+                    WebviewBuilder::new(label, WebviewUrl::App(format!("splitter.html?axis={axis}").into())),
+                    LogicalPosition::new(0.0, TOOLBAR_HEIGHT),
+                    LogicalSize::new(1.0, 1.0),
+                )?;
+                splitter.hide()?;
+            }
             // Toolbar last: creating a WebView2 pumps window messages, so a toolbar created
             // first would load and read the state before the streams above were restored.
             window.add_child(
@@ -800,6 +994,13 @@ fn main() {
 
             tray::create(&handle)?;
             tray::update_tooltip(&handle);
+            {
+                let state = handle.state::<Mutex<AppState>>();
+                let state = state.lock().unwrap();
+                let streams = state.panels.values().any(|p| !p.running.is_empty());
+                power::set_keep_awake(&handle, state.config.keep_awake && streams);
+            }
+            start_auto_reload(handle.clone());
 
             let event_handle = handle.clone();
             let event_window = window.clone();
@@ -836,7 +1037,14 @@ fn main() {
             toggle_panel,
             stop_panel,
             set_zoom,
-            focus_slot
+            focus_slot,
+            toggle_mute,
+            rename_slot,
+            drag_split,
+            drag_split_end,
+            get_settings,
+            set_settings,
+            open_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running PokeIdle Multiview");

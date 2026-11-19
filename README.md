@@ -14,9 +14,19 @@ under 10 MB.
 
 - **Up to 4 slots.** Each slot has its own WebView2 data folder, so cookies, storage and logins
   stay separate and are kept between runs.
-- **Layouts.** One slot fills the window, two sit side by side, and three or four use a 2×2 grid.
-  Click a slot's name (or press `Ctrl+1`…`Ctrl+4`) to focus it, and click it again or press
-  **Grid** to see all slots.
+- **Layouts.** Grid: one slot fills the window, two sit side by side, three put two on top and
+  one wide below, four make a 2×2 grid. Focus: click a slot's name (or press `Ctrl+1`…`Ctrl+4`,
+  which also works while a game page has focus) to show it large with the others in a column
+  on the right; click it again or press **Grid** to go back. **Drag the bars between slots** to
+  resize them; the sizes are remembered.
+- **Per-slot names and sound.** Double-click a slot's name to rename it (Enter saves, Esc
+  cancels, empty goes back to "Slot N"). 🔊/🔇 mutes that slot's game.
+- **Settings (⚙).** Close or minimize to the tray, keep the PC awake while streams run (on by
+  default), and reload all game pages every 15 min to 24 h (off by default).
+- **Recovers by itself.** A game or stream page that crashes or stops responding reloads
+  itself (up to 3 times in 5 minutes).
+- **Asks for nothing.** Pages may only use notifications and autoplay; requests for the camera,
+  microphone, location, clipboard and so on are denied without a prompt.
 - **Twitch and Kick per slot.**
   - The **Twitch** or **Kick** button on a slot opens that site in place of the game, using the
     slot's own session. Log in there; the login belongs to that slot only.
@@ -48,9 +58,7 @@ under 10 MB.
   and keeps the slot's login.
 - **Tray.** Closing (×) hides the app to the tray (the Poké Ball near the clock), and streams
   keep running; its tooltip shows how many. Click it to bring the window back, or right-click →
-  **Quit** to exit. Minimizing works as usual (taskbar). In `config.json`,
-  `"close_to_tray": false` makes × quit, and `"minimize_to_tray": true` sends minimize to the
-  tray as well.
+  **Quit** to exit. Minimizing works as usual (taskbar); both can be changed in ⚙.
 - **One copy at a time.** Starting the app again brings the open window to the front instead
   of running a second copy, which would play every background stream twice.
 - **Remembers** the open slots, zoom, focused slot, background streams, and the window's size,
@@ -141,9 +149,11 @@ src/main.rs      window, slot and stream webviews, navigation guard, toolbar com
 src/layout.rs    grid math (pure, unit-tested)
 src/config.rs    saved settings: load, normalize, atomic save
 src/tray.rs      tray icon, close/minimize to tray, quit
+src/native.rs    WebView2 events: permissions, Ctrl+1…4 inside pages, crash recovery
+src/power.rs     keeps Windows awake while streams run
 src/hunt.rs      finds the installed /hunt extension and copies it for WebView2
 src/channels.rs  recognizes Twitch/Kick channel links
-ui/index.html    the toolbar; the only page allowed to call into Rust
+ui/              toolbar, splitter strips and settings window (the only pages that can call Rust)
 scripts/         scripts injected into the game pages
 tests/fixtures/  a tiny extension used to test extension loading
 icons/           app icon; icon.svg is the source (regenerate with `npx @tauri-apps/cli@2 icon icons/icon.png`)
@@ -164,8 +174,8 @@ Some details that are easy to miss:
 
 ## Privacy and security
 
-- Only the toolbar (a local page) can call the Rust side. Game, Twitch and Kick pages get no
-  access to it.
+- Only the app's own local pages (toolbar, splitters, settings) can call the Rust side. Game,
+  Twitch and Kick pages get no access to it.
 - WebAuthn (passkeys) is turned off inside the app's pages, so Twitch, Kick and Google sign-in
   use password and code instead of the Windows passkey prompt. This only affects pages inside
   the app, not your browsers.
@@ -182,14 +192,7 @@ Planned, roughly in priority order:
 - [ ] Several channels per platform in each slot (up to 8), shown as pills you can bring back
       or close.
 - [ ] A lighter background page for Kick (Twitch already uses its embed player).
-- [ ] Stream health: a ⚠ on the slot when a stream crashes or stalls, with automatic restarts.
-- [ ] Recovering a game page that crashed or stopped responding.
-- [ ] `Ctrl+1`…`Ctrl+4` while a game page has focus (today they only work from the toolbar).
-- [ ] Permission allowlist (notifications, fullscreen, pointer lock) instead of WebView2's prompts.
-- [ ] Keep Windows awake while streams run.
-- [ ] Per-slot mute, renaming slots, and automatic reload of all game pages on a timer.
-- [ ] Focus layout with the other slots in a side column, and draggable splitters.
-- [ ] Settings menu (⚙).
+- [ ] Stream health: a ⚠ on the slot when a stream stalls (crashed pages already reload).
 - [ ] Light mode: Kick via its HLS feed and Twitch via authenticated chat, without video players.
 
 ## Disclaimer
