@@ -32,9 +32,14 @@ under 10 MB.
   - The **Twitch** or **Kick** button on a slot opens that site in place of the game, using the
     slot's own session. Log in there; the login belongs to that slot only.
   - Clicking the button again takes you back to the game. The page **keeps running, muted, in
-    the background**, and the button gets a green dot.
+    the background**, and the button gets a green dot (or how many streams it has running).
   - Clicking a button with a dot brings the stream back on its full channel page, for example to
     claim channel points. **⏹** stops it.
+  - **Several channels per slot.** Each slot can keep up to 8 Twitch and 8 Kick streams running
+    at once. A second row in the toolbar shows a **pill per stream**, grouped by slot: click a
+    pill to show that channel in the slot (again to go back to the game), **×** stops it, and
+    **Close all** (two clicks) stops every stream of that slot. The row only appears while some
+    stream is running.
   - **Light players in the background.** A hidden Twitch stream runs on Twitch's own embed
     player at its lowest quality instead of the full site (no chat, sidebars or site
     around it). It still earns channel points: in a side-by-side test the embed and the
@@ -43,8 +48,8 @@ under 10 MB.
     keeps its full page, as its embed player shows live channels as offline.
   - **Official channel links clicked inside the game** go to that slot's Twitch/Kick page
     instead of a separate window. The first time, the page opens visible so you can check you
-    are logged in. After that, a new channel replaces the one running for that platform and
-    stays in the background.
+    are logged in. After that, each new channel starts its own stream in the background (a
+    page of that platform that isn't on a channel, like the login page, is reused first).
   - Running streams and the channel they are on are saved, and come back muted when the app
     starts.
 - **"/hunt for PokeIdle" extension.** If
@@ -190,8 +195,6 @@ Some details that are easy to miss:
 
 Planned, roughly in priority order:
 
-- [ ] Several channels per platform in each slot (up to 8), shown as pills you can bring back
-      or close.
 - [ ] A lighter background page for Kick (Twitch already uses its embed player).
 - [ ] Stream health: a ⚠ on the slot when a stream stalls (crashed pages already reload).
 - [ ] Light mode: Kick via its HLS feed and Twitch via authenticated chat, without video players.

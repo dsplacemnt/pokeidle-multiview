@@ -5,6 +5,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 pub const MAX_SLOTS: u8 = 4;
+/// Twitch (or Kick) pages one slot may keep running at once.
+pub const MAX_PAGES_PER_PLATFORM: usize = 8;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -153,12 +155,16 @@ impl Config {
         for slot in &mut self.slots {
             slot.zoom = if slot.zoom.is_finite() { slot.zoom.clamp(0.5, 2.0) } else { 1.0 };
             slot.name = slot.name.as_deref().and_then(clean_name);
-            // One page per platform; the URL is checked against the nav policy at restore.
-            let mut seen = Vec::new();
+            // No duplicate pages and at most MAX_PAGES_PER_PLATFORM per platform; the URL is
+            // checked against the nav policy at restore.
+            let mut seen: Vec<SavedPanel> = Vec::new();
             slot.panels.retain(|p| {
-                let fresh = !seen.contains(&p.platform);
-                seen.push(p.platform);
-                fresh
+                let count = seen.iter().filter(|s| s.platform == p.platform).count();
+                let keep = !seen.contains(p) && count < MAX_PAGES_PER_PLATFORM;
+                if keep {
+                    seen.push(p.clone());
+                }
+                keep
             });
         }
         if !self.focus.is_some_and(|f| self.slots.iter().any(|s| s.id == f)) {
@@ -181,13 +187,14 @@ mod tests {
     }
 
     #[test]
-    fn keeps_one_saved_panel_per_platform_and_reads_old_files() {
+    fn keeps_several_saved_pages_without_duplicates_and_reads_old_files() {
         let panel = |platform, url: &str| SavedPanel { platform, url: url.into() };
         let mut slot = s(1, 1.0);
         slot.panels = vec![
             panel(Platform::Twitch, "https://www.twitch.tv/a"),
             panel(Platform::Kick, "https://kick.com/b"),
             panel(Platform::Twitch, "https://www.twitch.tv/c"),
+            panel(Platform::Twitch, "https://www.twitch.tv/a"),
         ];
         let cfg = Config { slots: vec![slot], ..Config::default() }.normalized();
         assert_eq!(
@@ -195,8 +202,17 @@ mod tests {
             vec![
                 panel(Platform::Twitch, "https://www.twitch.tv/a"),
                 panel(Platform::Kick, "https://kick.com/b"),
+                panel(Platform::Twitch, "https://www.twitch.tv/c"),
             ]
         );
+
+        // At most MAX_PAGES_PER_PLATFORM per platform.
+        let mut slot = s(1, 1.0);
+        slot.panels = (0..12)
+            .map(|i| panel(Platform::Kick, &format!("https://kick.com/channel{i}")))
+            .collect();
+        let cfg = Config { slots: vec![slot], ..Config::default() }.normalized();
+        assert_eq!(cfg.slots[0].panels.len(), MAX_PAGES_PER_PLATFORM);
 
         // Files written before panels were saved still load.
         let old: Config = serde_json::from_str(r#"{"slots":[{"id":2,"zoom":0.9}]}"#).unwrap();
