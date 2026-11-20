@@ -9,6 +9,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
+use crate::config::Language;
 use crate::{remember_panels, AppState, PanelState};
 
 const TRAY_ID: &str = "main";
@@ -48,11 +49,26 @@ fn quit(app: &AppHandle) {
     app.exit(0);
 }
 
-pub fn create(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show PokeIdle Multiview", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+fn menu(app: &AppHandle, lang: Language) -> tauri::Result<Menu<tauri::Wry>> {
+    let show = MenuItem::with_id(app, "show", lang.pick("Show PokeIdle Multiview", "Mostrar o PokeIdle Multiview"), true, None::<&str>)?;
+    let support = MenuItem::with_id(app, "support", lang.pick("♥ Support the dev", "♥ Apoiar o dev"), true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", lang.pick("Quit", "Sair"), true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&show, &separator, &quit_item])?;
+    Menu::with_items(app, &[&show, &support, &separator, &quit_item])
+}
+
+/// The language changed: the menu is rebuilt and the tooltip rewritten.
+pub fn set_language(app: &AppHandle) {
+    let lang = app.state::<Mutex<AppState>>().lock().unwrap().config.language;
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id(TRAY_ID), menu(app, lang)) {
+        let _ = tray.set_menu(Some(menu));
+    }
+    update_tooltip(app);
+}
+
+pub fn create(app: &AppHandle) -> tauri::Result<()> {
+    let lang = app.state::<Mutex<AppState>>().lock().unwrap().config.language;
+    let menu = menu(app, lang)?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("PokeIdle Multiview")
@@ -60,6 +76,15 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => show_main(app),
+            "support" => {
+                show_main(app);
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = crate::support::open_support(app).await {
+                        eprintln!("[support] {e}");
+                    }
+                });
+            }
             "quit" => quit(app),
             _ => {}
         })
@@ -81,19 +106,22 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
 }
 
 /// "PokeIdle Multiview — 8 streams running", so it's clear the app is still working.
-pub fn set_tooltip(app: &AppHandle, panels: &HashMap<u8, PanelState>) {
+pub fn set_tooltip(app: &AppHandle, panels: &HashMap<u8, PanelState>, lang: Language) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
     let streams: usize = panels.values().map(|p| p.pages.len()).sum();
     let text = match streams {
         0 => "PokeIdle Multiview".to_string(),
-        1 => "PokeIdle Multiview — 1 stream running".to_string(),
-        n => format!("PokeIdle Multiview — {n} streams running"),
+        1 => lang.pick("PokeIdle Multiview — 1 stream running", "PokeIdle Multiview — 1 stream rodando").to_string(),
+        n => format!("PokeIdle Multiview — {n} {}", lang.pick("streams running", "streams rodando")),
     };
     let _ = tray.set_tooltip(Some(text));
 }
 
 pub fn update_tooltip(app: &AppHandle) {
     let state = app.state::<Mutex<AppState>>();
-    let panels = state.lock().unwrap().panels.clone();
-    set_tooltip(app, &panels);
+    let (panels, lang) = {
+        let state = state.lock().unwrap();
+        (state.panels.clone(), state.config.language)
+    };
+    set_tooltip(app, &panels, lang);
 }

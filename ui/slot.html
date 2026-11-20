@@ -54,7 +54,7 @@
     button:hover { background: var(--chip-active); }
     .name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       font-weight: 600; background: var(--chip); }
-    body.focused .name { background: var(--chip-active); outline: 1px solid var(--accent); }
+    body.focused .name { background: var(--chip-active); box-shadow: inset 0 0 0 1px var(--accent); }
     .showbar { width: 26px; padding: 0; margin-right: 4px; background: var(--chip); color: var(--accent);
       font-size: 14px; }
     .sep { width: 1px; height: 16px; background: var(--chip-active); margin: 0 4px; }
@@ -89,7 +89,7 @@
     .platform { position: relative; display: inline-flex; align-items: center; justify-content: center;
       width: 28px; padding: 0; }
     .platform svg, .pick svg { width: 18px; height: 18px; display: block; }
-    .platform.panel-open { background: var(--chip-active); outline: 1px solid var(--accent); }
+    .platform.panel-open { background: var(--chip-active); box-shadow: inset 0 0 0 1px var(--accent); }
     /* Dot = this platform has a stream running in the background; a number = how many. */
     .platform.running::after { content: ''; position: absolute; right: 2px; bottom: 2px;
       width: 7px; height: 7px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 0 1.5px var(--bg); }
@@ -108,11 +108,11 @@
     .pill { display: inline-flex; align-items: center; background: var(--chip); border-radius: 12px; height: 22px;
       touch-action: none; }
     /* Hold and drag a pill sideways to move it. */
-    .pill.dragging { opacity: .7; outline: 1px dashed var(--accent); cursor: grabbing; }
+    .pill.dragging { opacity: .7; box-shadow: inset 0 0 0 1px var(--accent); cursor: grabbing; }
     .pill.dragging button { cursor: grabbing; }
-    .pill.shown { background: var(--chip-active); outline: 1px solid var(--accent); }
+    .pill.shown { background: var(--chip-active); box-shadow: inset 0 0 0 1px var(--accent); }
     /* ⚠: a stream the app couldn't fix by itself (details on hover). */
-    .pill.warn { background: rgba(255, 138, 128, .14); outline: 1px solid rgba(255, 138, 128, .55); }
+    .pill.warn { background: rgba(255, 138, 128, .14); box-shadow: inset 0 0 0 1px rgba(255, 138, 128, .55); }
     .pill .warn-icon { color: #ff8a80; font-size: 12px; margin-left: 1px; }
     .pill button { height: 22px; border-radius: 11px; }
     .pill .show { display: inline-flex; align-items: center; gap: 5px; padding: 0 3px 0 7px; max-width: 160px; }
@@ -121,16 +121,17 @@
     .pill .stop { padding: 0 7px 0 3px; color: var(--muted); }
     .pill .stop:hover { color: var(--text); background: transparent; }
   </style>
+  <script src="i18n.js"></script>
 </head>
 <body>
   <div class="bar">
     <div class="half left"><div class="row controls" id="controls"></div></div>
-    <div class="divider" title="Left: this slot's controls · Right: its Twitch/Kick streams"></div>
+    <div class="divider" data-i18n-title title="Left: this slot's controls · Right: its Twitch/Kick streams"></div>
     <div class="half streams" id="streams">
       <div class="pillbox" id="pillbox">
-        <button class="scroll left" id="scroll-left" title="Scroll the streams left">‹</button>
+        <button class="scroll left" id="scroll-left" data-i18n-title title="Scroll the streams left">‹</button>
         <div class="row pills" id="pills"></div>
-        <button class="scroll right" id="scroll-right" title="Scroll the streams right">›</button>
+        <button class="scroll right" id="scroll-right" data-i18n-title title="Scroll the streams right">›</button>
       </div>
     </div>
   </div>
@@ -139,6 +140,7 @@
     // stream running in it.
     const { invoke } = window.__TAURI__.core;
     const { listen } = window.__TAURI__.event;
+    const { t } = I18N;
     const id = Number(new URLSearchParams(location.search).get('id'));
     const controls = document.getElementById('controls');
     const pills = document.getElementById('pills');
@@ -169,8 +171,8 @@
     function showError(err) {
       const el = document.getElementById('error');
       if (!el) return;
-      el.textContent = String(err);
-      el.title = String(err);
+      el.textContent = I18N.text(String(err));
+      el.title = el.textContent;
       clearTimeout(showError.timer);
       showError.timer = setTimeout(() => { el.textContent = ''; }, 6000);
     }
@@ -194,7 +196,7 @@
 
     const slotName = (slot) => slot.name || `Slot ${slot.id}`;
     const frontPage = (panels) => panels?.pages?.find((p) => p.label === panels.front);
-    const pageName = (page) => page.login || `${PLATFORMS[page.platform].name} (not on a channel)`;
+    const pageName = (page) => page.login || t('{platform} (not on a channel)', { platform: PLATFORMS[page.platform].name });
 
     // While the player types (renaming, adding a channel), state updates don't redraw the row.
     let editing = false;
@@ -204,7 +206,7 @@
     // Click = show the slot fullscreen (again = grid). Double-click = rename it in place
     // (Enter saves, Esc cancels, empty = default name).
     function nameButton(slot, focused) {
-      const b = button(slotName(slot), `${focused ? 'Back to the grid' : 'Show this slot fullscreen'} (Ctrl+${slot.id}) · double-click to rename`, () => {
+      const b = button(slotName(slot), `${focused ? t('Back to the grid') : t('Show this slot fullscreen')} (Ctrl+${slot.id}) · ${t('double-click to rename')}`, () => {
         clearTimeout(b.clickTimer);
         b.clickTimer = setTimeout(() => invoke('focus_slot', { id }).catch(showError), 220);
       }, 'name');
@@ -241,10 +243,11 @@
       const shown = frontPage(panels)?.platform === platform;
       const count = panels?.pages?.filter((p) => p.platform === platform).length ?? 0;
       const title = shown
-        ? `Back to the game (${name} keeps running muted)`
+        ? t('Back to the game ({name} keeps running muted)', { name })
         : count
-          ? `${count} ${name} stream${count > 1 ? 's' : ''} running in the background — click to show one (the pills pick which)`
-          : `Open ${name} in this slot (log in here)`;
+          ? t(count > 1 ? '{count} {name} streams running in the background — click to show one (the pills pick which)'
+              : '1 {name} stream running in the background — click to show it', { count, name })
+          : t('Open {name} in this slot (log in here)', { name });
       const b = button('', title, () => call('toggle_panel', { platform }), 'platform');
       b.innerHTML = svg;
       b.setAttribute('aria-label', title);
@@ -260,7 +263,7 @@
     // it as a stream in this slot.
     let addPlatform = 'twitch';
     function addButton() {
-      const b = button('+', 'Add a Twitch or Kick channel to this slot', () => openAddBox(b), 'add');
+      const b = button('+', t('Add a Twitch or Kick channel to this slot'), () => openAddBox(b), 'add');
       return b;
     }
 
@@ -270,7 +273,7 @@
       const box = document.createElement('span');
       box.className = 'addbox';
       const picks = ['twitch', 'kick'].map((platform) => {
-        const p = button('', `Channel on ${PLATFORMS[platform].name}`, () => {
+        const p = button('', t('Channel on {name}', { name: PLATFORMS[platform].name }), () => {
           addPlatform = platform;
           picks.forEach((x) => x.classList.toggle('on', x.dataset.platform === platform));
           input.focus();
@@ -283,7 +286,7 @@
         return p;
       });
       const input = document.createElement('input');
-      input.placeholder = 'channel name or link';
+      input.placeholder = t('channel name');
       input.maxLength = 200;
       let busy = false;
       const close = () => { box.remove(); redraw(); };
@@ -304,7 +307,7 @@
     function stopButton(panels) {
       const page = frontPage(panels);
       if (!page) return [];
-      return [button('⏹', `Stop ${pageName(page)} (${PLATFORMS[page.platform].name})`,
+      return [button('⏹', t('Stop {name} ({platform})', { name: pageName(page), platform: PLATFORMS[page.platform].name }),
         () => call('stop_page', { label: page.label }))];
     }
 
@@ -316,8 +319,8 @@
       // A problem the app couldn't fix by itself (stalled, logged out, offline).
       if (page.warning) el.classList.add('warn');
       const show = button('', shown
-        ? `Back to the game (${pageName(page)} keeps running muted)`
-        : `Show ${pageName(page)} (${name}) in this slot`,
+        ? t('Back to the game ({name} keeps running muted)', { name: pageName(page) })
+        : t('Show {name} ({platform}) in this slot', { name: pageName(page), platform: name }),
         () => call('show_page', { label: page.label }), 'show');
       show.innerHTML = svg;
       const text = document.createElement('span');
@@ -325,9 +328,9 @@
       show.append(text);
       if (page.warning) {
         show.append(Object.assign(document.createElement('span'), { className: 'warn-icon', textContent: '⚠' }));
-        show.title = `${page.warning}\n\n${show.title}`;
+        show.title = `${I18N.text(page.warning)}\n\n${show.title}`;
       }
-      el.append(show, button('×', `Stop ${pageName(page)}`, () => call('stop_page', { label: page.label }), 'stop'));
+      el.append(show, button('×', t('Stop {name}', { name: pageName(page) }), () => call('stop_page', { label: page.label }), 'stop'));
       return el;
     }
 
@@ -354,28 +357,27 @@
           const ms = (running[platform]?.[key] || 0) - now;
           if (ms <= 0) continue;
           const chip = Object.assign(document.createElement('span'), { className: `bonus ${key}`, textContent: `${short} ${left(ms)}` });
-          chip.title = `${long} from ${PLATFORMS[platform].name}: ${left(ms)} left`;
+          chip.title = t('{bonus} from {platform}: {left} left', { bonus: long, platform: PLATFORMS[platform].name, left: left(ms) });
           chips.push(chip);
         }
         // A platform without bonuses stays visible, marked as such ("?" until the game says).
         if (!chips.length) {
           const known = !!running[platform];
-          const none = Object.assign(document.createElement('span'), { className: 'bonus none', textContent: known ? 'no bonus' : '?' });
+          const none = Object.assign(document.createElement('span'), { className: 'bonus none', textContent: known ? t('no bonus') : '?' });
           none.title = known
-            ? `No PokeIdle bonus from ${PLATFORMS[platform].name} running`
-            : `The game hasn't reported this account's ${PLATFORMS[platform].name} bonuses yet`;
+            ? t('No PokeIdle bonus from {platform} running', { platform: PLATFORMS[platform].name })
+            : t("The game hasn't reported this account's {platform} bonuses yet", { platform: PLATFORMS[platform].name });
           chips.push(none);
         }
         const group = document.createElement('span');
         group.className = 'bgroup';
         const mark = Object.assign(document.createElement('span'), { className: 'bmark' });
         mark.innerHTML = PLATFORMS[platform].svg;
-        mark.title = `Bonuses from ${PLATFORMS[platform].name}`;
+        mark.title = t('Bonuses from {platform}', { platform: PLATFORMS[platform].name });
         group.append(mark, ...chips);
         groups.push(group);
       }
       bonusBox.replaceChildren(...groups);
-      bonusBox.title = groups.length ? '' : 'No PokeIdle bonus from Kick or Twitch running';
       renderVote();
     }
 
@@ -385,17 +387,17 @@
       const s = latest?.vote?.[id];
       if (!s || s.error) {
         voteBox.replaceChildren();
-        voteBox.title = s?.error || '';
+        voteBox.title = I18N.text(s?.error || '');
         return;
       }
       const ms = s.readyAt - Date.now();
       const ready = ms <= 0;
-      const chip = button(ready ? 'Vote' : `Vote ${left(ms)}`, '', () => invoke('open_vote', { id }).catch(showError), `vote${ready ? ' ready' : ''}`);
-      const pair = s.perDiamond ? ` · ${s.inPair}/${s.perDiamond} toward the next diamond` : '';
+      const chip = button(ready ? t('Vote') : `${t('Vote')} ${left(ms)}`, '', () => invoke('open_vote', { id }).catch(showError), `vote${ready ? ' ready' : ''}`);
+      const pair = s.perDiamond ? ` · ${t('{n}/{of} toward the next diamond', { n: s.inPair, of: s.perDiamond })}` : '';
       chip.title = (ready
-        ? `IdleHub vote for ${s.nick} is ready: opens the vote page in a window with this slot's session (sign in and confirm there)`
-        : `Next IdleHub vote for ${s.nick} in ${left(ms)} (click to open the vote page anyway)`)
-        + `\n${s.votes} vote${s.votes === 1 ? '' : 's'}, ${s.diamonds} diamond${s.diamonds === 1 ? '' : 's'}${pair}`;
+        ? t("IdleHub vote for {nick} is ready: opens the vote page in a window with this slot's session (sign in and confirm there)", { nick: s.nick })
+        : t('Next IdleHub vote for {nick} in {left} (click to open the vote page anyway)', { nick: s.nick, left: left(ms) }))
+        + `\n${t(s.votes === 1 ? '{n} vote' : '{n} votes', { n: s.votes })}, ${t(s.diamonds === 1 ? '{n} diamond' : '{n} diamonds', { n: s.diamonds })}${pair}`;
       voteBox.replaceChildren(chip);
     }
     setInterval(renderBonuses, 30000);
@@ -413,13 +415,13 @@
       const error = document.createElement('span');
       error.className = 'error';
       error.id = 'error';
-      const mute = button(slot.muted ? '🔇' : '🔊', slot.muted ? 'Unmute this game' : 'Mute this game',
+      const mute = button(slot.muted ? '🔇' : '🔊', slot.muted ? t('Unmute this game') : t('Mute this game'),
         () => call('toggle_mute'), slot.muted ? 'muted' : '');
       const sep = () => Object.assign(document.createElement('span'), { className: 'sep' });
       // While the top toolbar is hidden, the top-left slot's header has the button that brings
       // it back.
       const showBar = state.toolbar_hidden && state.corner === id
-        ? [button('▾', 'Show the top bar (+ Slot, Grid, settings…)',
+        ? [button('▾', t('Show the top bar (+ SLOT, GRID, settings…)'),
             () => invoke('set_toolbar_hidden', { hidden: false }).catch(showError), 'showbar')]
         : [];
       controls.replaceChildren(
@@ -436,12 +438,12 @@
         Object.assign(document.createElement('span'), { className: 'spacer' }),
         // Fullscreen: shows or hides the stats panel on the right.
         ...(focused
-          ? [button('▤', state.focus_panel ? 'Hide the stats panel' : 'Show the stats panel',
+          ? [button('▤', state.focus_panel ? t('Hide the stats panel') : t('Show the stats panel'),
               () => invoke('set_focus_panel', { on: !state.focus_panel }).catch(showError),
               state.focus_panel ? 'panel-on' : '')]
           : []),
-        button('⟳', 'Reload the game', () => call('reload_slot')),
-        confirmButton('×', 'Close?', 'Close slot (keeps its login)', '', () => call('close_slot')),
+        button('⟳', t('Reload the game'), () => call('reload_slot')),
+        confirmButton('×', t('Close?'), t('Close slot (keeps its login)'), '', () => call('close_slot')),
       );
       controls.scrollLeft = scroll;
       renderBonuses();
@@ -457,7 +459,7 @@
           const group = document.createElement('span');
           group.className = 'group';
           group.dataset.platform = platform;
-          group.title = `${PLATFORMS[platform].name} streams`;
+          group.title = t('{platform} streams', { platform: PLATFORMS[platform].name });
           group.append(...own.map((p) => pill(p, p.label === panels.front)));
           return group;
         })
@@ -470,7 +472,7 @@
       pills.replaceChildren(...(parts.length
         ? parts
         : [Object.assign(document.createElement('span'), {
-            className: 'empty', textContent: 'No streams · + adds a channel' })]));
+            className: 'empty', textContent: t('No streams · + adds a channel') })]));
       streams.replaceChildren(addButton(), pillbox);
       pills.scrollLeft = pillScroll;
       updateScrollHints();
@@ -561,6 +563,7 @@
 
     listen('state', (e) => render(e.payload));
     listen('error', (e) => showError(e.payload));
+    I18N.onChange(() => { if (latest && !editing) render(latest); });
     invoke('get_state').then(render);
   </script>
 </body>

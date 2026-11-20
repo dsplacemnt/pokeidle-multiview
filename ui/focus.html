@@ -28,9 +28,9 @@
     button { background: var(--chip); color: var(--text); border: 0; border-radius: 5px; height: 24px;
       padding: 0 8px; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
     button:hover { background: var(--chip-active); }
-    .cards { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 12px 12px; }
-    .card { background: var(--card); border-radius: 8px; padding: 9px 10px 10px; }
-    .card h2 { margin: 0 0 7px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    .cards { display: flex; flex-direction: column; gap: 10px; padding: 0 12px 14px 14px; }
+    .card { background: var(--card); border-radius: 10px; padding: 12px 12px 12px; }
+    .card h2 { margin: 0 0 10px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
       color: var(--muted); display: flex; align-items: center; gap: 6px; }
     .card h2 .extra { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; }
     .empty { color: var(--muted); font-size: 12px; }
@@ -73,9 +73,30 @@
     .tag.ok { color: var(--ok); background: rgba(61, 220, 132, .12); }
     button.tag.ready { color: #1a1408; background: var(--accent); height: auto; }
     button.tag.ready:hover { background: #ffd76b; }
-    /* Game session numbers. */
+    /* Hunt analysis: supplies table, pace tiles, next levels. */
+    .hunt-sec { display: grid; gap: 5px; }
+    .hunt-sec + .grid, .grid + .hunt-sec { margin-top: 12px; }
+    .sub { font-size: 11px; font-weight: 600; color: var(--muted); }
+    .supply { display: grid; grid-template-columns: minmax(0, 1fr) 58px 64px 54px; gap: 8px; align-items: center;
+      font-size: 12.5px; font-variant-numeric: tabular-nums; padding: 3px 6px; border-radius: 6px; background: var(--chip); }
+    .supply.shead { background: transparent; padding-top: 0; padding-bottom: 0; font-size: 10.5px; color: var(--muted); }
+    .supply .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .supply .sleft, .supply .srate, .supply .seta { text-align: right; white-space: nowrap; }
+    .supply .srate { color: var(--muted); }
+    .supply .seta { font-weight: 700; }
+    .supply.warn .seta { color: #ffb74d; }
+    .supply.low { box-shadow: inset 0 0 0 1px rgba(255, 138, 128, .55); }
+    .supply.low .seta { color: var(--bad); }
+    .lvrow { display: grid; grid-template-columns: minmax(0, 1fr) auto 70px; gap: 8px; font-size: 12.5px;
+      font-variant-numeric: tabular-nums; }
+    .lvrow .lvname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .lvrow .lvfrom { color: var(--muted); }
+    .lvrow .lvin { text-align: right; font-weight: 700; }
+    .hunt-foot { margin-top: 10px; font-size: 11.5px; color: var(--muted); }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-    .stat { background: var(--chip); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+    .stat { background: var(--chip); border-radius: 6px; padding: 7px 9px; min-width: 0; }
+    .stat.pos .v { color: var(--ok); }
+    .stat.neg .v { color: var(--bad); }
     .stat .v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .stat .k { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -83,12 +104,13 @@
     .log .when { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; width: 38px; }
     .log .name { white-space: normal; overflow: visible; }
   </style>
+  <script src="i18n.js"></script>
 </head>
 <body>
   <div class="top">
     <h1 id="title">Stats</h1>
-    <button id="grid" title="Back to the grid">Grid</button>
-    <button id="hide" title="Hide this panel (▤ in the slot header brings it back)">✕</button>
+    <button id="grid" data-i18n-title title="Back to the grid">GRID</button>
+    <button id="hide" data-i18n-title title="Hide this panel (▤ in the slot header brings it back)">✕</button>
   </div>
   <div class="cards" id="cards"></div>
   <script>
@@ -96,6 +118,7 @@
     // account's bonuses, streams, daily chores, game numbers and what the app did for it.
     const { invoke } = window.__TAURI__.core;
     const { listen } = window.__TAURI__.event;
+    const { t } = I18N;
     const cards = document.getElementById('cards');
     let view = null;
 
@@ -136,14 +159,14 @@
     const num = (n) => Number(n).toLocaleString();
 
     function bonusesCard(v) {
-      const c = card('Bonuses');
+      const c = card(t('Bonuses'));
       const now = Date.now();
       for (const platform of ['twitch', 'kick']) {
         const block = el('div', 'plat');
         const head = el('div', 'plat-head');
         const linked = v[`${platform}_linked`];
         const state = el('span', 'state' + (linked === false ? ' bad' : ''),
-          linked === true ? 'linked in game' : linked === false ? 'not linked in game' : 'waiting for the game');
+          t(linked === true ? 'linked in game' : linked === false ? 'not linked in game' : 'waiting for the game'));
         head.append(mark(platform), el('span', '', PLATFORMS[platform].name), state);
         block.append(head);
         const ends = v.running?.[platform];
@@ -155,29 +178,31 @@
           fill.style.width = `${Math.max(0, Math.min(1, ms / DAY)) * 100}%`;
           bar.append(fill);
           row.append(el('span', 'label', short), bar, el('span', 'time', ms > 0 ? left(ms) : ends ? '—' : '?'));
-          row.title = ms > 0 ? `${long} from ${PLATFORMS[platform].name}: ends at ${clock(now + ms)}` : `${long}: not running`;
+          row.title = ms > 0
+            ? t('{bonus} from {platform}: ends at {time}', { bonus: long, platform: PLATFORMS[platform].name, time: clock(now + ms) })
+            : t('{bonus}: not running', { bonus: long });
           block.append(row);
         }
         c.append(block);
       }
       const names = { xp: 'XP', capture: 'Capture Boost', lure: 'Secret Lure' };
       const target = el('div', 'target');
-      target.append('Kick redeem target: ', el('b', '', v.bonus ? names[v.bonus] : 'none (⚙ to pick)'));
+      target.append(t('Kick redeem target:') + ' ', el('b', '', v.bonus ? names[v.bonus] : t('none (⚙ to pick)')));
       c.append(target);
       return c;
     }
 
     function streamsCard(v) {
-      const c = card('Streams', v.streams.length ? `${v.streams.length} open` : '');
+      const c = card(t('Streams'), v.streams.length ? t('{n} open', { n: v.streams.length }) : '');
       const list = el('div', 'list');
-      if (!v.streams.length) list.append(el('span', 'empty', 'No streams open in this slot'));
+      if (!v.streams.length) list.append(el('span', 'empty', t('No streams open in this slot')));
       for (const platform of ['twitch', 'kick']) {
         for (const s of v.streams.filter((x) => x.platform === platform)) {
           const item = el('div', 'item' + (s.shown ? ' shown' : '') + (s.warning ? ' warn' : ''));
-          item.append(mark(platform), el('span', 'name', s.login || `${PLATFORMS[platform].name} (no channel)`),
-            s.shown ? el('span', 'right', 'on screen') : el('span', 'dot'));
+          item.append(mark(platform), el('span', 'name', s.login || t('{platform} (no channel)', { platform: PLATFORMS[platform].name })),
+            s.shown ? el('span', 'right', t('on screen')) : el('span', 'dot'));
           list.append(item);
-          if (s.warning) list.append(el('div', 'why', s.warning));
+          if (s.warning) list.append(el('div', 'why', I18N.text(s.warning)));
         }
       }
       c.append(list);
@@ -185,9 +210,9 @@
     }
 
     function pointsCard(v) {
-      const c = card('Channel points');
+      const c = card(t('Channel points'));
       const list = el('div', 'list');
-      if (!v.points.length) list.append(el('span', 'empty', 'None seen yet (they show once a stream reports them)'));
+      if (!v.points.length) list.append(el('span', 'empty', t('None seen yet (they show once a stream reports them)')));
       for (const [platform, channel, points] of v.points.slice(0, 8)) {
         const item = el('div', 'item');
         item.append(mark(platform), el('span', 'name', channel), el('span', 'right', num(points)));
@@ -198,40 +223,40 @@
     }
 
     function choresCard(v) {
-      const c = card('Daily chores');
+      const c = card(t('Daily chores'));
       // IdleHub vote.
       const vote = el('div', 'chore');
-      const vName = el('span', 'name', 'IdleHub vote');
+      const vName = el('span', 'name', t('IdleHub vote'));
       let vTag;
       const s = v.vote;
       if (!v.vote_reminded) {
-        vName.append(el('small', '', 'Reminder off for this account (⚙)'));
-        vTag = el('span', 'tag', 'off');
+        vName.append(el('small', '', t('Reminder off for this account (⚙)')));
+        vTag = el('span', 'tag', t('off'));
       } else if (!s || s.error) {
-        vName.append(el('small', '', s?.error || 'Checking…'));
+        vName.append(el('small', '', s?.error ? I18N.text(s.error) : t('Checking…')));
         vTag = el('span', 'tag', '?');
       } else {
         const ms = s.readyAt - Date.now();
-        const pair = s.perDiamond ? ` (${s.inPair}/${s.perDiamond} to next)` : '';
-        vName.append(el('small', '', `${s.nick} · ${s.votes} vote${s.votes === 1 ? '' : 's'} · ${s.diamonds} 💎${pair}`));
-        vTag = el('button', 'tag' + (ms <= 0 ? ' ready' : ''), ms <= 0 ? 'Vote now' : `in ${left(ms)}`);
-        vTag.title = 'Opens the vote page in a window with this slot\'s session';
+        const pair = s.perDiamond ? ` (${t('{n}/{of} to next', { n: s.inPair, of: s.perDiamond })})` : '';
+        vName.append(el('small', '', `${s.nick} · ${t(s.votes === 1 ? '{n} vote' : '{n} votes', { n: s.votes })} · ${s.diamonds} 💎${pair}`));
+        vTag = el('button', 'tag' + (ms <= 0 ? ' ready' : ''), ms <= 0 ? t('Vote now') : t('in {left}', { left: left(ms) }));
+        vTag.title = t("Opens the vote page in a window with this slot's session");
         vTag.addEventListener('click', () => invoke('open_vote', { id: v.slot }).catch(() => {}));
       }
       vote.append(vName, vTag);
       // Kick Daily Reward.
       const daily = el('div', 'chore');
-      const dName = el('span', 'name', 'Kick Daily Reward');
+      const dName = el('span', 'name', t('Kick Daily Reward'));
       let dTag;
       if (!v.daily_enabled) {
-        dName.append(el('small', '', 'Auto-claim off (⚙)'));
-        dTag = el('span', 'tag', 'off');
+        dName.append(el('small', '', t('Auto-claim off (⚙)')));
+        dTag = el('span', 'tag', t('off'));
       } else if (v.daily_done_today) {
-        dName.append(el('small', '', 'Claimed today (UTC)'));
-        dTag = el('span', 'tag ok', 'done');
+        dName.append(el('small', '', t('Claimed today (UTC)')));
+        dTag = el('span', 'tag ok', t('done'));
       } else {
-        dName.append(el('small', '', 'Claimed on the next manager pass'));
-        dTag = el('span', 'tag', 'pending');
+        dName.append(el('small', '', t('Claimed on the next manager pass')));
+        dTag = el('span', 'tag', t('pending'));
       }
       daily.append(dName, dTag);
       c.append(vote, daily);
@@ -239,27 +264,93 @@
     }
 
     // The game's own numbers for this session (whatever game-watch.js picked from its state).
-    function gameCard(v) {
-      const entries = Array.isArray(v.game) ? v.game : [];
-      if (!entries.length) return null;
-      const c = card('Game session', 'since the game loaded');
-      const grid = el('div', 'grid');
-      for (const [k, val] of entries) {
-        const s = el('div', 'stat');
-        s.append(el('div', 'v', typeof val === 'number' ? num(val) : String(val)), el('div', 'k', k));
-        grid.append(s);
+    // Hunt analysis (from game-watch.js): supplies with how long they last, the pace, the next
+    // levels and the catches, since the game loaded or the hunt changed.
+    const compact = (n) => (n === null || n === undefined ? '—'
+      : Math.abs(n) >= 1e4 ? new Intl.NumberFormat(I18N.lang === 'pt' ? 'pt-BR' : 'en', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+      : Math.round(n).toLocaleString(I18N.lang === 'pt' ? 'pt-BR' : 'en'));
+    const hoursText = (h) => {
+      if (h === null || h === undefined) return '—';
+      const m = Math.round(h * 60);
+      const d = Math.floor(m / 1440), hh = Math.floor((m % 1440) / 60), mm = m % 60;
+      return d ? `${d}d ${hh}h` : hh ? `${hh}h${String(mm).padStart(2, '0')}` : `${mm}m`;
+    };
+    const huntName = (slug) => (slug || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const KINDS = { ball: 'Balls', potion: 'Potions', revive: 'Revives' };
+
+    function huntCard(v) {
+      const h = v.game;
+      if (!h || h.v !== 2) return null;
+      const c = card(t('Hunt analysis'), [huntName(h.hunt), hoursText(h.minutes / 60)].filter(Boolean).join(' · '));
+
+      // Supplies: what's left, used per hour, and how long it lasts at this pace.
+      const sup = el('div', 'hunt-sec');
+      sup.append(el('div', 'sub', t('Supplies')));
+      const rows = (h.supplies || []).filter((s) => s.perHour > 0 || s.left > 0 || s.used > 0)
+        .sort((a, b) => (a.hoursLeft ?? Infinity) - (b.hoursLeft ?? Infinity));
+      if (!rows.length) sup.append(el('span', 'empty', t('Waiting for the game to show the bag (a few minutes)')));
+      for (const s of rows) {
+        const r = el('div', 'supply' + (s.hoursLeft !== null && s.hoursLeft < 2 ? ' low' : s.hoursLeft !== null && s.hoursLeft < 6 ? ' warn' : ''));
+        const name = el('span', 'sname', s.name);
+        name.title = t(KINDS[s.kind]);
+        r.append(
+          name,
+          el('span', 'sleft', compact(s.left)),
+          el('span', 'srate', s.perHour !== null && s.perHour !== undefined ? (s.perHour ? t('{n}/h', { n: compact(s.perHour) }) : t('unused')) : s.used ? t('{n} used', { n: compact(s.used) }) : t('unused')),
+          el('span', 'seta', s.hoursLeft !== null ? hoursText(s.hoursLeft) : '—'),
+        );
+        r.title = s.hoursLeft !== null
+          ? t('{name}: {left} left, {rate} per hour — lasts about {time}', { name: s.name, left: compact(s.left), rate: compact(s.perHour), time: hoursText(s.hoursLeft) })
+          : t('{name}: {left} left, not used in this hunt yet', { name: s.name, left: compact(s.left) });
+        sup.append(r);
       }
-      c.append(grid);
+      const head = el('div', 'supply shead');
+      head.append(el('span', 'sname', ''), el('span', 'sleft', t('left')), el('span', 'srate', t('per hour')), el('span', 'seta', t('lasts')));
+      if (rows.length) sup.children[0].after(head);
+
+      // Pace: tiles.
+      const grid = el('div', 'grid');
+      const tile = (value, label, cls) => {
+        const s = el('div', 'stat' + (cls ? ` ${cls}` : ''));
+        s.append(el('div', 'v', value), el('div', 'k', label));
+        grid.append(s);
+      };
+      tile(compact(h.killsPerHour), t('Kills per hour'));
+      tile(compact(h.xpPerHour), t('XP per hour'));
+      tile(compact(h.goldPerHour), t('Gold per hour'));
+      tile(h.costPerHour === null ? '—' : `−${compact(h.costPerHour)}`, t('Supplies per hour'));
+      tile(h.netPerHour === null ? '—' : `${h.netPerHour >= 0 ? '+' : ''}${compact(h.netPerHour)}`, t('Net gold per hour'), h.netPerHour !== null && h.netPerHour < 0 ? 'neg' : 'pos');
+      const rate = h.throws ? Math.round((h.catches / h.throws) * 1000) / 10 : null;
+      tile(h.throws ? `${h.catches}/${h.throws}` : '—', rate !== null ? t('Catches ({rate}%)', { rate }) : t('Catches'));
+
+      // Next levels.
+      const lv = el('div', 'hunt-sec');
+      lv.append(el('div', 'sub', t('Next level')));
+      const level = (who, from, hoursLeft) => {
+        const r = el('div', 'lvrow');
+        r.append(el('span', 'lvname', who), el('span', 'lvfrom', `Lv ${from} → ${from + 1}`), el('span', 'lvin', hoursLeft !== null ? t('in {time}', { time: hoursText(hoursLeft) }) : '—'));
+        lv.append(r);
+      };
+      if (h.trainer) level(t('Trainer'), h.trainer.level, h.trainer.hoursLeft);
+      if (h.pokemon) level(h.pokemon.name, h.pokemon.level, h.pokemon.hoursLeft);
+
+      const foot = [];
+      if (h.killsPerHour === null) foot.push(t('Rates show after 5 minutes of hunting.'));
+      if (h.shinies) foot.push(t('{n} shiny seen', { n: h.shinies }));
+      if (h.wild) foot.push(t('Fighting {wild}', { wild: h.wild }));
+      c.append(sup, grid);
+      if (h.trainer || h.pokemon) c.append(lv);
+      if (foot.length) c.append(el('div', 'hunt-foot', foot.join(' · ')));
       return c;
     }
 
     function logCard(v) {
-      const c = card('Activity', v.log.length ? `last ${v.log.length}` : '');
+      const c = card(t('Activity'), v.log.length ? t('last {n}', { n: v.log.length }) : '');
       const list = el('div', 'list log');
-      if (!v.log.length) list.append(el('span', 'empty', 'Nothing yet — the app logs swaps, redeems, reloads and claims here'));
+      if (!v.log.length) list.append(el('span', 'empty', t('Nothing yet — the app logs swaps, redeems, reloads and claims here')));
       for (const [at, text] of v.log) {
         const item = el('div', 'item');
-        item.append(el('span', 'when', clock(at)), el('span', 'name', text));
+        item.append(el('span', 'when', clock(at)), el('span', 'name', I18N.text(text)));
         list.append(item);
       }
       c.append(list);
@@ -273,7 +364,7 @@
       title.textContent = v.name;
       title.append(el('span', 'sub', `#${v.slot}`));
       const scroll = document.scrollingElement.scrollTop;
-      cards.replaceChildren(...[bonusesCard(v), choresCard(v), gameCard(v), streamsCard(v), pointsCard(v), logCard(v)].filter(Boolean));
+      cards.replaceChildren(...[huntCard(v), bonusesCard(v), choresCard(v), streamsCard(v), pointsCard(v), logCard(v)].filter(Boolean));
       document.scrollingElement.scrollTop = scroll;
     }
 
@@ -283,6 +374,7 @@
       if (e.ctrlKey && e.key >= '1' && e.key <= '4') invoke('focus_slot', { id: Number(e.key) }).catch(() => {});
     });
     listen('focus', (e) => render(e.payload));
+    I18N.onChange(() => render(view));
     const refresh = () => invoke('get_focus').then(render).catch(() => {});
     // Countdowns tick, and log lines that came without a state change show up.
     setInterval(refresh, 15000);

@@ -13,8 +13,16 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3NTQwQ0U0MkFFQUM5N0IKUldSN3llb3E1QXhVdHo1MXdvUkx3bW9reXpjdHJuK0ZBN1RjVUtzM2J0U1lsWlg4T3dhMDRjTzAK",
+      "endpoints": ["https://github.com/dsplacemnt/pokeidle-multiview/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["msi", "nsis"],
     "icon": ["icons/icon.ico"],
     "publisher": "PokeIdle Multiview",

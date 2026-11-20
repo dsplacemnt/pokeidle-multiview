@@ -35,16 +35,40 @@ jobs:
 
       - run: cargo test --locked
 
-      # Builds target/release/pokeidle-multiview.exe plus the MSI (WiX) and NSIS installers.
+      # Builds target/release/pokeidle-multiview.exe plus the MSI (WiX) and NSIS installers, and
+      # signs both installers for the in-app updater (.sig files next to them). The private key
+      # is a repository secret; its public half is in tauri.conf.json.
       - run: npx --yes @tauri-apps/cli@2.12.6 build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
 
       - name: Collect the files to publish
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
+          $msi = (Get-ChildItem target/release/bundle/msi/*.msi | Select-Object -First 1).FullName
+          $nsis = (Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1).FullName
+          $msiName = "PokeIdleMultiview_${env:VERSION}_x64.msi"
+          $nsisName = "PokeIdleMultiview_${env:VERSION}_x64-setup.exe"
           Copy-Item target/release/pokeidle-multiview.exe "dist/PokeIdleMultiview_${env:VERSION}_x64_portable.exe"
-          Copy-Item (Get-ChildItem target/release/bundle/msi/*.msi | Select-Object -First 1).FullName "dist/PokeIdleMultiview_${env:VERSION}_x64.msi"
-          Copy-Item (Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1).FullName "dist/PokeIdleMultiview_${env:VERSION}_x64-setup.exe"
+          Copy-Item $msi "dist/$msiName"
+          Copy-Item $nsis "dist/$nsisName"
+          # latest.json: what the in-app updater reads (releases/latest/download/latest.json).
+          # Each installer type updates with its own kind; the plain key is for anything else.
+          $base = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+          $msiEntry = @{ signature = (Get-Content "$msi.sig" -Raw).Trim(); url = "$base/$msiName" }
+          $nsisEntry = @{ signature = (Get-Content "$nsis.sig" -Raw).Trim(); url = "$base/$nsisName" }
+          @{
+            version = $env:VERSION
+            notes = "PokeIdle Multiview $env:VERSION"
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = @{
+              'windows-x86_64-msi' = $msiEntry
+              'windows-x86_64-nsis' = $nsisEntry
+              'windows-x86_64' = $msiEntry
+            }
+          } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8NoBOM dist/latest.json
           Get-ChildItem dist | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
 
       - uses: softprops/action-gh-release@v3
@@ -63,5 +87,7 @@ jobs:
             | `PokeIdleMultiview_${{ env.VERSION }}_x64_portable.exe` | Portable: no install, just run it |
 
             Both installers add a Start menu shortcut and install the WebView2 runtime if it is missing.
+            From 0.10.0 on, installed copies update themselves (⬆ on the top bar); the portable
+            exe shows when a new version is out.
             The files are not code-signed, so Windows SmartScreen may warn the first time: choose
             **More info → Run anyway**.

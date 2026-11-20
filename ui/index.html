@@ -29,21 +29,38 @@
     #grid.on { background: var(--chip-active); }
     button.icon { width: 30px; padding: 0; font-size: 16px; }
     /* Quick switch between slots (each slot's own controls are in its header). */
-    .bar > .slots { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; overflow-x: auto;
-      scrollbar-width: none; }
+    /* Padded, and the active ring is drawn inside the button: a scrolling strip cuts off
+       anything that sticks out of it (an outline did). */
+    .bar > .slots { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; overflow-x: auto;
+      scrollbar-width: none; padding: 3px 2px; }
     .slots button { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
       white-space: nowrap; color: var(--muted); background: transparent; }
     .slots button:hover { color: var(--text); background: var(--chip); }
-    .slots button.active { color: var(--text); background: var(--chip-active); outline: 1px solid var(--accent); }
+    .slots button.active { color: var(--text); background: var(--chip-active); box-shadow: inset 0 0 0 1px var(--accent); }
     .slots .key { opacity: .6; margin-right: 5px; font-size: 11px; }
+    #support { color: #ff8fa0; background: transparent; }
+    #support:hover { background: var(--chip); }
     .error { color: #ff8a80; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .status { color: var(--muted); }
+    /* A newer version: bright, so it's seen. */
+    .update { background: var(--accent); color: #1a1408; font-weight: 600; }
+    .update:hover { background: #ffd76b; }
+    .update.armed { background: #3ddc84; }
+    .update:disabled { opacity: 1; cursor: progress; }
+    /* Language flags: the active one bright, the other dimmed. */
+    .flags { display: flex; gap: 4px; }
+    .flag { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+      background: transparent; opacity: .45; }
+    .flag:hover { opacity: .8; background: var(--chip); }
+    .flag.on { opacity: 1; background: var(--chip); }
+    .flag svg { width: 20px; height: 14px; display: block; border-radius: 2px; }
   </style>
+  <script src="i18n.js"></script>
 </head>
 <body>
   <div class="bar">
     <!-- Top-left corner, same place as the ▾ that brings the bar back. -->
-    <button id="hide" class="icon" title="Hide this bar to give the slots more room (▾ in the same corner brings it back)">▴</button>
+    <button id="hide" class="icon" data-i18n-title title="Hide this bar to give the slots more room (▾ in the same corner brings it back)">▴</button>
     <span class="brand">
       <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
         <circle cx="32" cy="32" r="27" fill="#f4f6f9"/>
@@ -56,24 +73,36 @@
       </svg>
       PokeIdle Multiview
     </span>
-    <button id="add">+ Slot</button>
-    <button id="grid" title="Grid: show all slots (click a slot's name to show it fullscreen instead)">Grid</button>
+    <button id="add">+ SLOT</button>
+    <button id="grid" data-i18n-title title="Grid: show all slots (click a slot's name to show it fullscreen instead)">GRID</button>
     <div class="slots" id="slots"></div>
     <span class="error" id="error"></span>
     <span class="status" id="hunt"></span>
-    <button id="settings" class="icon" title="Settings">⚙</button>
+    <button id="update" class="update" hidden></button>
+    <button id="support" data-i18n data-i18n-title title="Support the dev: Pix and Discord">♥ Support</button>
+    <span class="flags">
+      <button class="flag" data-lang="pt" title="Português (Brasil)" aria-label="Português (Brasil)">
+        <svg viewBox="0 0 20 14" aria-hidden="true"><rect width="20" height="14" fill="#009c3b"/><path d="M10 1.6 18.2 7 10 12.4 1.8 7z" fill="#ffdf00"/><circle cx="10" cy="7" r="3.1" fill="#002776"/><path d="M7.1 6.4c2-.7 4.1-.4 5.9.8" stroke="#fff" stroke-width=".6" fill="none"/></svg>
+      </button>
+      <button class="flag" data-lang="en" title="English" aria-label="English">
+        <svg viewBox="0 0 19 13" aria-hidden="true"><rect width="19" height="13" fill="#fff"/><path d="M0 0h19v1H0zm0 2h19v1H0zm0 2h19v1H0zm0 2h19v1H0zm0 2h19v1H0zm0 2h19v1H0zm0 2h19v1H0z" fill="#b22234"/><rect width="8" height="7" fill="#3c3b6e"/><g fill="#fff"><circle cx="1.5" cy="1.4" r=".45"/><circle cx="4" cy="1.4" r=".45"/><circle cx="6.5" cy="1.4" r=".45"/><circle cx="2.75" cy="2.8" r=".45"/><circle cx="5.25" cy="2.8" r=".45"/><circle cx="1.5" cy="4.2" r=".45"/><circle cx="4" cy="4.2" r=".45"/><circle cx="6.5" cy="4.2" r=".45"/><circle cx="2.75" cy="5.6" r=".45"/><circle cx="5.25" cy="5.6" r=".45"/></g></svg>
+      </button>
+    </span>
+    <button id="settings" class="icon" data-i18n-title title="Settings">⚙</button>
   </div>
   <script>
     // App-wide controls. Each slot's controls and stream pills live in its own header
     // (slot.html), on top of the slot.
     const { invoke } = window.__TAURI__.core;
     const { listen } = window.__TAURI__.event;
+    const { t } = I18N;
     const slots = document.getElementById('slots');
     const addBtn = document.getElementById('add');
+    let latest = null;
 
     function showError(err) {
       const el = document.getElementById('error');
-      el.textContent = String(err);
+      el.textContent = I18N.text(String(err));
       clearTimeout(showError.timer);
       showError.timer = setTimeout(() => { el.textContent = ''; }, 6000);
     }
@@ -81,11 +110,12 @@
     const slotName = (slot) => slot.name || `Slot ${slot.id}`;
 
     function render(state) {
+      latest = state;
       document.getElementById('grid').classList.toggle('on', state.focus == null);
       slots.replaceChildren(...state.slots.map((slot) => {
         const focused = state.focus === slot.id;
         const b = document.createElement('button');
-        b.title = `${focused ? 'Back to the grid' : `Show ${slotName(slot)} fullscreen`} (Ctrl+${slot.id})`;
+        b.title = `${focused ? t('Back to the grid') : t('Show {name} fullscreen', { name: slotName(slot) })} (Ctrl+${slot.id})`;
         const key = document.createElement('span');
         key.className = 'key';
         key.textContent = slot.id;
@@ -95,16 +125,63 @@
         return b;
       }));
       addBtn.disabled = state.slots.length >= state.max_slots;
+      addBtn.title = t('Add a slot (another account, up to 4)');
       const hunt = document.getElementById('hunt');
       hunt.textContent = state.hunt_dir ? '/hunt ✓' : '/hunt ✗';
       hunt.title = state.hunt_dir
-        ? '"/hunt for PokeIdle" extension loaded'
-        : '"/hunt for PokeIdle" not found in any installed browser';
+        ? t('"/hunt for PokeIdle" extension loaded')
+        : t('"/hunt for PokeIdle" not found in any installed browser');
     }
+
+    // Flags: the app's language (saved; every page switches at once).
+    const flags = [...document.querySelectorAll('.flag')];
+    const markFlags = () => flags.forEach((f) => f.classList.toggle('on', f.dataset.lang === I18N.lang));
+    flags.forEach((f) => f.addEventListener('click', () => {
+      I18N.set(f.dataset.lang);
+      invoke('set_language', { lang: f.dataset.lang }).catch(showError);
+    }));
+    markFlags();
+    I18N.onChange(() => { markFlags(); if (latest) render(latest); });
+
+    // ⬆ <version>: a newer release. First click asks, the second (within 4 s) installs it and
+    // the app reopens on its own; the portable exe opens the release page instead.
+    const updateBtn = document.getElementById('update');
+    let update = null;
+    function renderUpdate(u) {
+      update = u || update;
+      const v = update;
+      updateBtn.hidden = !v?.available;
+      if (!v?.available) return;
+      updateBtn.disabled = v.progress != null;
+      if (v.progress != null) {
+        updateBtn.textContent = t('Downloading {pct}%', { pct: v.progress });
+      } else if (!updateBtn.classList.contains('armed')) {
+        updateBtn.textContent = `⬆ ${v.available}`;
+      }
+      updateBtn.title = v.can_install
+        ? t('Version {v} is out: click to update (the app closes, installs it and opens again)', { v: v.available })
+        : t('Version {v} is out: click to open its download page', { v: v.available });
+      if (v.error) updateBtn.title += `\n${v.error}`;
+    }
+    updateBtn.addEventListener('click', () => {
+      if (!update?.can_install) { invoke('install_update').catch(showError); return; }
+      if (!updateBtn.classList.contains('armed')) {
+        updateBtn.classList.add('armed');
+        updateBtn.textContent = t('Update now?');
+        setTimeout(() => { updateBtn.classList.remove('armed'); renderUpdate(); }, 4000);
+        return;
+      }
+      updateBtn.classList.remove('armed');
+      invoke('install_update').catch(showError);
+    });
+    listen('update', (e) => renderUpdate(e.payload));
+    invoke('get_update').then(renderUpdate);
+    I18N.onChange(() => renderUpdate());
 
     addBtn.addEventListener('click', () => invoke('add_slot').catch(showError));
     document.getElementById('grid').addEventListener('click', () => invoke('focus_slot', { id: null }).catch(showError));
     document.getElementById('settings').addEventListener('click', () => invoke('open_settings').catch(showError));
+    document.getElementById('support').addEventListener('click', () => invoke('open_support').catch(showError));
     document.getElementById('hide').addEventListener('click', () => invoke('set_toolbar_hidden', { hidden: true }).catch(showError));
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key >= '1' && e.key <= '4') invoke('focus_slot', { id: Number(e.key) }).catch(showError);
