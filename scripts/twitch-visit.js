@@ -100,7 +100,13 @@
     const done = [];
     try {
       const points = await waitFor(summary, 20000);
-      if (!points) return 'no channel points here (offline or logged out?)';
+      if (!points) {
+        // Shown as ⚠ on the stream's pill by the app's health check.
+        window.__multiviewReport(`[multiview-health] ${JSON.stringify({
+          state: 'logged-out', detail: 'Twitch shows no channel points here: is this account logged in?' })}`);
+        return 'no channel points here (offline or logged out?)';
+      }
+      window.__multiviewReport(`[multiview-health] ${JSON.stringify({ state: 'logged-in', detail: '' })}`);
 
       // 1. The bonus chest.
       const chest = [...points.querySelectorAll('button')].find((b) =>

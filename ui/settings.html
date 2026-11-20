@@ -50,6 +50,10 @@
       padding: 6px 10px; font: inherit; }
     .saved { color: var(--muted); font-size: 12.5px; min-height: 16px; }
     select:disabled { opacity: .55; cursor: not-allowed; }
+    /* Streams with a ⚠, at the top right of the window. */
+    .problems { margin-left: auto; font-size: 12.5px; color: #ff8a80; background: rgba(255, 138, 128, .12);
+      padding: 3px 10px; border-radius: 10px; cursor: default; }
+    .problems:empty { display: none; }
     /* Text on top, the control below at full width (for narrow cards). */
     label.row.stack { flex-direction: column; align-items: stretch; gap: 10px; }
     label.row.stack select { align-self: stretch; width: 100%; }
@@ -85,7 +89,15 @@
       padding: 14px 0; border-top: 1px solid var(--line); }
     .account:first-child { border-top: 0; padding-top: 4px; }
     .account .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .account .links, .account .points { grid-column: 1 / -1; }
+    .account .links, .account .points, .account .running { grid-column: 1 / -1; }
+    .account .running { display: grid; gap: 4px; }
+    .account .bline { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .bonus { height: 20px; padding: 0 8px; border-radius: 10px; display: inline-flex; align-items: center;
+      font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .bonus.xp { color: #ffd76b; background: rgba(242, 193, 78, .14); }
+    .bonus.capture { color: #8fd3ff; background: rgba(90, 170, 255, .14); }
+    .bonus.lure { color: #d8a8ff; background: rgba(180, 120, 255, .16); }
+    .bonus.none { color: var(--muted); background: transparent; border: 1px dashed #3a3f4b; font-weight: 500; }
     .account .links { display: flex; gap: 6px; flex-wrap: wrap; }
     .account .chip { font-size: 11.5px; padding: 2px 8px; border-radius: 10px; background: var(--row); color: var(--muted); }
     .account .chip.ok { color: #8fe0b0; background: rgba(61, 220, 132, .1); }
@@ -100,6 +112,7 @@
   <header>
     <h1>Settings</h1>
     <div class="saved" id="saved"></div>
+    <div class="problems" id="problems"></div>
   </header>
   <main>
    <div class="col">
@@ -187,6 +200,8 @@
           <span>Kick lives per account<span class="hint">Fixed: Kick pays points for 2 at a time.</span></span>
           <select id="kick-count" disabled><option>2</option></select>
         </label>
+        <label class="row"><input type="checkbox" id="kick_daily">
+          <span>Claim Kick's Daily Reward<span class="hint">Once a day per account, from Kick's gift button (not channel points). Off by default.</span></span></label>
         <label class="row"><input type="checkbox" id="sync-kick">
           <span>Keep updated from the game<span class="hint" id="sync-kick-hint"></span></span></label>
       </div>
@@ -200,6 +215,16 @@
 
    <div class="col">
     <section>
+      <h2>IdleHub vote</h2>
+      <span class="hint">Voting on IdleHub gives the account a diamond every 2 votes (one vote a day
+        counts per nick). Tick the accounts to be reminded: their header shows when the vote is
+        ready, and clicking it opens the vote page in a window with that slot's session, where you
+        sign in and confirm. The app never votes by itself. IdleHub asks for "one person, one
+        account" and may void votes it finds suspicious.</span>
+      <div id="vote-slots" style="display: grid; gap: 10px;"></div>
+    </section>
+
+    <section>
       <h2>Bonus per account</h2>
       <span class="hint">Redeems the chosen PokeIdle bonus with the account's channel points as soon as
         they cover it, on its live Kick and Twitch channels (hours add up in the game). The account
@@ -211,7 +236,7 @@
   </main>
   <script>
     const { invoke } = window.__TAURI__.core;
-    const boxes = ['close_to_tray', 'minimize_to_tray', 'keep_awake', 'smooth_transitions', 'light_kick_background'];
+    const boxes = ['close_to_tray', 'minimize_to_tray', 'keep_awake', 'smooth_transitions', 'light_kick_background', 'kick_daily'];
     const reload = document.getElementById('auto_reload_minutes');
     const saved = document.getElementById('saved');
 
@@ -310,8 +335,42 @@
       }
     }
 
+    // "Remind me to vote": a checkbox per account, with its vote status.
+    function renderVote(view) {
+      const box = document.getElementById('vote-slots');
+      box.replaceChildren(...view.slots.map((slot) => {
+        const row = document.createElement('label');
+        row.className = 'row';
+        const check = Object.assign(document.createElement('input'), { type: 'checkbox', checked: view.vote_slots.includes(slot.id) });
+        check.addEventListener('change', () => apply(invoke('set_vote_slot', { id: slot.id, on: check.checked })));
+        const v = view.vote?.[slot.id];
+        let status = '';
+        if (view.vote_slots.includes(slot.id)) {
+          if (!v) status = 'Asking the game for the vote status…';
+          else if (v.error) status = `Couldn't read the vote status: ${v.error}`;
+          else {
+            const ms = v.readyAt - Date.now();
+            const m = Math.max(0, Math.floor(ms / 60000));
+            const when = ms <= 0 ? 'vote ready now' : `next vote in ${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
+            status = `${when} · ${v.votes} vote${v.votes === 1 ? '' : 's'}, ${v.diamonds} diamond${v.diamonds === 1 ? '' : 's'}`
+              + (v.perDiamond ? ` (${v.inPair}/${v.perDiamond} toward the next)` : '');
+          }
+        }
+        const text = Object.assign(document.createElement('span'), { textContent: slot.name });
+        if (status) text.append(Object.assign(document.createElement('span'), { className: 'hint', textContent: status }));
+        row.append(check, text);
+        return row;
+      }));
+      if (!view.slots.length) box.replaceChildren(Object.assign(document.createElement('span'), { className: 'empty', textContent: 'No slots open.' }));
+    }
+
     function render(view) {
       auto = view;
+      renderVote(view);
+      const problems = document.getElementById('problems');
+      const n = view.problems?.length || 0;
+      problems.textContent = n ? `⚠ ${n} stream${n === 1 ? '' : 's'} need attention` : '';
+      problems.title = (view.problems || []).map(([slot, channel, warning]) => `${slot} · ${channel}: ${warning}`).join('\n');
       for (const platform of ['kick', 'twitch']) {
         renderList(platform, view[platform]);
         document.getElementById(`sync-${platform}`).checked = view[platform].sync;
@@ -357,7 +416,31 @@
         }
         if (!points.children.length) points.append(Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Points: not seen yet' }));
         points.title = slot.points.map(([p, c, n]) => `${p} ${c}: ${n}`).join('\n');
-        card.append(name, select, links, points);
+        // Bonuses running now, per kind: the longer of Kick's and Twitch's (both on hover).
+        const running = document.createElement('div');
+        running.className = 'running';
+        const now = Date.now();
+        const left = (ms) => {
+          const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
+          return ms < 60000 ? '<1m' : d ? `${d}d ${h}h` : h ? `${h}h${String(m % 60).padStart(2, '0')}` : `${m}m`;
+        };
+        // One line per platform (Twitch, then Kick): each runs its bonuses on its own clock.
+        for (const [platform, name] of [['twitch', 'Twitch'], ['kick', 'Kick']]) {
+          const chips = [['xp', 'XP'], ['capture', 'Capture'], ['lure', 'Lure']]
+            .map(([key, label]) => [key, label, (slot.running?.[platform]?.[key] || 0) - now])
+            .filter(([, , ms]) => ms > 0)
+            .map(([key, label, ms]) => Object.assign(document.createElement('span'), { className: `bonus ${key}`, textContent: `${label} ${left(ms)}` }));
+          // A platform without bonuses stays listed, marked as such ("?" until the game says).
+          if (!chips.length) {
+            chips.push(Object.assign(document.createElement('span'), {
+              className: 'bonus none', textContent: slot.running?.[platform] ? 'no bonus' : '?' }));
+          }
+          const line = document.createElement('div');
+          line.className = 'bline';
+          line.append(Object.assign(document.createElement('span'), { className: 'plat', textContent: name }), ...chips);
+          running.append(line);
+        }
+        card.append(name, select, links, running, points);
         return card;
       }));
       if (!view.slots.length) kbonus.replaceChildren(Object.assign(document.createElement('span'), { className: 'empty', textContent: 'No slots open.' }));

@@ -1,4 +1,5 @@
-//! Persisted settings: slots (name, zoom, mute, streams), layout, tray and comfort options.
+//! Persisted settings: slots (name, mute, streams, bonus), layout, tray, stream automation and
+//! comfort options.
 
 use std::path::Path;
 
@@ -41,6 +42,9 @@ pub const MAX_KICK_PRIORITY: usize = 30;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SlotConfig {
     pub id: u8,
+    /// The game page's zoom. No longer adjustable (the controls were removed to give the
+    /// header room) and not applied: kept so files from older versions still load.
+    #[serde(default = "full_zoom")]
     pub zoom: f64,
     /// Shown on the slot's chip; None = "Slot N".
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -54,6 +58,10 @@ pub struct SlotConfig {
     /// Twitch; None = off. ("kick_bonus" is the name it had while it was Kick only.)
     #[serde(default, alias = "kick_bonus", skip_serializing_if = "Option::is_none")]
     pub bonus: Option<KickBonus>,
+}
+
+fn full_zoom() -> f64 {
+    1.0
 }
 
 impl SlotConfig {
@@ -206,6 +214,19 @@ pub struct Config {
     /// channels of the priority lists, the ones where it has the most points.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub balances: std::collections::HashMap<String, u64>,
+    /// Claim Kick's Daily Reward once a day on every account (off by default).
+    #[serde(default)]
+    pub kick_daily: bool,
+    /// The last day (days since 1970, UTC: Kick's daily rewards reset at 00:00 UTC) each slot's
+    /// Kick Daily Reward was claimed or found already claimed.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub kick_daily_done: std::collections::HashMap<u8, i64>,
+    /// The accounts reminded to vote on IdleHub (their header shows when the vote is ready).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vote_slots: Vec<u8>,
+    /// Read from files of the single-account version, then moved into `vote_slots`.
+    #[serde(default, skip_serializing)]
+    pub vote_slot: Option<u8>,
 }
 
 pub fn balance_key(slot: u8, platform: Platform, channel: &str) -> String {
@@ -251,6 +272,10 @@ impl Default for Config {
             kick_sync: false,
             twitch_sync: false,
             balances: std::collections::HashMap::new(),
+            kick_daily: false,
+            kick_daily_done: std::collections::HashMap::new(),
+            vote_slots: Vec::new(),
+            vote_slot: None,
         }
     }
 }
@@ -301,6 +326,13 @@ impl Config {
                 keep
             });
         }
+        if let Some(old) = self.vote_slot.take() {
+            self.vote_slots.push(old);
+        }
+        let open: Vec<u8> = self.slots.iter().map(|s| s.id).collect();
+        self.vote_slots.retain(|v| open.contains(v));
+        self.vote_slots.sort_unstable();
+        self.vote_slots.dedup();
         self.kick_priority = clean_kick_priority(&self.kick_priority);
         self.twitch_priority = clean_twitch_priority(&self.twitch_priority);
         self.twitch_lives_per_slot = self.twitch_lives_per_slot.clamp(1, MAX_PAGES_PER_PLATFORM as u8);
