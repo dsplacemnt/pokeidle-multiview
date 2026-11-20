@@ -54,14 +54,38 @@ under 10 MB.
     player at its lowest quality instead of the full site (no chat, sidebars or site
     around it). It still earns channel points: in a side-by-side test the embed and the
     full page both earned +20 points in 12 minutes. With 4 Twitch + 4 Kick streams this
-    took the app from ~8.3 GB of RAM and ~4.6 CPU cores to ~5.4 GB and ~0.7 cores. Kick
-    keeps its full page, as its embed player shows live channels as offline.
+    took the app from ~8.3 GB of RAM and ~4.6 CPU cores to ~5.4 GB and ~0.7 cores.
+  - **Lighter Kick pages in the background.** Kick's embed player shows live channels as
+    offline, so a hidden Kick stream keeps its channel page, trimmed instead: chat, sidebars,
+    navigation and animations are hidden, the player drops to its lowest quality, and the page
+    is parked at 480×360. The video itself is never hidden, so it keeps playing. Showing the
+    stream brings back the full page and "Auto" quality. Can be turned off in ⚙ → Streams.
   - **Official channel links clicked inside the game** go to that slot's Twitch/Kick page
     instead of a separate window. The first time, the page opens visible so you can check you
     are logged in. After that, each new channel starts its own stream in the background (a
     page of that platform that isn't on a channel, like the login page, is reused first).
   - Running streams and the channel they are on are saved, and come back muted when the app
     starts.
+- **Kick priority list (⚙ → Kick).** Kick pays channel points for 2 lives at a time per account
+  (measured: with 4 Kick lives open, each account earned on exactly 2). List your Kick
+  channels in order and every account keeps the **2 highest ones that are live** open, closing
+  its other Kick streams. Kick's public channel API is checked every 2 minutes: when a channel
+  goes offline the next live one takes its place, and a higher one that goes live takes over.
+  The stream you are looking at is never closed. An empty list leaves Kick streams to you.
+- **Twitch priority list (⚙ → Twitch).** Same idea for Twitch, which has no 2-stream limit:
+  choose how many lives each account keeps (1–8, default 4). Live status comes from the
+  channel's public page.
+- **Keep the lists updated from the game.** The game announces its official Kick and Twitch
+  partner channels by itself (in its own state messages, which the app only listens to). Tick
+  *Keep updated from the game* and new partners are added at the end of the list.
+- **Automatic bonuses (⚙ → Bonus per account).** Pick +15% XP, Capture Boost or Secret Lure per
+  account, and whenever its channel points cover the cheapest reward of that kind the app
+  redeems it (the game adds the hours up, and every size costs the same per hour). On Kick this
+  happens in the background page; on Twitch, whose light player has no points, each background
+  stream is **visited** every ~15 minutes: its full page loads for ~30 s, the **bonus chest**
+  (+50) is claimed and the bonus redeemed, then it goes back to the light player. Each account
+  shows whether the game has its Kick and Twitch linked; without that, the points are given
+  back.
 - **"/hunt for PokeIdle" extension.** If
   [the extension](https://chromewebstore.google.com/detail/hunt-for-pokeidle/mhnplloljgchpfpcpbhmcokmnefodjnh)
   is installed in a Chromium browser on the PC (Chrome, Edge, Brave, Vivaldi, Opera, Comet,
@@ -205,7 +229,6 @@ Some details that are easy to miss:
 
 Planned, roughly in priority order:
 
-- [ ] A lighter background page for Kick (Twitch already uses its embed player).
 - [ ] Stream health: a ⚠ on the slot when a stream stalls (crashed pages already reload).
 - [ ] Light mode: Kick via its HLS feed and Twitch via authenticated chat, without video players.
 

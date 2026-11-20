@@ -45,6 +45,10 @@
     .pillbox.more-left .scroll.left, .pillbox.more-right .scroll.right { display: inline-flex; }
     .scroll:hover { background: var(--accent); color: #0b0e0f; }
     .empty { color: var(--muted); font-size: 12px; white-space: nowrap; padding-left: 4px; }
+    /* Pills grouped by platform (Twitch, then Kick), with a divider between the groups. */
+    .pills .group { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; }
+    .pills .gsep { flex: none; width: 2px; height: 16px; border-radius: 1px; background: var(--chip-active);
+      margin: 0 3px; }
     button { background: transparent; color: var(--text); border: 0; border-radius: 5px;
       height: 24px; padding: 0 6px; font: inherit; cursor: pointer; }
     button:hover { background: var(--chip-active); }
@@ -342,8 +346,26 @@
       // Right part: "+", then the pills (they scroll).
       const pillScroll = pills.scrollLeft;
       const pages = panels?.pages ?? [];
-      pills.replaceChildren(...(pages.length
-        ? pages.map((p) => pill(p, p.label === panels.front))
+      // Grouped by platform, Twitch then Kick, each group keeping its own order.
+      const groups = ['twitch', 'kick']
+        .map((platform) => {
+          const own = pages.filter((p) => p.platform === platform);
+          if (!own.length) return null;
+          const group = document.createElement('span');
+          group.className = 'group';
+          group.dataset.platform = platform;
+          group.title = `${PLATFORMS[platform].name} streams`;
+          group.append(...own.map((p) => pill(p, p.label === panels.front)));
+          return group;
+        })
+        .filter(Boolean);
+      const parts = [];
+      groups.forEach((g, i) => {
+        if (i) parts.push(Object.assign(document.createElement('span'), { className: 'gsep' }));
+        parts.push(g);
+      });
+      pills.replaceChildren(...(parts.length
+        ? parts
         : [Object.assign(document.createElement('span'), {
             className: 'empty', textContent: 'No streams · + adds a channel' })]));
       streams.replaceChildren(addButton(), pillbox);
@@ -387,16 +409,18 @@
       const box = pills.getBoundingClientRect();
       if (e.clientX < box.left + 24) pills.scrollLeft -= 10;
       else if (e.clientX > box.right - 24) pills.scrollLeft += 10;
-      const before = [...pills.querySelectorAll('.pill')]
+      // A pill moves within its own platform's group.
+      const group = drag.el.parentElement;
+      const before = [...group.querySelectorAll('.pill')]
         .filter((p) => p !== drag.el)
         .find((p) => {
           const r = p.getBoundingClientRect();
           return e.clientX < r.left + r.width / 2;
         });
       if (before) {
-        if (drag.el.nextElementSibling !== before) pills.insertBefore(drag.el, before);
-      } else if (pills.lastElementChild !== drag.el) {
-        pills.appendChild(drag.el);
+        if (drag.el.nextElementSibling !== before) group.insertBefore(drag.el, before);
+      } else if (group.lastElementChild !== drag.el) {
+        group.appendChild(drag.el);
       }
     });
     const endDrag = () => {

@@ -22,6 +22,22 @@ pub struct SavedPanel {
     pub url: String,
 }
 
+/// A PokeIdle bonus bought with channel points on Kick and Twitch (the channels' "Bônus +15% …"
+/// rewards).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum KickBonus {
+    /// "Bônus +15% XP PokeIdle"
+    Xp,
+    /// "Bônus de +15% Capture Boost"
+    Capture,
+    /// "Bônus de +15% Secret Lure"
+    Lure,
+}
+
+/// At most this many channels in the Kick priority list.
+pub const MAX_KICK_PRIORITY: usize = 30;
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SlotConfig {
     pub id: u8,
@@ -34,12 +50,71 @@ pub struct SlotConfig {
     pub muted: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub panels: Vec<SavedPanel>,
+    /// The bonus this account redeems automatically with its channel points, on Kick and
+    /// Twitch; None = off. ("kick_bonus" is the name it had while it was Kick only.)
+    #[serde(default, alias = "kick_bonus", skip_serializing_if = "Option::is_none")]
+    pub bonus: Option<KickBonus>,
 }
 
 impl SlotConfig {
     pub fn new(id: u8) -> SlotConfig {
-        SlotConfig { id, zoom: 1.0, name: None, muted: false, panels: Vec::new() }
+        SlotConfig { id, zoom: 1.0, name: None, muted: false, panels: Vec::new(), bonus: None }
     }
+}
+
+/// Cleans the Twitch priority list: logins or links become lowercase logins, invalid and
+/// repeated entries are dropped, at most MAX_KICK_PRIORITY are kept.
+pub fn clean_twitch_priority(raw: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for entry in raw {
+        let entry = entry.trim();
+        let login = entry
+            .rsplit_once("twitch.tv/")
+            .map_or(entry, |(_, rest)| rest)
+            .trim_start_matches('@')
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let valid = (4..=25).contains(&login.len())
+            && login.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+        if valid && !out.contains(&login) {
+            out.push(login);
+        }
+        if out.len() == MAX_KICK_PRIORITY {
+            break;
+        }
+    }
+    out
+}
+
+/// Twitch lives each account keeps open while the Twitch priority list is in use: 1 to 8.
+pub const DEFAULT_TWITCH_LIVES: u8 = 4;
+
+/// Cleans the Kick priority list typed by the user: channel names or links become lowercase
+/// slugs, invalid and repeated entries are dropped, at most MAX_KICK_PRIORITY are kept.
+pub fn clean_kick_priority(raw: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for entry in raw {
+        let entry = entry.trim();
+        let slug = entry
+            .rsplit_once("kick.com/")
+            .map_or(entry, |(_, rest)| rest)
+            .trim_start_matches('@')
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let valid = (3..=25).contains(&slug.len())
+            && slug.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
+        if valid && !out.contains(&slug) {
+            out.push(slug);
+        }
+        if out.len() == MAX_KICK_PRIORITY {
+            break;
+        }
+    }
+    out
 }
 
 pub const MAX_NAME_CHARS: usize = 40;
@@ -104,7 +179,49 @@ pub struct Config {
     /// Off by default.
     #[serde(default)]
     pub smooth_transitions: bool,
+    /// Kick pages running in the background are trimmed (no chat or sidebars, lowest quality,
+    /// small size), like Twitch's light player. Can be turned off if a channel stops counting.
+    #[serde(default = "enabled")]
+    pub light_kick_background: bool,
+    /// Kick channels in priority order. While not empty, every slot keeps the
+    /// KICK_LIVES_PER_SLOT highest ones that are live open (Kick only pays channel points for
+    /// 2 lives at a time per account) and closes its other Kick channels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kick_priority: Vec<String>,
+    /// Twitch channels in priority order. While not empty, every slot keeps the
+    /// `twitch_lives_per_slot` highest ones that are live open and closes its other Twitch
+    /// channels (Twitch has no 2-stream limit on channel points).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub twitch_priority: Vec<String>,
+    #[serde(default = "default_twitch_lives")]
+    pub twitch_lives_per_slot: u8,
+    /// Keep each priority list updated from the game's partner channels: new partners are
+    /// added at the end as the game announces them.
+    #[serde(default)]
+    pub kick_sync: bool,
+    #[serde(default)]
+    pub twitch_sync: bool,
+    /// Last seen channel points of each account on each channel, keyed
+    /// "<slot>:<platform>:<channel>" (see `balance_key`). Each account prefers, among the live
+    /// channels of the priority lists, the ones where it has the most points.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub balances: std::collections::HashMap<String, u64>,
 }
+
+pub fn balance_key(slot: u8, platform: Platform, channel: &str) -> String {
+    let platform = match platform {
+        Platform::Kick => "kick",
+        Platform::Twitch => "twitch",
+    };
+    format!("{slot}:{platform}:{channel}")
+}
+
+fn default_twitch_lives() -> u8 {
+    DEFAULT_TWITCH_LIVES
+}
+
+/// Kick channels each account keeps open while the priority list is in use.
+pub const KICK_LIVES_PER_SLOT: usize = 2;
 
 fn enabled() -> bool {
     true
@@ -127,6 +244,13 @@ impl Default for Config {
             minimize_to_tray: false,
             toolbar_hidden: false,
             smooth_transitions: false,
+            light_kick_background: true,
+            kick_priority: Vec::new(),
+            twitch_priority: Vec::new(),
+            twitch_lives_per_slot: DEFAULT_TWITCH_LIVES,
+            kick_sync: false,
+            twitch_sync: false,
+            balances: std::collections::HashMap::new(),
         }
     }
 }
@@ -177,6 +301,12 @@ impl Config {
                 keep
             });
         }
+        self.kick_priority = clean_kick_priority(&self.kick_priority);
+        self.twitch_priority = clean_twitch_priority(&self.twitch_priority);
+        self.twitch_lives_per_slot = self.twitch_lives_per_slot.clamp(1, MAX_PAGES_PER_PLATFORM as u8);
+        // Balances of slots that no longer exist are dropped.
+        let slots: Vec<String> = self.slots.iter().map(|s| format!("{}:", s.id)).collect();
+        self.balances.retain(|key, _| slots.iter().any(|s| key.starts_with(s.as_str())));
         if !self.focus.is_some_and(|f| self.slots.iter().any(|s| s.id == f)) {
             self.focus = None;
         }
@@ -286,9 +416,50 @@ mod comfort_tests {
         let cfg: Config = serde_json::from_str(r#"{"slots":[{"id":1,"zoom":1.0}]}"#).unwrap();
         assert!(cfg.keep_awake);
         assert!(!cfg.smooth_transitions && !cfg.toolbar_hidden);
+        assert!(cfg.light_kick_background);
         assert_eq!(cfg.auto_reload_minutes, 0);
         assert_eq!(cfg.slots[0].name, None);
         assert!(!cfg.slots[0].muted);
+    }
+}
+
+#[cfg(test)]
+mod kick_tests {
+    use super::*;
+
+    #[test]
+    fn priority_list_is_cleaned() {
+        let raw: Vec<String> = ["  AxT ", "https://kick.com/tftoddy?ref=x", "@Matta", "axt", "ab", "bad name", "kick.com/rodil/videos"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(clean_kick_priority(&raw), vec!["axt", "tftoddy", "matta", "rodil"]);
+        let many: Vec<String> = (0..40).map(|i| format!("channel{i}")).collect();
+        assert_eq!(clean_kick_priority(&many).len(), MAX_KICK_PRIORITY);
+    }
+
+    #[test]
+    fn bonus_and_priority_load_and_default_off() {
+        let cfg: Config = serde_json::from_str(
+            r#"{"slots":[{"id":1,"zoom":1.0,"kick_bonus":"capture"},{"id":2,"zoom":1.0,"bonus":"lure"},{"id":3,"zoom":1.0}],
+                "kick_priority":["AXT","axt","matta"],"twitch_priority":["Rodil","twitch.tv/kennzy","abc"],"twitch_lives_per_slot":20}"#,
+        )
+        .unwrap();
+        let cfg = cfg.normalized();
+        // Files from the Kick-only version keep their choice.
+        assert_eq!(cfg.slots[0].bonus, Some(KickBonus::Capture));
+        assert_eq!(cfg.slots[1].bonus, Some(KickBonus::Lure));
+        assert_eq!(cfg.slots[2].bonus, None);
+        assert_eq!(cfg.kick_priority, vec!["axt", "matta"]);
+        assert_eq!(cfg.twitch_priority, vec!["rodil", "kennzy"]);
+        assert_eq!(cfg.twitch_lives_per_slot, MAX_PAGES_PER_PLATFORM as u8);
+        let saved = serde_json::to_string(&cfg).unwrap();
+        assert!(saved.contains("\"bonus\":\"capture\"") && !saved.contains("kick_bonus"));
+        let fresh = Config::default();
+        assert!(fresh.kick_priority.is_empty() && fresh.twitch_priority.is_empty());
+        assert_eq!(fresh.twitch_lives_per_slot, DEFAULT_TWITCH_LIVES);
+        let old: Config = serde_json::from_str(r#"{"slots":[]}"#).unwrap();
+        assert_eq!(old.twitch_lives_per_slot, DEFAULT_TWITCH_LIVES);
     }
 }
 

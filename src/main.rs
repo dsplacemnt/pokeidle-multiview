@@ -4,6 +4,8 @@ mod channels;
 mod config;
 mod external;
 mod hunt;
+mod kick;
+mod twitch;
 mod layout;
 mod native;
 mod power;
@@ -21,7 +23,10 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl, WindowEvent,
 };
 
-use config::{Config, Platform, SavedPanel, SlotConfig, MAX_PAGES_PER_PLATFORM, MAX_SLOTS};
+use config::{
+    Config, KickBonus, Platform, SavedPanel, SlotConfig, KICK_LIVES_PER_SLOT, MAX_PAGES_PER_PLATFORM,
+    MAX_SLOTS,
+};
 use layout::Rect;
 
 /// The toolbar across the top of the window (app-wide buttons).
@@ -32,6 +37,12 @@ const GAME_URL: &str = "https://pokeidle.io/";
 const WEBAUTHN_BLOCK: &str = include_str!("../scripts/webauthn-block.js");
 const DESKTOP_LAYOUT: &str = include_str!("../scripts/desktop-layout.js");
 const LOWEST_QUALITY: &str = include_str!("../scripts/lowest-quality.js");
+const KICK_LIGHT: &str = include_str!("../scripts/kick-light.js");
+const GAME_WATCH: &str = include_str!("../scripts/game-watch.js");
+/// A Kick page running in the background is parked at this size (logical px) instead of its
+/// tile's: a small page lays out in Kick's compact layout and its player has fewer pixels to
+/// draw. It gets the tile's size back when shown.
+const KICK_BACKGROUND_SIZE: (f64, f64) = (480.0, 360.0);
 
 struct AppState {
     config: Config,
@@ -40,6 +51,16 @@ struct AppState {
     hunt_dir: Option<PathBuf>,
     /// Twitch/Kick pages per slot (their URLs are saved in the config by `remember_panels`).
     panels: HashMap<u8, PanelState>,
+    /// Last known live status of the channels in each platform's priority list.
+    live: HashMap<Platform, HashMap<String, bool>>,
+    /// When each background Twitch stream was last visited (see start_twitch_visits).
+    visits: HashMap<String, std::time::Instant>,
+    /// Twitch streams showing their full page for a visit right now.
+    visiting: std::collections::HashSet<String>,
+    /// The game's official partner channels per platform, as its pages last reported them.
+    partners: HashMap<Platform, Vec<String>>,
+    /// Whether each account (slot, platform) has that platform linked in the game.
+    linked: HashMap<(u8, Platform), bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -314,10 +335,14 @@ fn layout_plan(app: &AppHandle) -> tauri::Result<Vec<(String, Placement)>> {
             Placement::Hide(None)
         },
     ));
-    let (panels, ids) = {
+    let (panels, ids, light_kick) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
-        (state.panels.clone(), state.config.slots.iter().map(|s| s.id).collect::<Vec<u8>>())
+        (
+            state.panels.clone(),
+            state.config.slots.iter().map(|s| s.id).collect::<Vec<u8>>(),
+            state.config.light_kick_background,
+        )
     };
     let layout = current_layout(app)?;
     for (label, vertical) in [(SPLIT_V, true), (SPLIT_H, false)] {
@@ -352,7 +377,16 @@ fn layout_plan(app: &AppHandle) -> tauri::Result<Vec<(String, Placement)>> {
             } else if is_panel {
                 // Background streams are parked outside the window instead of hidden: the
                 // page still counts as visible, so players start (and keep) playing.
-                Placement::Park(parked(tile_or_full))
+                let kick = slot_panels
+                    .and_then(|p| p.page(&label))
+                    .is_some_and(|p| p.platform == Platform::Kick);
+                let size = if kick && light_kick {
+                    let (w, h) = KICK_BACKGROUND_SIZE;
+                    Rect { w, h, ..tile_or_full }
+                } else {
+                    tile_or_full
+                };
+                Placement::Park(parked(size))
             } else {
                 // The game behind a shown panel, or a slot behind a focused one.
                 Placement::Hide(tile)
@@ -533,9 +567,17 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
     // The game's handlers replace the session defaults: Twitch/Kick channel links (the game
     // opens its official channels in a new tab) go to the slot's own stream panel instead of a
     // loose popup window.
-    let (nav_app, popup_app, id) = (app.clone(), app.clone(), slot.id);
+    let (nav_app, popup_app, title_app, id) = (app.clone(), app.clone(), app.clone(), slot.id);
     let builder = slot_session_builder(app, slot.id, slot_label(slot.id), GAME_URL)
         .initialization_script(DESKTOP_LAYOUT)
+        // Listens to the game's own state messages for its Kick/Twitch partner channels and the
+        // account's link status; it reports through a brief title change.
+        .initialization_script(GAME_WATCH)
+        .on_document_title_changed(move |_, title| {
+            if let Some(json) = title.strip_prefix("[multiview-game] ") {
+                game_reported(&title_app, id, json);
+            }
+        })
         .on_navigation(move |url| {
             if let Some(channel) = channels::channel_from_url(url) {
                 spawn_route_channel(&nav_app, id, channel);
@@ -674,13 +716,18 @@ fn set_front(app: &AppHandle, id: u8, label: Option<String>) -> tauri::Result<()
     let state = app.state::<Mutex<AppState>>();
     let old = state.lock().unwrap().panels.get(&id).and_then(|p| p.front.clone());
     if old != label {
+        let light_kick = state.lock().unwrap().config.light_kick_background;
         if let Some(page) = old.as_deref().and_then(|l| app.get_webview(l)) {
             set_muted(&page, true);
             switch_page(&page, false);
+            if light_kick {
+                set_kick_light(&page, true);
+            }
         }
         if let Some(page) = label.as_deref().and_then(|l| app.get_webview(l)) {
             set_muted(&page, false);
             switch_page(&page, true);
+            set_kick_light(&page, false);
         }
     }
     {
@@ -837,12 +884,47 @@ fn set_page_login(app: &AppHandle, label: &str, login: Option<String>) -> bool {
 }
 
 /// A page finished loading: its pill follows the channel it is on now (the player may have
-/// clicked to another channel inside it).
-fn page_loaded(app: &AppHandle, label: &str, url: &Url) {
+/// clicked to another channel inside it), and a Kick channel loading in the background gets
+/// its light page.
+fn page_loaded(app: &AppHandle, webview: &tauri::Webview, url: &Url) {
+    let label = webview.label();
     let login = channels::channel_from_url(url).map(|c| c.login);
     if set_page_login(app, label, login) {
         let state = app.state::<Mutex<AppState>>();
         publish(app, &state.lock().unwrap());
+    }
+    let in_background = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        state.config.light_kick_background
+            && !state.panels.values().any(|p| p.front.as_deref() == Some(label))
+    };
+    if in_background {
+        set_kick_light(webview, true);
+    }
+    twitch_visit_loaded(app, webview, url);
+}
+
+/// Turns the light Kick page (scripts/kick-light.js) on or off in `webview`. Does nothing on
+/// pages that aren't a Kick channel (Twitch has its own light player, login pages stay as
+/// they are).
+fn set_kick_light(webview: &tauri::Webview, on: bool) {
+    let on_kick_channel = webview
+        .url()
+        .ok()
+        .and_then(|u| channels::channel_from_url(&u))
+        .is_some_and(|c| c.platform == Platform::Kick);
+    if !on_kick_channel {
+        return;
+    }
+    // Turning it off only matters where it was turned on (the script is then loaded).
+    let script = if on {
+        format!("{KICK_LIGHT}\nwindow.__multiviewLight(true);")
+    } else {
+        "window.__multiviewLight && window.__multiviewLight(false);".to_string()
+    };
+    if let Err(e) = webview.eval(script) {
+        eprintln!("[panel] could not set the light Kick page ({on}): {e}");
     }
 }
 
@@ -857,15 +939,24 @@ fn create_page(
 ) -> tauri::Result<String> {
     let window = app.get_window("main").expect("main window exists");
     let label = format!("slot-{id}-{}-{}", platform.key(), NEXT_PAGE.fetch_add(1, Ordering::SeqCst));
-    let load_app = app.clone();
-    let builder = slot_session_builder(app, id, label.clone(), url).on_page_load(
-        move |webview, payload| {
+    let (load_app, title_app) = (app.clone(), app.clone());
+    let builder = slot_session_builder(app, id, label.clone(), url)
+        .on_page_load(move |webview, payload| {
             lower_player_quality(&webview, &payload);
             if payload.event() == PageLoadEvent::Finished {
-                page_loaded(&load_app, webview.label(), payload.url());
+                page_loaded(&load_app, &webview, payload.url());
             }
-        },
-    );
+        })
+        // The app's scripts in the page (scripts/report.js) report by briefly setting the title:
+        // "[multiview] …" = what they did (logged), "[multiview-points] {…}" = the account's
+        // channel points there. Those pages have no other way to talk.
+        .on_document_title_changed(move |webview, title| {
+            if let Some(message) = title.strip_prefix("[multiview] ") {
+                println!("[auto] {}: {message}", webview.label());
+            } else if let Some(json) = title.strip_prefix("[multiview-points] ") {
+                points_reported(&title_app, id, json);
+            }
+        });
     let mut r = match tile_of(app, id)? {
         Some(r) => r,
         // Slot hidden behind a focused one: use the whole area so the page lays out normally.
@@ -1224,6 +1315,7 @@ struct Settings {
     keep_awake: bool,
     auto_reload_minutes: u32,
     smooth_transitions: bool,
+    light_kick_background: bool,
 }
 
 #[tauri::command]
@@ -1235,20 +1327,49 @@ fn get_settings(state: tauri::State<'_, Mutex<AppState>>) -> Settings {
         keep_awake: config.keep_awake,
         auto_reload_minutes: config.auto_reload_minutes,
         smooth_transitions: config.smooth_transitions,
+        light_kick_background: config.light_kick_background,
     }
 }
 
 #[tauri::command]
 fn set_settings(app: AppHandle, settings: Settings) {
-    let state = app.state::<Mutex<AppState>>();
-    let mut state = state.lock().unwrap();
-    state.config.close_to_tray = settings.close_to_tray;
-    state.config.minimize_to_tray = settings.minimize_to_tray;
-    state.config.keep_awake = settings.keep_awake;
-    state.config.auto_reload_minutes = settings.auto_reload_minutes;
-    state.config.smooth_transitions = settings.smooth_transitions;
-    state.config = state.config.clone().normalized();
-    save_and_publish(&app, &state);
+    let background_kick = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        let light_kick_changed = state.config.light_kick_background != settings.light_kick_background;
+        state.config.close_to_tray = settings.close_to_tray;
+        state.config.minimize_to_tray = settings.minimize_to_tray;
+        state.config.keep_awake = settings.keep_awake;
+        state.config.auto_reload_minutes = settings.auto_reload_minutes;
+        state.config.smooth_transitions = settings.smooth_transitions;
+        state.config.light_kick_background = settings.light_kick_background;
+        state.config = state.config.clone().normalized();
+        save_and_publish(&app, &state);
+        // The Kick pages running in the background, if the light page was just turned on/off.
+        light_kick_changed.then(|| {
+            state
+                .panels
+                .values()
+                .flat_map(|p| {
+                    p.pages
+                        .iter()
+                        .filter(|pg| pg.platform == Platform::Kick && p.front.as_deref() != Some(&pg.label))
+                        .map(|pg| pg.label.clone())
+                })
+                .collect::<Vec<String>>()
+        })
+    };
+    // Running streams switch right away: trimmed (or back to the full page) and resized.
+    if let Some(labels) = background_kick {
+        for label in labels {
+            if let Some(page) = app.get_webview(&label) {
+                set_kick_light(&page, settings.light_kick_background);
+            }
+        }
+        if let Err(e) = apply_layout(&app) {
+            eprintln!("[layout] {e}");
+        }
+    }
 }
 
 // Async: creates a window.
@@ -1259,7 +1380,9 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         return existing.set_focus().map_err(|e| e.to_string());
     }
     let main = app.get_window("main").ok_or("No window")?;
-    let (w, h) = (420.0, 650.0);
+    // Wide: general · Kick · Twitch · bonus per account side by side, each column scrolling on
+    // its own (the page falls back to two columns if the window is made narrower).
+    let (w, h) = (1360.0, 820.0);
     let builder =
         tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
             .title("Settings — PokeIdle Multiview")
@@ -1281,7 +1404,8 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         None => builder.center(),
     };
     builder
-        .resizable(false)
+        .resizable(true)
+        .min_inner_size(720.0, 520.0)
         .minimizable(false)
         .maximizable(false)
         // Owned by the main window: stays in front of it and closes with it.
@@ -1289,6 +1413,563 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ---------------------------------------------------------------- Kick/Twitch priority + bonuses
+
+/// Set to run the stream manager now instead of at its next turn (after a settings change).
+static AUTO_WAKE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Every 2 minutes: checks which channels of the Kick and Twitch priority lists are live, makes
+/// every slot keep the highest live ones open (2 on Kick, which only pays channel points for 2
+/// lives at a time per account; the chosen number on Twitch), redeems each account's chosen
+/// bonus on Kick, and starts the due Twitch visits (bonus chest + bonus).
+fn start_stream_manager(app: AppHandle) {
+    std::thread::spawn(move || {
+        // Let the restored streams load first.
+        std::thread::sleep(std::time::Duration::from_secs(20));
+        loop {
+            for platform in PLATFORMS {
+                manage_platform(&app, platform);
+            }
+            {
+                let state = app.state::<Mutex<AppState>>();
+                save_and_publish(&app, &state.lock().unwrap());
+            }
+            let _ = app.emit_to("settings", "automation", automation_view(&app));
+            redeem_kick_bonuses(&app);
+            request_kick_points(&app);
+            start_twitch_visits(&app);
+            let started = std::time::Instant::now();
+            while started.elapsed() < kick::CHECK_EVERY && !AUTO_WAKE.swap(false, Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        }
+    });
+}
+
+const PLATFORMS: [Platform; 2] = [Platform::Kick, Platform::Twitch];
+
+fn is_live(platform: Platform, channel: &str) -> Result<bool, String> {
+    match platform {
+        Platform::Kick => kick::is_live(channel),
+        Platform::Twitch => twitch::is_live(channel),
+    }
+}
+
+/// One platform's turn: live checks, then each slot's streams of that platform.
+fn manage_platform(app: &AppHandle, platform: Platform) {
+    let (priority, per_slot, slots, previous, balances) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        let (priority, per_slot) = match platform {
+            Platform::Kick => (state.config.kick_priority.clone(), KICK_LIVES_PER_SLOT),
+            Platform::Twitch => (state.config.twitch_priority.clone(), usize::from(state.config.twitch_lives_per_slot)),
+        };
+        let previous = state.live.get(&platform).cloned().unwrap_or_default();
+        (priority, per_slot, state.config.slots.clone(), previous, state.config.balances.clone())
+    };
+    if priority.is_empty() {
+        return;
+    }
+    // A channel whose check fails keeps its last known status; with none known, the slots are
+    // left as they are this time rather than closing streams on a network hiccup.
+    let mut live = HashMap::new();
+    let mut unknown = false;
+    for channel in &priority {
+        match is_live(platform, channel) {
+            Ok(is_live) => {
+                live.insert(channel.clone(), is_live);
+            }
+            Err(e) => {
+                eprintln!("[auto] could not check {} {channel}: {e}", platform.name());
+                match previous.get(channel) {
+                    Some(v) => {
+                        live.insert(channel.clone(), *v);
+                    }
+                    None => unknown = true,
+                }
+            }
+        }
+    }
+    {
+        let state = app.state::<Mutex<AppState>>();
+        state.lock().unwrap().live.insert(platform, live.clone());
+    }
+    if unknown {
+        return;
+    }
+    println!("[auto] {} live in priority order: {:?}", platform.name(), kick::pick(&priority, &live, usize::MAX));
+    // Each account picks among the live channels by its own points (closest to its next reward
+    // first), the priority order breaking ties.
+    for slot in &slots {
+        let open = open_channels(app, slot.id, platform);
+        let points = |c: &str| balances.get(&config::balance_key(slot.id, platform, c)).copied().unwrap_or(0);
+        let wanted = kick::pick_for_account(&priority, &live, per_slot, points, &open);
+        if let Err(e) = manage_slot_streams(app, slot.id, platform, &wanted) {
+            eprintln!("[auto] slot {}: {e}", slot.id);
+        }
+    }
+}
+
+/// The channels of `platform` slot `id` has open now.
+fn open_channels(app: &AppHandle, id: u8, platform: Platform) -> Vec<String> {
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().unwrap();
+    state
+        .panels
+        .get(&id)
+        .map(|p| p.pages.iter().filter(|pg| pg.platform == platform).filter_map(|pg| pg.login.clone()).collect())
+        .unwrap_or_default()
+}
+
+#[derive(serde::Deserialize)]
+struct PointsReport {
+    platform: Platform,
+    channel: String,
+    points: u64,
+}
+
+/// A Kick page or a Twitch visit told this account's points on its channel: remembered (and
+/// saved) for picking the account's lives.
+fn points_reported(app: &AppHandle, id: u8, json: &str) {
+    let Ok(report) = serde_json::from_str::<PointsReport>(json) else { return };
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    let key = config::balance_key(id, report.platform, &report.channel.to_ascii_lowercase());
+    if state.config.balances.insert(key, report.points) != Some(report.points) {
+        if let Err(e) = state.config.save(&state.config_path) {
+            eprintln!("[config] could not save: {e}");
+        }
+    }
+}
+
+/// Asks every live Kick page (all accounts) for its channel points; they answer through
+/// `points_reported`, and the next check uses them.
+fn request_kick_points(app: &AppHandle) {
+    let script = kick::points_script();
+    for (_, label, _, _) in background_channel_pages(app, Platform::Kick, true) {
+        if let Some(page) = app.get_webview(&label) {
+            let _ = page.eval(&script);
+        }
+    }
+}
+
+/// Makes slot `id` run exactly the `wanted` channels of `platform` in the background: the others
+/// are closed (except the page being shown, which is never touched), the missing ones are
+/// opened. Pages of that platform that aren't on a channel (login, home) are left alone.
+fn manage_slot_streams(app: &AppHandle, id: u8, platform: Platform, wanted: &[String]) -> tauri::Result<()> {
+    let (pages, front) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        let panels = state.panels.get(&id).cloned().unwrap_or_default();
+        let pages: Vec<Page> = panels.pages.into_iter().filter(|p| p.platform == platform).collect();
+        (pages, panels.front)
+    };
+    let mut kept: Vec<String> = Vec::new();
+    let mut close: Vec<String> = Vec::new();
+    for page in &pages {
+        let Some(login) = &page.login else { continue };
+        let shown = front.as_deref() == Some(page.label.as_str());
+        if shown || (wanted.contains(login) && !kept.contains(login)) {
+            kept.push(login.clone());
+        } else {
+            close.push(page.label.clone());
+        }
+    }
+    let missing: Vec<&String> = wanted.iter().filter(|l| !kept.contains(l)).collect();
+    if close.is_empty() && missing.is_empty() {
+        return Ok(());
+    }
+    if !close.is_empty() {
+        println!("[auto] slot {id}: closing {} {} page(s) outside the priority picks", close.len(), platform.name());
+        stop_pages_inner(app, id, Some(&close))?;
+    }
+    for login in missing {
+        let channel = channels::Channel { platform, login: login.clone() };
+        println!("[auto] slot {id}: opening {} {login}", platform.name());
+        create_page(app, id, platform, &channel.url_for(false), true)?;
+    }
+    remember_panels(app);
+    apply_layout(app)
+}
+
+/// Background pages of `platform` on a channel, per account with a bonus chosen (or every
+/// account with `all`), leaving out the page being shown: (slot, label, login, bonus).
+fn background_channel_pages(app: &AppHandle, platform: Platform, all: bool) -> Vec<(u8, String, String, Option<KickBonus>)> {
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().unwrap();
+    let mut out = Vec::new();
+    for slot in &state.config.slots {
+        if !all && slot.bonus.is_none() {
+            continue;
+        }
+        let Some(panels) = state.panels.get(&slot.id) else { continue };
+        for page in &panels.pages {
+            let Some(login) = &page.login else { continue };
+            if page.platform == platform && panels.front.as_deref() != Some(page.label.as_str()) {
+                out.push((slot.id, page.label.clone(), login.clone(), slot.bonus));
+            }
+        }
+    }
+    out
+}
+
+/// Asks each live Kick page of an account with a bonus chosen to redeem it if the points are
+/// enough (scripts/kick-redeem.js does nothing otherwise; Kick pages show their points even in
+/// the background).
+fn redeem_kick_bonuses(app: &AppHandle) {
+    for (_, label, _, bonus) in background_channel_pages(app, Platform::Kick, false) {
+        let (Some(page), Some(bonus)) = (app.get_webview(&label), bonus) else { continue };
+        if let Err(e) = page.eval(kick::redeem_script(bonus)) {
+            eprintln!("[auto] {label}: could not run the redeem script: {e}");
+        }
+    }
+}
+
+/// Background Twitch streams run the embed player, which has no channel points, so every
+/// ~15 minutes each one is "visited": its full channel page loads for ~30 s, where
+/// scripts/twitch-visit.js claims the bonus chest and redeems the account's bonus, then it goes
+/// back to the light player. A few visits start per check, the longest-waiting first, so they
+/// are spread out. Runs while the Twitch list is in use or the account has a bonus chosen.
+fn start_twitch_visits(app: &AppHandle) {
+    let twitch_list = !app.state::<Mutex<AppState>>().lock().unwrap().config.twitch_priority.is_empty();
+    let pages = background_channel_pages(app, Platform::Twitch, twitch_list);
+    let now = std::time::Instant::now();
+    let due: Vec<(String, String)> = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        let labels: Vec<String> = pages.iter().map(|p| p.1.clone()).collect();
+        state.visits.retain(|label, _| labels.contains(label));
+        let mut due: Vec<(std::time::Instant, String, String)> = Vec::new();
+        for (i, (_, label, login, _)) in pages.iter().enumerate() {
+            if state.visiting.contains(label) {
+                continue;
+            }
+            // A stream seen for the first time gets a spread-out first visit, not all at once.
+            let last = *state.visits.entry(label.clone()).or_insert_with(|| {
+                let spread = twitch::VISIT_EVERY.as_secs() * (i as u64 % 8) / 8;
+                now.checked_sub(twitch::VISIT_EVERY - std::time::Duration::from_secs(spread)).unwrap_or(now)
+            });
+            if now.duration_since(last) >= twitch::VISIT_EVERY {
+                due.push((last, label.clone(), login.clone()));
+            }
+        }
+        due.sort_by_key(|d| d.0);
+        due.into_iter()
+            .take(twitch::VISITS_PER_CHECK)
+            .map(|(_, label, login)| {
+                state.visiting.insert(label.clone());
+                state.visits.insert(label.clone(), now);
+                (label, login)
+            })
+            .collect()
+    };
+    for (label, login) in due {
+        let Some(page) = app.get_webview(&label) else { continue };
+        let channel = channels::Channel { platform: Platform::Twitch, login: login.clone() };
+        println!("[auto] visiting Twitch {login} ({label})");
+        if let Err(e) = page.navigate(channel.page_url().parse().unwrap()) {
+            eprintln!("[auto] {label}: could not open the full page: {e}");
+            app.state::<Mutex<AppState>>().lock().unwrap().visiting.remove(&label);
+            continue;
+        }
+        // Back to the light player after the visit, unless the stream was shown meanwhile.
+        let back_app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(twitch::VISIT_LENGTH);
+            let shown = {
+                let state = back_app.state::<Mutex<AppState>>();
+                let mut state = state.lock().unwrap();
+                state.visiting.remove(&label);
+                state.panels.values().any(|p| p.front.as_deref() == Some(label.as_str()))
+            };
+            if let (false, Some(page)) = (shown, back_app.get_webview(&label)) {
+                switch_page(&page, false);
+            }
+        });
+    }
+}
+
+/// A visited Twitch page finished loading its full page: run the visit script with the
+/// account's bonus.
+fn twitch_visit_loaded(app: &AppHandle, webview: &tauri::Webview, url: &Url) {
+    let bonus = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        if !state.visiting.contains(webview.label()) {
+            return;
+        }
+        let slot = state.panels.iter().find(|(_, p)| p.page(webview.label()).is_some()).map(|(id, _)| *id);
+        slot.and_then(|id| state.config.slots.iter().find(|s| s.id == id)).and_then(|s| s.bonus)
+    };
+    let on_full_page = url.host_str().is_some_and(|h| h.ends_with("twitch.tv") && h != "player.twitch.tv")
+        && channels::channel_from_url(url).is_some();
+    if on_full_page {
+        if let Err(e) = webview.eval(twitch::visit_script(bonus)) {
+            eprintln!("[auto] {}: could not run the visit script: {e}", webview.label());
+        }
+    }
+}
+
+#[derive(Serialize, Clone)]
+struct BonusSlotView {
+    id: u8,
+    name: String,
+    bonus: Option<KickBonus>,
+    /// Whether the account has Kick / Twitch linked in the game (None = not reported yet).
+    kick_linked: Option<bool>,
+    twitch_linked: Option<bool>,
+    /// Last seen channel points per channel, most first: [platform, channel, points].
+    points: Vec<(Platform, String, u64)>,
+}
+
+/// Slot `id`'s last seen balances, most first.
+fn slot_points(config: &Config, id: u8) -> Vec<(Platform, String, u64)> {
+    let mut out: Vec<(Platform, String, u64)> = config
+        .balances
+        .iter()
+        .filter_map(|(key, points)| {
+            let mut parts = key.splitn(3, ':');
+            let slot: u8 = parts.next()?.parse().ok()?;
+            let platform = match parts.next()? {
+                "kick" => Platform::Kick,
+                "twitch" => Platform::Twitch,
+                _ => return None,
+            };
+            let channel = parts.next()?.to_string();
+            (slot == id).then_some((platform, channel, *points))
+        })
+        .collect();
+    out.sort_by(|a, b| b.2.cmp(&a.2).then(a.1.cmp(&b.1)));
+    out
+}
+
+#[derive(Serialize, Clone)]
+struct PriorityView {
+    priority: Vec<String>,
+    live: HashMap<String, bool>,
+    lives_per_slot: usize,
+    /// "Keep updated from the game" is on.
+    sync: bool,
+    /// How many partner channels the game has announced (0 = not reported yet).
+    partners: usize,
+    /// How many accounts have each channel open right now.
+    watching: HashMap<String, usize>,
+}
+
+/// What the settings window shows in its Kick, Twitch and bonus sections.
+#[derive(Serialize, Clone)]
+struct AutomationView {
+    kick: PriorityView,
+    twitch: PriorityView,
+    slots: Vec<BonusSlotView>,
+}
+
+fn automation_view(app: &AppHandle) -> AutomationView {
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().unwrap();
+    let live = |p: Platform| state.live.get(&p).cloned().unwrap_or_default();
+    let partners = |p: Platform| state.partners.get(&p).map_or(0, Vec::len);
+    let watching = |p: Platform| {
+        let mut count: HashMap<String, usize> = HashMap::new();
+        for panels in state.panels.values() {
+            let mut seen: Vec<&String> = Vec::new();
+            for page in panels.pages.iter().filter(|pg| pg.platform == p) {
+                if let Some(login) = page.login.as_ref().filter(|l| !seen.contains(l)) {
+                    seen.push(login);
+                    *count.entry(login.clone()).or_default() += 1;
+                }
+            }
+        }
+        count
+    };
+    AutomationView {
+        kick: PriorityView {
+            priority: state.config.kick_priority.clone(),
+            live: live(Platform::Kick),
+            lives_per_slot: KICK_LIVES_PER_SLOT,
+            sync: state.config.kick_sync,
+            partners: partners(Platform::Kick),
+            watching: watching(Platform::Kick),
+        },
+        twitch: PriorityView {
+            priority: state.config.twitch_priority.clone(),
+            live: live(Platform::Twitch),
+            lives_per_slot: usize::from(state.config.twitch_lives_per_slot),
+            sync: state.config.twitch_sync,
+            partners: partners(Platform::Twitch),
+            watching: watching(Platform::Twitch),
+        },
+        slots: state
+            .config
+            .slots
+            .iter()
+            .map(|s| BonusSlotView {
+                id: s.id,
+                name: s.name.clone().unwrap_or_else(|| format!("Slot {}", s.id)),
+                bonus: s.bonus,
+                kick_linked: state.linked.get(&(s.id, Platform::Kick)).copied(),
+                twitch_linked: state.linked.get(&(s.id, Platform::Twitch)).copied(),
+                points: slot_points(&state.config, s.id),
+            })
+            .collect(),
+    }
+}
+
+/// Saves a settings change and runs the manager right away.
+fn automation_changed(app: &AppHandle, change: impl FnOnce(&mut AppState)) -> AutomationView {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        change(&mut state);
+        save_and_publish(app, &state);
+    }
+    AUTO_WAKE.store(true, Ordering::SeqCst);
+    automation_view(app)
+}
+
+#[tauri::command]
+fn get_automation(app: AppHandle) -> AutomationView {
+    automation_view(&app)
+}
+
+/// A priority list from the settings window, in order (names or links). Empty = that
+/// platform's streams are managed by hand again.
+#[tauri::command]
+fn set_priority(app: AppHandle, platform: Platform, priority: Vec<String>) -> AutomationView {
+    automation_changed(&app, |state| {
+        let cleaned = match platform {
+            Platform::Kick => config::clean_kick_priority(&priority),
+            Platform::Twitch => config::clean_twitch_priority(&priority),
+        };
+        if let Some(live) = state.live.get_mut(&platform) {
+            live.retain(|c, _| cleaned.contains(c));
+        }
+        match platform {
+            Platform::Kick => state.config.kick_priority = cleaned,
+            Platform::Twitch => state.config.twitch_priority = cleaned,
+        }
+    })
+}
+
+/// What a game page reports about one platform (scripts/game-watch.js): the game's official
+/// partner channels in its order, and whether this account has the platform linked.
+#[derive(serde::Deserialize)]
+struct GameReport {
+    platform: Platform,
+    #[serde(default)]
+    channels: Vec<String>,
+    #[serde(default)]
+    linked: bool,
+}
+
+/// Adds the channels of `partners` missing from `platform`'s priority list at its end, in the
+/// game's order; the user's order is kept. Returns how many were added.
+fn merge_partners(config: &mut Config, platform: Platform, partners: &[String]) -> usize {
+    let list = match platform {
+        Platform::Kick => &mut config.kick_priority,
+        Platform::Twitch => &mut config.twitch_priority,
+    };
+    let before = list.len();
+    let mut merged = list.clone();
+    merged.extend(partners.iter().cloned());
+    *list = match platform {
+        Platform::Kick => config::clean_kick_priority(&merged),
+        Platform::Twitch => config::clean_twitch_priority(&merged),
+    };
+    list.len() - before
+}
+
+fn sync_on(config: &Config, platform: Platform) -> bool {
+    match platform {
+        Platform::Kick => config.kick_sync,
+        Platform::Twitch => config.twitch_sync,
+    }
+}
+
+/// A game page (slot `id`) reported a platform's partner list and link status. Remembers both,
+/// and with "Keep updated from the game" on, adds new partners to the priority list.
+fn game_reported(app: &AppHandle, id: u8, json: &str) {
+    let Ok(report) = serde_json::from_str::<GameReport>(json) else { return };
+    println!(
+        "[game] slot {id}: {} partners: {}, linked: {}",
+        report.platform.name(),
+        report.channels.len(),
+        report.linked
+    );
+    let added = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        state.linked.insert((id, report.platform), report.linked);
+        if !report.channels.is_empty() {
+            state.partners.insert(report.platform, report.channels.clone());
+        }
+        let added = if sync_on(&state.config, report.platform) && !report.channels.is_empty() {
+            merge_partners(&mut state.config, report.platform, &report.channels)
+        } else {
+            0
+        };
+        if added > 0 {
+            println!("[sync] {}: {added} new partner channel(s) from the game", report.platform.name());
+            save_and_publish(app, &state);
+        }
+        added
+    };
+    if added > 0 {
+        AUTO_WAKE.store(true, Ordering::SeqCst);
+    }
+    let _ = app.emit_to("settings", "automation", automation_view(app));
+}
+
+#[cfg(test)]
+mod sync_tests {
+    use super::*;
+
+    #[test]
+    fn new_partners_go_to_the_end_and_the_users_order_stays() {
+        let mut config = Config {
+            kick_priority: vec!["matta".into(), "axt".into()],
+            ..Config::default()
+        };
+        let partners: Vec<String> = ["axt", "cogu", "matta", "yetz"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(merge_partners(&mut config, Platform::Kick, &partners), 2);
+        assert_eq!(config.kick_priority, vec!["matta", "axt", "cogu", "yetz"]);
+        assert_eq!(merge_partners(&mut config, Platform::Kick, &partners), 0);
+        assert!(config.twitch_priority.is_empty());
+    }
+}
+
+/// "Keep updated from the game" for a platform's priority list. Turning it on adds the
+/// partners the game has already announced right away.
+#[tauri::command]
+fn set_sync(app: AppHandle, platform: Platform, on: bool) -> AutomationView {
+    automation_changed(&app, |state| {
+        match platform {
+            Platform::Kick => state.config.kick_sync = on,
+            Platform::Twitch => state.config.twitch_sync = on,
+        }
+        if on {
+            let partners = state.partners.get(&platform).cloned().unwrap_or_default();
+            merge_partners(&mut state.config, platform, &partners);
+        }
+    })
+}
+
+#[tauri::command]
+fn set_twitch_lives(app: AppHandle, count: u8) -> AutomationView {
+    automation_changed(&app, |state| {
+        state.config.twitch_lives_per_slot = count.clamp(1, MAX_PAGES_PER_PLATFORM as u8);
+    })
+}
+
+#[tauri::command]
+fn set_bonus(app: AppHandle, id: u8, bonus: Option<KickBonus>) -> AutomationView {
+    automation_changed(&app, |state| {
+        if let Some(slot) = state.config.slots.iter_mut().find(|s| s.id == id) {
+            slot.bonus = bonus;
+        }
+    })
 }
 
 // ---------------------------------------------------------------- auto-reload
@@ -1374,6 +2055,11 @@ fn main() {
                 data_root: base.join("slots"),
                 hunt_dir,
                 panels: HashMap::new(),
+                live: HashMap::new(),
+                visits: HashMap::new(),
+                visiting: std::collections::HashSet::new(),
+                partners: HashMap::new(),
+                linked: HashMap::new(),
             }));
 
             let window = WindowBuilder::new(app, "main")
@@ -1415,6 +2101,7 @@ fn main() {
                 power::set_keep_awake(&handle, state.config.keep_awake && any_pages(&state));
             }
             start_auto_reload(handle.clone());
+            start_stream_manager(handle.clone());
 
             let event_handle = handle.clone();
             let event_window = window.clone();
@@ -1464,7 +2151,12 @@ fn main() {
             set_toolbar_hidden,
             get_settings,
             set_settings,
-            open_settings
+            open_settings,
+            get_automation,
+            set_priority,
+            set_twitch_lives,
+            set_bonus,
+            set_sync
         ])
         .run(tauri::generate_context!())
         .expect("error while running PokeIdle Multiview");
