@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Stats panel</title>
+  <style>
+    :root {
+      --bg: #16181d;
+      --card: #1d2027;
+      --chip: #23262e;
+      --chip-active: #3a4150;
+      --text: #e6e8ee;
+      --muted: #8a90a0;
+      --accent: #f2c14e;
+      --ok: #3ddc84;
+      --bad: #ff8a80;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font: 13px/1.35 "Segoe UI", system-ui, sans-serif; user-select: none; }
+    body { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--chip-active) transparent;
+      border-left: 2px solid var(--accent); }
+    .top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px;
+      padding: 10px 10px 8px 12px; background: var(--bg); }
+    .top h1 { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 15px; font-weight: 700;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .top .sub { color: var(--muted); font-weight: 500; font-size: 12px; margin-left: 4px; }
+    button { background: var(--chip); color: var(--text); border: 0; border-radius: 5px; height: 24px;
+      padding: 0 8px; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+    button:hover { background: var(--chip-active); }
+    .cards { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 12px 12px; }
+    .card { background: var(--card); border-radius: 8px; padding: 9px 10px 10px; }
+    .card h2 { margin: 0 0 7px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .card h2 .extra { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; }
+    .empty { color: var(--muted); font-size: 12px; }
+    .mark { display: inline-flex; width: 16px; height: 16px; flex: none; }
+    .mark svg { width: 16px; height: 16px; display: block; }
+    /* Bonuses: one block per platform, a bar per bonus filling toward 24 h. */
+    .plat { display: flex; flex-direction: column; gap: 5px; }
+    .plat + .plat { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--chip); }
+    .plat-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+    .plat-head .state { margin-left: auto; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+    .plat-head .state.bad { color: var(--bad); }
+    .brow { display: grid; grid-template-columns: 56px 1fr 62px; align-items: center; gap: 8px; font-size: 12px; }
+    .brow .label { font-weight: 600; }
+    .brow .time { text-align: right; font-variant-numeric: tabular-nums; }
+    .brow.off .label, .brow.off .time { color: var(--muted); font-weight: 500; }
+    .bar { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+    .bar i { display: block; height: 100%; border-radius: 3px; }
+    .xp .label { color: #ffd76b; } .xp .bar i { background: #f2c14e; }
+    .capture .label { color: #8fd3ff; } .capture .bar i { background: #5aaaff; }
+    .lure .label { color: #d8a8ff; } .lure .bar i { background: #b478ff; }
+    .target { font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+    .target b { color: var(--text); font-weight: 600; }
+    /* Lists (streams, points, log). */
+    .list { display: flex; flex-direction: column; gap: 4px; }
+    .item { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12.5px; }
+    .item .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item .right { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .item.shown .name { color: var(--accent); font-weight: 600; }
+    .item.warn .name { color: var(--bad); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+    .item.warn .dot { background: var(--bad); }
+    .why { font-size: 11.5px; color: var(--bad); margin: -2px 0 2px 23px; }
+    /* Chores: a row per daily task with its state on the right. */
+    .chore { display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-height: 26px; }
+    .chore + .chore { border-top: 1px solid var(--chip); }
+    .chore .name { flex: 1 1 auto; }
+    .chore .name small { display: block; color: var(--muted); font-size: 11.5px; }
+    .tag { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--chip);
+      color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .tag.ok { color: var(--ok); background: rgba(61, 220, 132, .12); }
+    button.tag.ready { color: #1a1408; background: var(--accent); height: auto; }
+    button.tag.ready:hover { background: #ffd76b; }
+    /* Game session numbers. */
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .stat { background: var(--chip); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+    .stat .v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stat .k { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log .item { align-items: baseline; font-size: 12px; }
+    .log .when { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; width: 38px; }
+    .log .name { white-space: normal; overflow: visible; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h1 id="title">Stats</h1>
+    <button id="grid" title="Back to the grid">Grid</button>
+    <button id="hide" title="Hide this panel (▤ in the slot header brings it back)">✕</button>
+  </div>
+  <div class="cards" id="cards"></div>
+  <script>
+    // The single-focus stats panel: shown on the right while a slot is fullscreen, with that
+    // account's bonuses, streams, daily chores, game numbers and what the app did for it.
+    const { invoke } = window.__TAURI__.core;
+    const { listen } = window.__TAURI__.event;
+    const cards = document.getElementById('cards');
+    let view = null;
+
+    const PLATFORMS = {
+      twitch: { name: 'Twitch', svg: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#9146FF" d="M4.3 2 2.5 6.5V20h5v2.5h2.8l2.5-2.5h4l4.7-4.7V2H4.3Z"/><path fill="#fff" d="M19.5 14.2 16.7 17h-4.5l-2.5 2.5V17H5.5V4h14v10.2Z"/><path fill="#9146FF" d="M15.2 7.2h2v5.6h-2zM10.6 7.2h2v5.6h-2z"/></svg>` },
+      kick: { name: 'Kick', svg: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#53FC18"/><path fill="#0B0E0F" d="M5.5 4.5h5v4h1.7V6.6h1.9V4.5h4.4v5.3h-2.1v1.9h-1.9v.6h1.9v1.9h2.1v5.3h-4.4v-2.1h-1.9v-1.9h-1.7v4h-5z"/></svg>` },
+    };
+    const BONUSES = [['xp', 'XP', '+15% XP'], ['capture', 'Capture', '+15% Capture Boost'], ['lure', 'Lure', '+15% Secret Lure']];
+    const DAY = 24 * 3600 * 1000;
+
+    const el = (tag, className, text) => {
+      const e = document.createElement(tag);
+      if (className) e.className = className;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    };
+    const mark = (platform) => {
+      const m = el('span', 'mark');
+      m.innerHTML = PLATFORMS[platform].svg;
+      return m;
+    };
+    function card(title, extra) {
+      const c = el('section', 'card');
+      const h = el('h2', '', title);
+      if (extra) h.append(el('span', 'extra', extra));
+      c.append(h);
+      return c;
+    }
+    function left(ms) {
+      if (ms < 60000) return '<1m';
+      const m = Math.floor(ms / 60000);
+      const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+      if (d) return `${d}d ${h}h`;
+      if (h) return `${h}h${String(mm).padStart(2, '0')}`;
+      return `${mm}m`;
+    }
+    const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const num = (n) => Number(n).toLocaleString();
+
+    function bonusesCard(v) {
+      const c = card('Bonuses');
+      const now = Date.now();
+      for (const platform of ['twitch', 'kick']) {
+        const block = el('div', 'plat');
+        const head = el('div', 'plat-head');
+        const linked = v[`${platform}_linked`];
+        const state = el('span', 'state' + (linked === false ? ' bad' : ''),
+          linked === true ? 'linked in game' : linked === false ? 'not linked in game' : 'waiting for the game');
+        head.append(mark(platform), el('span', '', PLATFORMS[platform].name), state);
+        block.append(head);
+        const ends = v.running?.[platform];
+        for (const [key, short, long] of BONUSES) {
+          const ms = (ends?.[key] || 0) - now;
+          const row = el('div', `brow ${key}` + (ms > 0 ? '' : ' off'));
+          const bar = el('div', 'bar');
+          const fill = el('i');
+          fill.style.width = `${Math.max(0, Math.min(1, ms / DAY)) * 100}%`;
+          bar.append(fill);
+          row.append(el('span', 'label', short), bar, el('span', 'time', ms > 0 ? left(ms) : ends ? '—' : '?'));
+          row.title = ms > 0 ? `${long} from ${PLATFORMS[platform].name}: ends at ${clock(now + ms)}` : `${long}: not running`;
+          block.append(row);
+        }
+        c.append(block);
+      }
+      const names = { xp: 'XP', capture: 'Capture Boost', lure: 'Secret Lure' };
+      const target = el('div', 'target');
+      target.append('Kick redeem target: ', el('b', '', v.bonus ? names[v.bonus] : 'none (⚙ to pick)'));
+      c.append(target);
+      return c;
+    }
+
+    function streamsCard(v) {
+      const c = card('Streams', v.streams.length ? `${v.streams.length} open` : '');
+      const list = el('div', 'list');
+      if (!v.streams.length) list.append(el('span', 'empty', 'No streams open in this slot'));
+      for (const platform of ['twitch', 'kick']) {
+        for (const s of v.streams.filter((x) => x.platform === platform)) {
+          const item = el('div', 'item' + (s.shown ? ' shown' : '') + (s.warning ? ' warn' : ''));
+          item.append(mark(platform), el('span', 'name', s.login || `${PLATFORMS[platform].name} (no channel)`),
+            s.shown ? el('span', 'right', 'on screen') : el('span', 'dot'));
+          list.append(item);
+          if (s.warning) list.append(el('div', 'why', s.warning));
+        }
+      }
+      c.append(list);
+      return c;
+    }
+
+    function pointsCard(v) {
+      const c = card('Channel points');
+      const list = el('div', 'list');
+      if (!v.points.length) list.append(el('span', 'empty', 'None seen yet (they show once a stream reports them)'));
+      for (const [platform, channel, points] of v.points.slice(0, 8)) {
+        const item = el('div', 'item');
+        item.append(mark(platform), el('span', 'name', channel), el('span', 'right', num(points)));
+        list.append(item);
+      }
+      c.append(list);
+      return c;
+    }
+
+    function choresCard(v) {
+      const c = card('Daily chores');
+      // IdleHub vote.
+      const vote = el('div', 'chore');
+      const vName = el('span', 'name', 'IdleHub vote');
+      let vTag;
+      const s = v.vote;
+      if (!v.vote_reminded) {
+        vName.append(el('small', '', 'Reminder off for this account (⚙)'));
+        vTag = el('span', 'tag', 'off');
+      } else if (!s || s.error) {
+        vName.append(el('small', '', s?.error || 'Checking…'));
+        vTag = el('span', 'tag', '?');
+      } else {
+        const ms = s.readyAt - Date.now();
+        const pair = s.perDiamond ? ` (${s.inPair}/${s.perDiamond} to next)` : '';
+        vName.append(el('small', '', `${s.nick} · ${s.votes} vote${s.votes === 1 ? '' : 's'} · ${s.diamonds} 💎${pair}`));
+        vTag = el('button', 'tag' + (ms <= 0 ? ' ready' : ''), ms <= 0 ? 'Vote now' : `in ${left(ms)}`);
+        vTag.title = 'Opens the vote page in a window with this slot\'s session';
+        vTag.addEventListener('click', () => invoke('open_vote', { id: v.slot }).catch(() => {}));
+      }
+      vote.append(vName, vTag);
+      // Kick Daily Reward.
+      const daily = el('div', 'chore');
+      const dName = el('span', 'name', 'Kick Daily Reward');
+      let dTag;
+      if (!v.daily_enabled) {
+        dName.append(el('small', '', 'Auto-claim off (⚙)'));
+        dTag = el('span', 'tag', 'off');
+      } else if (v.daily_done_today) {
+        dName.append(el('small', '', 'Claimed today (UTC)'));
+        dTag = el('span', 'tag ok', 'done');
+      } else {
+        dName.append(el('small', '', 'Claimed on the next manager pass'));
+        dTag = el('span', 'tag', 'pending');
+      }
+      daily.append(dName, dTag);
+      c.append(vote, daily);
+      return c;
+    }
+
+    // The game's own numbers for this session (whatever game-watch.js picked from its state).
+    function gameCard(v) {
+      const entries = Array.isArray(v.game) ? v.game : [];
+      if (!entries.length) return null;
+      const c = card('Game session', 'since the game loaded');
+      const grid = el('div', 'grid');
+      for (const [k, val] of entries) {
+        const s = el('div', 'stat');
+        s.append(el('div', 'v', typeof val === 'number' ? num(val) : String(val)), el('div', 'k', k));
+        grid.append(s);
+      }
+      c.append(grid);
+      return c;
+    }
+
+    function logCard(v) {
+      const c = card('Activity', v.log.length ? `last ${v.log.length}` : '');
+      const list = el('div', 'list log');
+      if (!v.log.length) list.append(el('span', 'empty', 'Nothing yet — the app logs swaps, redeems, reloads and claims here'));
+      for (const [at, text] of v.log) {
+        const item = el('div', 'item');
+        item.append(el('span', 'when', clock(at)), el('span', 'name', text));
+        list.append(item);
+      }
+      c.append(list);
+      return c;
+    }
+
+    function render(v) {
+      view = v;
+      if (!v) { cards.replaceChildren(); return; }
+      const title = document.getElementById('title');
+      title.textContent = v.name;
+      title.append(el('span', 'sub', `#${v.slot}`));
+      const scroll = document.scrollingElement.scrollTop;
+      cards.replaceChildren(...[bonusesCard(v), choresCard(v), gameCard(v), streamsCard(v), pointsCard(v), logCard(v)].filter(Boolean));
+      document.scrollingElement.scrollTop = scroll;
+    }
+
+    document.getElementById('grid').addEventListener('click', () => view && invoke('focus_slot', { id: view.slot }).catch(() => {}));
+    document.getElementById('hide').addEventListener('click', () => invoke('set_focus_panel', { on: false }).catch(() => {}));
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key >= '1' && e.key <= '4') invoke('focus_slot', { id: Number(e.key) }).catch(() => {});
+    });
+    listen('focus', (e) => render(e.payload));
+    const refresh = () => invoke('get_focus').then(render).catch(() => {});
+    // Countdowns tick, and log lines that came without a state change show up.
+    setInterval(refresh, 15000);
+    refresh();
+  </script>
+</body>
+</html>

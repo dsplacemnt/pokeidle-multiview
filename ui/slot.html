@@ -81,6 +81,7 @@
     .bonus.none { color: var(--muted); background: transparent; border: 1px dashed var(--chip-active);
       font-weight: 500; }
     .muted { opacity: .75; }
+    .panel-on { background: var(--chip-active); color: var(--accent); }
     .armed { background: #8a2c2c; }
     .spacer { flex: 1 1 auto; }
     .error { color: #ff8a80; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -433,6 +434,12 @@
         voteBox,
         error,
         Object.assign(document.createElement('span'), { className: 'spacer' }),
+        // Fullscreen: shows or hides the stats panel on the right.
+        ...(focused
+          ? [button('▤', state.focus_panel ? 'Hide the stats panel' : 'Show the stats panel',
+              () => invoke('set_focus_panel', { on: !state.focus_panel }).catch(showError),
+              state.focus_panel ? 'panel-on' : '')]
+          : []),
         button('⟳', 'Reload the game', () => call('reload_slot')),
         confirmButton('×', 'Close?', 'Close slot (keeps its login)', '', () => call('close_slot')),
       );

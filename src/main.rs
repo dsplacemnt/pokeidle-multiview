@@ -65,10 +65,29 @@ struct AppState {
     bonus_ends: HashMap<(u8, Platform), BonusEnds>,
     /// What the health check has seen of each stream page, by label.
     health: HashMap<String, HealthTrack>,
+    /// Channels a page found offline while the platform still said live, per account: kept
+    /// out of that account's picks for a while (see `OFFLINE_REPORTS_TO_SWAP`).
+    page_offline: HashMap<(u8, Platform, String), std::time::Instant>,
     /// Kick Daily Reward tries per slot today: (UTC day, tries).
     daily_tries: HashMap<u8, (i64, u8)>,
     /// The last IdleHub vote status of each reminded account: (status, when it was asked).
     vote: HashMap<u8, (VoteStatus, std::time::Instant)>,
+    /// Recent automation events per account (newest last), for the single-focus panel.
+    log: HashMap<u8, std::collections::VecDeque<(i64, String)>>,
+    /// The game's session numbers per account (see game-watch.js), for the panel.
+    game_stats: HashMap<u8, serde_json::Value>,
+}
+
+/// Events kept per account in the automation log.
+const LOG_KEEP: usize = 60;
+
+/// Adds an event to an account's automation log (shown in its single-focus panel).
+fn log_event(state: &mut AppState, id: u8, text: impl Into<String>) {
+    let log = state.log.entry(id).or_default();
+    log.push_back((now_ms(), text.into()));
+    while log.len() > LOG_KEEP {
+        log.pop_front();
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -87,6 +106,8 @@ struct StateView {
     bonuses: HashMap<u8, SlotBonuses>,
     /// The IdleHub vote status of the reminded accounts, by slot.
     vote: HashMap<u8, VoteStatus>,
+    /// A fullscreen slot shows its stats panel (the ▤ button in its header toggles it).
+    focus_panel: bool,
 }
 
 fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
@@ -235,6 +256,7 @@ fn state_view(state: &AppState) -> StateView {
             .or_else(|| state.config.slots.first().map(|s| s.id)),
         bonuses: slot_bonuses(state),
         vote: vote_view(state),
+        focus_panel: state.config.focus_panel,
     }
 }
 
@@ -251,13 +273,101 @@ fn save_and_publish(app: &AppHandle, state: &AppState) {
     power::set_keep_awake(app, state.config.keep_awake && any_pages(state));
 }
 
-/// Sends the state to the app's own pages: the toolbar and every slot header.
+/// Sends the state to the app's own pages: the toolbar, every slot header and the stats panel.
 fn publish(app: &AppHandle, state: &AppState) {
     let view = state_view(state);
     let _ = app.emit_to("toolbar", "state", view.clone());
     for id in 1..=MAX_SLOTS {
         let _ = app.emit_to(header_label(id).as_str(), "state", view.clone());
     }
+    let _ = app.emit_to(FOCUS_PANEL, "focus", focus_view(state));
+}
+
+#[derive(Serialize, Clone)]
+struct FocusStream {
+    platform: Platform,
+    login: Option<String>,
+    warning: Option<String>,
+    shown: bool,
+}
+
+/// Everything the single-focus stats panel shows about the fullscreen account.
+#[derive(Serialize, Clone)]
+struct FocusView {
+    slot: u8,
+    name: String,
+    bonus: Option<KickBonus>,
+    running: SlotBonuses,
+    streams: Vec<FocusStream>,
+    /// Last seen channel points, most first: [platform, channel, points].
+    points: Vec<(Platform, String, u64)>,
+    kick_linked: Option<bool>,
+    twitch_linked: Option<bool>,
+    vote_reminded: bool,
+    vote: Option<VoteStatus>,
+    daily_enabled: bool,
+    daily_done_today: bool,
+    /// Newest first: [time (ms), text].
+    log: Vec<(i64, String)>,
+    /// The game's session numbers, as its own state reports them (see game-watch.js).
+    game: Option<serde_json::Value>,
+}
+
+fn focus_view(state: &AppState) -> Option<FocusView> {
+    if !focus_panel_on(&state.config) {
+        return None;
+    }
+    let id = state.config.focus?;
+    let slot = state.config.slots.iter().find(|s| s.id == id)?;
+    let panels = state.panels.get(&id);
+    let streams = panels
+        .map(|p| {
+            p.pages
+                .iter()
+                .map(|pg| FocusStream {
+                    platform: pg.platform,
+                    login: pg.login.clone(),
+                    warning: pg.warning.clone(),
+                    shown: p.front.as_deref() == Some(pg.label.as_str()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(FocusView {
+        slot: id,
+        name: slot.name.clone().unwrap_or_else(|| format!("Slot {id}")),
+        bonus: slot.bonus,
+        running: SlotBonuses {
+            kick: state.bonus_ends.get(&(id, Platform::Kick)).copied(),
+            twitch: state.bonus_ends.get(&(id, Platform::Twitch)).copied(),
+        },
+        streams,
+        points: slot_points(&state.config, id),
+        kick_linked: state.linked.get(&(id, Platform::Kick)).copied(),
+        twitch_linked: state.linked.get(&(id, Platform::Twitch)).copied(),
+        vote_reminded: state.config.vote_slots.contains(&id),
+        vote: state.vote.get(&id).map(|(s, _)| s.clone()),
+        daily_enabled: state.config.kick_daily,
+        daily_done_today: state.config.kick_daily_done.get(&id) == Some(&utc_day()),
+        log: state.log.get(&id).map(|l| l.iter().rev().cloned().collect()).unwrap_or_default(),
+        game: state.game_stats.get(&id).cloned(),
+    })
+}
+
+#[tauri::command]
+fn get_focus(state: tauri::State<'_, Mutex<AppState>>) -> Option<FocusView> {
+    focus_view(&state.lock().unwrap())
+}
+
+/// The ▤ button: shows or hides the stats panel of a fullscreen slot (saved).
+#[tauri::command]
+fn set_focus_panel(app: AppHandle, on: bool) {
+    app.state::<Mutex<AppState>>().lock().unwrap().config.focus_panel = on;
+    if let Err(e) = apply_layout_smooth(&app) {
+        eprintln!("[layout] {e}");
+    }
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(&app, &state.lock().unwrap());
 }
 
 fn any_pages(state: &AppState) -> bool {
@@ -288,9 +398,22 @@ fn split_tile(tile: Rect) -> (Rect, Rect) {
     )
 }
 
+/// Width of the stats panel at the right of a fullscreen slot ("single focus"), logical px.
+const FOCUS_PANEL_W: f64 = 330.0;
+const FOCUS_PANEL: &str = "focus";
+
+/// The stats panel shows while a slot is fullscreen, unless the player hid it.
+fn focus_panel_on(config: &Config) -> bool {
+    config.focus_panel && config.focus.is_some_and(|f| config.slots.iter().any(|s| s.id == f))
+}
+
 fn current_layout(app: &AppHandle) -> tauri::Result<layout::Layout> {
-    let area = game_area(app)?;
+    let mut area = game_area(app)?;
     let config = app.state::<Mutex<AppState>>().lock().unwrap().config.clone();
+    // Single focus: the slot leaves room for the stats panel at the right.
+    if focus_panel_on(&config) {
+        area.w = (area.w - FOCUS_PANEL_W - layout::GAP).max(0.0);
+    }
     let ids: Vec<u8> = config.slots.iter().map(|s| s.id).collect();
     Ok(layout::compute(area, &ids, config.focus, config.grid_split))
 }
@@ -357,6 +480,17 @@ fn layout_plan(app: &AppHandle) -> tauri::Result<Vec<(String, Placement)>> {
         "toolbar".to_string(),
         if area.y > 0.0 {
             Placement::Show(Rect { x: 0.0, y: 0.0, w: area.w, h: area.y })
+        } else {
+            Placement::Hide(None)
+        },
+    ));
+    // The stats panel of a fullscreen slot, at the right of the game area.
+    let panel_on = focus_panel_on(&app.state::<Mutex<AppState>>().lock().unwrap().config);
+    plan.push((
+        FOCUS_PANEL.to_string(),
+        if panel_on {
+            let w = FOCUS_PANEL_W.min(area.w);
+            Placement::Show(Rect { x: area.x + area.w - w, y: area.y, w, h: area.h })
         } else {
             Placement::Hide(None)
         },
@@ -575,13 +709,38 @@ fn hidden_tile_of(app: &AppHandle) -> tauri::Result<Rect> {
 
 /// The slot's header: a local page with the slot's controls and its stream pills. It is created
 /// after the slot's pages exist, so it reads the right state when it loads.
+/// Debug builds only: with MULTIVIEW_DEVTOOLS=1 the app's own pages (toolbar, headers, panel,
+/// settings) share CDP port 9300. They share one WebView2 environment, so every one of them must
+/// get the same arguments.
+#[cfg(debug_assertions)]
+fn local_args() -> Option<&'static str> {
+    std::env::var_os("MULTIVIEW_DEVTOOLS").map(|_| {
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+         --autoplay-policy=no-user-gesture-required \
+         --remote-debugging-address=127.0.0.1 --remote-debugging-port=9300"
+    })
+}
+#[cfg(not(debug_assertions))]
+fn local_args() -> Option<&'static str> {
+    None
+}
+
+/// A webview for one of the app's own pages in ui/.
+fn local_page(label: impl Into<String>, page: String) -> WebviewBuilder<tauri::Wry> {
+    let builder = WebviewBuilder::new(label, WebviewUrl::App(page.into()));
+    match local_args() {
+        Some(args) => builder.additional_browser_args(args),
+        None => builder,
+    }
+}
+
 fn create_slot_header(app: &AppHandle, id: u8) -> tauri::Result<()> {
     if app.get_webview(&header_label(id)).is_some() {
         return Ok(());
     }
     let window = app.get_window("main").expect("main window exists");
     window.add_child(
-        WebviewBuilder::new(header_label(id), WebviewUrl::App(format!("slot.html?id={id}").into())),
+        local_page(header_label(id), format!("slot.html?id={id}")),
         LogicalPosition::new(0.0, BAR_HEIGHT),
         LogicalSize::new(1.0, 1.0),
     )?;
@@ -604,6 +763,8 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
                 game_reported(&title_app, id, json);
             } else if let Some(json) = title.strip_prefix("[multiview-vote] ") {
                 vote_reported(&title_app, id, json);
+            } else if let Some(json) = title.strip_prefix("[multiview-stats] ") {
+                stats_reported(&title_app, id, json);
             }
         })
         .on_navigation(move |url| {
@@ -984,6 +1145,17 @@ fn create_page(
         .on_document_title_changed(move |webview, title| {
             if let Some(message) = title.strip_prefix("[multiview] ") {
                 println!("[auto] {}: {message}", webview.label());
+                // Into the account's log, leaving out routine "not enough points" answers.
+                let worth = ["redeemed", "chest", "error", "no "].iter().any(|w| message.contains(w));
+                if worth {
+                    let channel = channels::channel_from_url(&webview.url().unwrap_or_else(|_| "about:blank".parse().unwrap()))
+                        .map(|c| format!("{} {}: ", c.platform.name(), c.login))
+                        .unwrap_or_default();
+                    // "Twitch x: Twitch visit: chest claimed" reads better as "Twitch x: chest claimed".
+                    let message = message.split_once("visit: ").map_or(message, |(_, rest)| rest);
+                    let state = title_app.state::<Mutex<AppState>>();
+                    log_event(&mut state.lock().unwrap(), id, format!("{channel}{message}"));
+                }
             } else if let Some(json) = title.strip_prefix("[multiview-points] ") {
                 points_reported(&title_app, id, json);
             } else if let Some(json) = title.strip_prefix("[multiview-health] ") {
@@ -1437,6 +1609,10 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         Some((x, y)) => builder.position(x, y),
         None => builder.center(),
     };
+    let builder = match local_args() {
+        Some(args) => builder.additional_browser_args(args),
+        None => builder,
+    };
     builder
         .resizable(true)
         .min_inner_size(720.0, 520.0)
@@ -1537,12 +1713,32 @@ fn manage_platform(app: &AppHandle, platform: Platform) {
         return;
     }
     println!("[auto] {} live in priority order: {:?}", platform.name(), kick::pick(&priority, &live, usize::MAX));
+    // Channels a page found offline before the platform did: dropped once the platform agrees
+    // (or after a while); until then they are offline for that account.
+    let page_offline: Vec<(u8, String)> = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        state.page_offline.retain(|(_, p, channel), since| {
+            *p != platform || (live.get(channel) == Some(&true) && since.elapsed() < PAGE_OFFLINE_FOR)
+        });
+        state
+            .page_offline
+            .keys()
+            .filter(|(_, p, _)| *p == platform)
+            .map(|(id, _, channel)| (*id, channel.clone()))
+            .collect()
+    };
     // Each account picks among the live channels by its own points (closest to its next reward
     // first), the priority order breaking ties.
     for slot in &slots {
         let open = open_channels(app, slot.id, platform);
         let points = |c: &str| balances.get(&config::balance_key(slot.id, platform, c)).copied().unwrap_or(0);
-        let wanted = kick::pick_for_account(&priority, &live, per_slot, points, &open);
+        let mut slot_live = live.clone();
+        for (_, channel) in page_offline.iter().filter(|(id, _)| *id == slot.id) {
+            println!("[auto] slot {}: {} {channel} looks offline on its page; picking another", slot.id, platform.name());
+            slot_live.insert(channel.clone(), false);
+        }
+        let wanted = kick::pick_for_account(&priority, &slot_live, per_slot, points, &open);
         if let Err(e) = manage_slot_streams(app, slot.id, platform, &wanted) {
             eprintln!("[auto] slot {}: {e}", slot.id);
         }
@@ -1649,6 +1845,18 @@ fn check_vote(app: &AppHandle) {
     }
 }
 
+/// A game page sent its session numbers ([[label, value], …], see game-watch.js): kept for the
+/// stats panel, which is refreshed if it shows this account.
+fn stats_reported(app: &AppHandle, id: u8, json: &str) {
+    let Ok(rows) = serde_json::from_str::<Vec<(String, serde_json::Value)>>(json) else { return };
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    state.game_stats.insert(id, serde_json::json!(rows));
+    if state.config.focus == Some(id) {
+        let _ = app.emit_to(FOCUS_PANEL, "focus", focus_view(&state));
+    }
+}
+
 /// A game page answered with its account's vote status: remembered, and shown in its header
 /// and in ⚙.
 fn vote_reported(app: &AppHandle, id: u8, json: &str) {
@@ -1663,6 +1871,14 @@ fn vote_reported(app: &AppHandle, id: u8, json: &str) {
     );
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
+    // A new vote counted since the last check goes into the account's log.
+    let before = state.vote.get(&id).map(|(s, _)| (s.votes, s.diamonds));
+    if let Some((votes, diamonds)) = before {
+        if status.votes > votes {
+            let diamond = if status.diamonds > diamonds { " (+1 diamond)" } else { "" };
+            log_event(&mut state, id, format!("IdleHub vote counted{diamond}"));
+        }
+    }
     state.vote.insert(id, (status, std::time::Instant::now()));
     publish(app, &state);
     drop(state);
@@ -1828,9 +2044,15 @@ struct DailyReport {
 fn daily_reported(app: &AppHandle, id: u8, json: &str) {
     let Ok(report) = serde_json::from_str::<DailyReport>(json) else { return };
     println!("[daily] slot {id}: {} {}", report.result, report.detail);
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    let text = match report.result.as_str() {
+        "claimed" => "Kick Daily Reward claimed".to_string(),
+        "not available" => "Kick Daily Reward already claimed today".to_string(),
+        other => format!("Kick Daily Reward: {other}"),
+    };
+    log_event(&mut state, id, text);
     if report.result == "claimed" || report.result == "not available" {
-        let state = app.state::<Mutex<AppState>>();
-        let mut state = state.lock().unwrap();
         state.config.kick_daily_done.insert(id, utc_day());
         if let Err(e) = state.config.save(&state.config_path) {
             eprintln!("[config] could not save: {e}");
@@ -1856,7 +2078,16 @@ struct HealthTrack {
     stalled: Option<String>,
     offline: Option<String>,
     logged_out: Option<String>,
+    /// Checks in a row where the page said its channel is offline.
+    offline_reports: u8,
 }
+
+/// After this many "offline" checks in a row, the page is believed over the platform's
+/// live status (which can lag for minutes) and its channel is swapped.
+const OFFLINE_REPORTS_TO_SWAP: u8 = 2;
+/// How long a channel a page found offline is kept out of that account's picks, unless the
+/// platform also says offline or the page plays again first.
+const PAGE_OFFLINE_FOR: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 /// Asks every background stream page whether it is playing (scripts/stream-health.js); the
 /// answers come to `health_reported`. Pages in the middle of a Twitch visit are skipped.
@@ -1902,10 +2133,14 @@ fn next_health(
             track.last_reload = None;
             track.stalled = None;
             track.offline = None;
+            track.offline_reports = 0;
         }
         "logged-in" => track.logged_out = None,
         "logged-out" => track.logged_out = Some(format!("Logged out: {detail}")),
-        "offline" => track.offline = Some(format!("Offline: {detail}")),
+        "offline" => {
+            track.offline = Some(format!("Offline: {detail}"));
+            track.offline_reports = track.offline_reports.saturating_add(1);
+        }
         "stalled" => {
             track.stalls += 1;
             if track.stalls < 2 {
@@ -1932,7 +2167,7 @@ fn next_health(
 
 fn health_reported(app: &AppHandle, label: &str, json: &str) {
     let Ok(report) = serde_json::from_str::<HealthReport>(json) else { return };
-    let (reload, changed) = {
+    let (reload, changed, wake) = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
         let track = state.health.entry(label.to_string()).or_default();
@@ -1941,16 +2176,67 @@ fn health_reported(app: &AppHandle, label: &str, json: &str) {
         else {
             return;
         };
+        let offline_reports = track.offline_reports;
+        // Which account and channel this page is.
+        let owner = state.panels.iter().find_map(|(id, p)| {
+            let page = p.page(label)?;
+            Some((*id, page.platform, page.login.clone()?))
+        });
+        // An offline channel is swapped sooner: the first report wakes the manager (the
+        // platform may already agree); from the second one on, the page is believed even if
+        // the platform still says live, and that account picks another channel. Playing
+        // again lets it back in.
+        let mut wake = false;
+        // Only channels the priority lists manage (a stream opened by hand is just warned).
+        let managed = |platform: Platform, login: &str| match platform {
+            Platform::Kick => state.config.kick_priority.iter().any(|c| c == login),
+            Platform::Twitch => state.config.twitch_priority.iter().any(|c| c == login),
+        };
+        let who = owner.clone();
+        let owner = owner.filter(|(_, platform, login)| managed(*platform, login));
+        if let Some((id, platform, login)) = owner {
+            let key = (id, platform, login);
+            match report.state.as_str() {
+                "offline" => {
+                    wake = true;
+                    if offline_reports >= OFFLINE_REPORTS_TO_SWAP {
+                        state.page_offline.entry(key).or_insert_with(std::time::Instant::now);
+                    }
+                }
+                "ok" => {
+                    state.page_offline.remove(&key);
+                }
+                _ => {}
+            }
+        }
         let page = state.panels.values_mut().flat_map(|p| p.pages.iter_mut()).find(|p| p.label == label);
         let changed = match page {
             Some(page) if page.warning != warning => {
-                page.warning = warning;
+                page.warning = warning.clone();
                 true
             }
             _ => false,
         };
-        (reload, changed)
+        // Into the account's log: reloads and warnings coming and going.
+        if let Some((id, platform, login)) = who {
+            let channel = format!("{} {login}", platform.name());
+            if reload {
+                log_event(&mut state, id, format!("{channel}: stalled, reloaded"));
+            }
+            if changed {
+                let text = match &warning {
+                    Some(w) => format!("{channel}: ⚠ {w}"),
+                    None => format!("{channel}: playing normally again"),
+                };
+                log_event(&mut state, id, text);
+            }
+        }
+        (reload, changed, wake)
     };
+    if wake {
+        println!("[health] {label}: offline ({}); checking the priority lists now", report.detail);
+        AUTO_WAKE.store(true, Ordering::SeqCst);
+    }
     if reload {
         println!("[health] {label}: {} ({}); reloading", report.state, report.detail);
         if let Some(page) = app.get_webview(label) {
@@ -1989,6 +2275,21 @@ mod health_tests {
         // Playing again clears everything.
         assert_eq!(next_health(&mut t, "ok", "", start + Duration::from_secs(900)), Some((false, None)));
         assert_eq!(t.reloads, 0);
+    }
+
+    #[test]
+    fn offline_reports_are_counted_until_the_stream_plays() {
+        let mut t = HealthTrack::default();
+        let now = Instant::now();
+        next_health(&mut t, "offline", "x", now);
+        assert_eq!(t.offline_reports, 1);
+        next_health(&mut t, "offline", "x", now);
+        assert!(t.offline_reports >= OFFLINE_REPORTS_TO_SWAP);
+        // Other signals don't reset it; playing again does.
+        next_health(&mut t, "logged-in", "", now);
+        assert_eq!(t.offline_reports, 2);
+        next_health(&mut t, "ok", "", now);
+        assert_eq!(t.offline_reports, 0);
     }
 
     #[test]
@@ -2042,11 +2343,24 @@ fn manage_slot_streams(app: &AppHandle, id: u8, platform: Platform, wanted: &[St
     }
     if !close.is_empty() {
         println!("[auto] slot {id}: closing {} {} page(s) outside the priority picks", close.len(), platform.name());
+        let closed: Vec<String> = pages
+            .iter()
+            .filter(|p| close.contains(&p.label))
+            .filter_map(|p| p.login.clone())
+            .collect();
+        {
+            let state = app.state::<Mutex<AppState>>();
+            log_event(&mut state.lock().unwrap(), id, format!("{} closed: {}", platform.name(), closed.join(", ")));
+        }
         stop_pages_inner(app, id, Some(&close))?;
     }
     for login in missing {
         let channel = channels::Channel { platform, login: login.clone() };
         println!("[auto] slot {id}: opening {} {login}", platform.name());
+        {
+            let state = app.state::<Mutex<AppState>>();
+            log_event(&mut state.lock().unwrap(), id, format!("{} opened: {login}", platform.name()));
+        }
         create_page(app, id, platform, &channel.url_for(false), true)?;
     }
     remember_panels(app);
@@ -2611,8 +2925,11 @@ fn main() {
                 linked: HashMap::new(),
                 bonus_ends: HashMap::new(),
                 health: HashMap::new(),
+                page_offline: HashMap::new(),
                 daily_tries: HashMap::new(),
                 vote: HashMap::new(),
+                log: HashMap::new(),
+                game_stats: HashMap::new(),
             }));
 
             let window = WindowBuilder::new(app, "main")
@@ -2631,16 +2948,24 @@ fn main() {
             // over the gaps between slots by apply_layout.
             for (label, axis) in [(SPLIT_V, "v"), (SPLIT_H, "h")] {
                 let splitter = window.add_child(
-                    WebviewBuilder::new(label, WebviewUrl::App(format!("splitter.html?axis={axis}").into())),
+                    local_page(label, format!("splitter.html?axis={axis}")),
                     LogicalPosition::new(0.0, BAR_HEIGHT),
                     LogicalSize::new(1.0, 1.0),
                 )?;
                 splitter.hide()?;
             }
+            // The stats panel of a fullscreen slot (local page); placed by apply_layout.
+            window
+                .add_child(
+                    local_page(FOCUS_PANEL, "focus.html".into()),
+                    LogicalPosition::new(0.0, BAR_HEIGHT),
+                    LogicalSize::new(1.0, 1.0),
+                )?
+                .hide()?;
             // Toolbar last: creating a WebView2 pumps window messages, so a toolbar created
             // first would load and read the state before the streams above were restored.
             window.add_child(
-                WebviewBuilder::new("toolbar", WebviewUrl::App("index.html".into())),
+                local_page("toolbar", "index.html".into()),
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(1280.0, BAR_HEIGHT),
             )?;
@@ -2710,7 +3035,9 @@ fn main() {
             set_bonus,
             set_sync,
             set_vote_slot,
-            open_vote
+            open_vote,
+            get_focus,
+            set_focus_panel
         ])
         .run(tauri::generate_context!())
         .expect("error while running PokeIdle Multiview");
