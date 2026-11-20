@@ -267,8 +267,8 @@
     // Hunt analysis (from game-watch.js): supplies with how long they last, the pace, the next
     // levels and the catches, since the game loaded or the hunt changed.
     const compact = (n) => (n === null || n === undefined ? '—'
-      : Math.abs(n) >= 1e4 ? new Intl.NumberFormat(I18N.lang === 'pt' ? 'pt-BR' : 'en', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
-      : Math.round(n).toLocaleString(I18N.lang === 'pt' ? 'pt-BR' : 'en'));
+      : Math.abs(n) >= 1e4 ? new Intl.NumberFormat(document.documentElement.lang, { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+      : Math.round(n).toLocaleString(document.documentElement.lang));
     const hoursText = (h) => {
       if (h === null || h === undefined) return '—';
       const m = Math.round(h * 60);

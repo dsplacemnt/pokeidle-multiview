@@ -9,13 +9,14 @@ mod twitch;
 mod layout;
 mod native;
 mod power;
+mod splash;
 mod support;
 mod tray;
 mod updater;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -393,7 +394,7 @@ fn set_language(app: AppHandle, lang: config::Language) {
 }
 
 fn settings_title(lang: config::Language) -> &'static str {
-    lang.pick("Settings — PokeIdle Multiview", "Configurações — PokeIdle Multiview")
+    lang.pick("Settings — PokeIdle Multiview", "Configurações — PokeIdle Multiview", "Configuración — PokeIdle Multiview")
 }
 
 /// The ▤ button: shows or hides the stats panel of a fullscreen slot (saved).
@@ -690,6 +691,8 @@ fn slot_session_builder(
     // logins that survive restarts.
     let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url.parse().unwrap()))
     .data_directory(data_dir)
+    // Dark until the page paints (no white flash while it loads).
+    .background_color(BACKGROUND)
     .zoom_hotkeys_enabled(true)
     .on_page_load(|webview, payload| lower_player_quality(&webview, &payload))
     .on_navigation(|url| guard_navigation(url))
@@ -762,9 +765,12 @@ fn local_args() -> Option<&'static str> {
     None
 }
 
+/// Behind every page until it paints, and behind the window itself: the app's dark gray.
+const BACKGROUND: tauri::window::Color = tauri::window::Color(22, 24, 29, 255);
+
 /// A webview for one of the app's own pages in ui/.
 fn local_page(label: impl Into<String>, page: String) -> WebviewBuilder<tauri::Wry> {
-    let builder = WebviewBuilder::new(label, WebviewUrl::App(page.into()));
+    let builder = WebviewBuilder::new(label, WebviewUrl::App(page.into())).background_color(BACKGROUND);
     match local_args() {
         Some(args) => builder.additional_browser_args(args),
         None => builder,
@@ -790,7 +796,14 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
     // opens its official channels in a new tab) go to the slot's own stream panel instead of a
     // loose popup window.
     let (nav_app, popup_app, title_app, id) = (app.clone(), app.clone(), app.clone(), slot.id);
+    let load_app = app.clone();
     let builder = slot_session_builder(app, slot.id, slot_label(slot.id), GAME_URL)
+        // The loading screen waits for each game's first load.
+        .on_page_load(move |_, payload| {
+            if payload.event() == PageLoadEvent::Finished {
+                splash::game_loaded(&load_app, id);
+            }
+        })
         .initialization_script(DESKTOP_LAYOUT)
         // Listens to the game's own state messages for its Kick/Twitch partner channels and the
         // account's link status; it reports through a brief title change.
@@ -1252,13 +1265,37 @@ fn remember_panels(app: &AppHandle) {
             })
             .collect();
     }
+    // The main window's size and maximized state, for the next start (it opens centered).
+    if let Some(window) = app.get_window("main") {
+        let maximized = window.is_maximized().unwrap_or(false);
+        let minimized = window.is_minimized().unwrap_or(false);
+        let mut geom = state.config.window.unwrap_or_default();
+        geom.maximized = maximized;
+        // A maximized or minimized window's size isn't the one to come back to.
+        if !maximized && !minimized && window.is_visible().unwrap_or(false) {
+            if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
+                let size = size.to_logical::<f64>(scale);
+                if size.width >= 640.0 && size.height >= 400.0 {
+                    geom.width = size.width;
+                    geom.height = size.height;
+                }
+            }
+        }
+        state.config.window = Some(geom);
+    }
     if let Err(e) = state.config.save(&state.config_path) {
         eprintln!("[config] could not save: {e}");
     }
 }
 
-/// Startup: reopen the pages that were running, in the background and muted.
+/// Set once the streams saved at the last exit are open again (see `restore_panels`).
+static RESTORED: AtomicBool = AtomicBool::new(false);
+
+/// Reopens the streams saved at the last exit, in the background. One page at a time on the
+/// main thread with a pause between them, so the window (and the loading screen's progress)
+/// keeps updating instead of freezing until all of them exist.
 fn restore_panels(app: &AppHandle, slots: &[SlotConfig]) {
+    let mut pages: Vec<(u8, Platform, String)> = Vec::new();
     for slot in slots {
         for saved in &slot.panels {
             let parsed = saved.url.parse::<Url>().ok().filter(slot_may_navigate);
@@ -1268,13 +1305,41 @@ fn restore_panels(app: &AppHandle, slots: &[SlotConfig]) {
                 None if parsed.is_some() => saved.url.clone(),
                 None => saved.platform.start_url().to_string(),
             };
-            let url = url.as_str();
-            match create_page(app, slot.id, saved.platform, url, true) {
-                Ok(_) => println!("[panel] slot {}: resumed {}", slot.id, url),
-                Err(e) => eprintln!("[panel] slot {}: could not resume {url}: {e}", slot.id),
-            }
+            pages.push((slot.id, saved.platform, url));
         }
     }
+    let total = pages.len();
+    splash::streams_progress(app, 0, total);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        for (done, (id, platform, url)) in pages.into_iter().enumerate() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let main = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                match create_page(&main, id, platform, &url, true) {
+                    Ok(_) => println!("[panel] slot {id}: resumed {url}"),
+                    Err(e) => eprintln!("[panel] slot {id}: could not resume {url}: {e}"),
+                }
+                let _ = tx.send(());
+            });
+            let _ = rx.recv();
+            splash::streams_progress(&app, done + 1, total);
+            std::thread::sleep(std::time::Duration::from_millis(60));
+        }
+        // The headers and the toolbar learn about the reopened streams; pages go in place.
+        let main = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Err(e) = apply_layout(&main) {
+                eprintln!("[layout] {e}");
+            }
+            let state = main.state::<Mutex<AppState>>();
+            let state = state.lock().unwrap();
+            publish(&main, &state);
+            tray::set_tooltip(&main, &state.panels, state.config.language);
+            power::set_keep_awake(&main, state.config.keep_awake && any_pages(&state));
+        });
+        RESTORED.store(true, Ordering::SeqCst);
+    });
 }
 
 /// Closes pages for good (stops their streams). `labels` = None closes all of the slot's.
@@ -1674,7 +1739,10 @@ static AUTO_WAKE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// bonus on Kick, and starts the due Twitch visits (bonus chest + bonus).
 fn start_stream_manager(app: AppHandle) {
     std::thread::spawn(move || {
-        // Let the restored streams load first.
+        // Let the restored streams open and load first.
+        while !RESTORED.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
         std::thread::sleep(std::time::Duration::from_secs(20));
         loop {
             for platform in PLATFORMS {
@@ -1977,7 +2045,7 @@ async fn open_vote(app: AppHandle, id: u8) -> Result<(), String> {
     let main = app.get_window("main").ok_or("No window")?;
     let (w, h) = (560.0, 820.0);
     let builder = WindowBuilder::new(&app, &label)
-        .title(format!("{} — {nick}", lang.pick("Vote on IdleHub", "Votar no IdleHub")))
+        .title(format!("{} — {nick}", lang.pick("Vote on IdleHub", "Votar no IdleHub", "Votar en IdleHub")))
         .inner_size(w, h);
     // Centered over the main window, like the settings.
     let builder = match centered_over(&main, w, h) {
@@ -2921,8 +2989,6 @@ fn main() {
             println!("[app] another copy was started; showing this one instead");
             tray::show_main(app);
         }))
-        // Remembers the main window's size, position and maximized state between runs.
-        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updater::UpdateState::default())
         .setup(|app| {
@@ -2955,6 +3021,7 @@ fn main() {
                 },
             };
             let slots = config.slots.clone();
+            let geom = config.window.unwrap_or_default();
             app.manage(Mutex::new(AppState {
                 config,
                 config_path,
@@ -2975,15 +3042,20 @@ fn main() {
                 game_stats: HashMap::new(),
             }));
 
+            // Hidden until the games have loaded (splash.rs shows it); the splash window is
+            // on screen meanwhile.
+            splash::open(&handle, &slots);
             let window = WindowBuilder::new(app, "main")
                 .title("PokeIdle Multiview")
-                .inner_size(1280.0, 800.0)
+                .visible(false)
+                .background_color(BACKGROUND)
+                // The last size; centered (and maximized if it was) when the loading ends.
+                .inner_size(geom.width.max(640.0), geom.height.max(400.0))
                 .min_inner_size(640.0, 400.0)
                 .build()?;
             for slot in &slots {
                 create_slot_webview(&handle, slot)?;
             }
-            restore_panels(&handle, &slots);
             for slot in &slots {
                 create_slot_header(&handle, slot.id)?;
             }
@@ -3005,14 +3077,15 @@ fn main() {
                     LogicalSize::new(1.0, 1.0),
                 )?
                 .hide()?;
-            // Toolbar last: creating a WebView2 pumps window messages, so a toolbar created
-            // first would load and read the state before the streams above were restored.
+            // Toolbar last, over the other pages; it gets the streams once they reopen.
             window.add_child(
                 local_page("toolbar", "index.html".into()),
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(1280.0, BAR_HEIGHT),
             )?;
             apply_layout(&handle)?;
+            // The saved streams reopen after this, in the background (see restore_panels).
+            restore_panels(&handle, &slots);
 
             tray::create(&handle)?;
             updater::start(handle.clone());
@@ -3091,7 +3164,8 @@ fn main() {
             support::open_discord,
             updater::get_update,
             updater::check_update,
-            updater::install_update
+            updater::install_update,
+            splash::get_splash
         ])
         .run(tauri::generate_context!())
         .expect("error while running PokeIdle Multiview");

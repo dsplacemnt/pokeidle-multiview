@@ -18,7 +18,7 @@ pub const PIX: &str = "00020126580014BR.GOV.BCB.PIX0136384baaaf-07f9-495b-96d0-f
 const WINDOW: &str = "support";
 
 pub fn title(lang: crate::config::Language) -> &'static str {
-    lang.pick("Support the dev — PokeIdle Multiview", "Apoiar o dev — PokeIdle Multiview")
+    lang.pick("Support the dev — PokeIdle Multiview", "Apoiar o dev — PokeIdle Multiview", "Apoyar al dev — PokeIdle Multiview")
 }
 
 #[derive(Serialize)]

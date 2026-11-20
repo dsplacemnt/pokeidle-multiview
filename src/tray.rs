@@ -50,9 +50,9 @@ fn quit(app: &AppHandle) {
 }
 
 fn menu(app: &AppHandle, lang: Language) -> tauri::Result<Menu<tauri::Wry>> {
-    let show = MenuItem::with_id(app, "show", lang.pick("Show PokeIdle Multiview", "Mostrar o PokeIdle Multiview"), true, None::<&str>)?;
-    let support = MenuItem::with_id(app, "support", lang.pick("♥ Support the dev", "♥ Apoiar o dev"), true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", lang.pick("Quit", "Sair"), true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", lang.pick("Show PokeIdle Multiview", "Mostrar o PokeIdle Multiview", "Mostrar PokeIdle Multiview"), true, None::<&str>)?;
+    let support = MenuItem::with_id(app, "support", lang.pick("♥ Support the dev", "♥ Apoiar o dev", "♥ Apoyar al dev"), true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", lang.pick("Quit", "Sair", "Salir"), true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     Menu::with_items(app, &[&show, &support, &separator, &quit_item])
 }
@@ -111,8 +111,8 @@ pub fn set_tooltip(app: &AppHandle, panels: &HashMap<u8, PanelState>, lang: Lang
     let streams: usize = panels.values().map(|p| p.pages.len()).sum();
     let text = match streams {
         0 => "PokeIdle Multiview".to_string(),
-        1 => lang.pick("PokeIdle Multiview — 1 stream running", "PokeIdle Multiview — 1 stream rodando").to_string(),
-        n => format!("PokeIdle Multiview — {n} {}", lang.pick("streams running", "streams rodando")),
+        1 => lang.pick("PokeIdle Multiview — 1 stream running", "PokeIdle Multiview — 1 stream rodando", "PokeIdle Multiview — 1 stream activo").to_string(),
+        n => format!("PokeIdle Multiview — {n} {}", lang.pick("streams running", "streams rodando", "streams activos")),
     };
     let _ = tray.set_tooltip(Some(text));
 }
