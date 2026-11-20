@@ -1,4 +1,4 @@
-// The app's two languages: Portuguese (default) and English. Every local page loads this
+// The app's languages: Portuguese (default), English and Spanish. Every local page loads this
 // first. The pages are written in English; `I18N.t(english, vars)` gives the text in the
 // current language, elements marked `data-i18n` / `data-i18n-title` / `data-i18n-placeholder`
 // are translated in place, and `I18N.text()` translates messages that come from the app or
@@ -7,6 +7,13 @@
 (() => {
   // English → Portuguese. Keys must match the English text exactly ({name} = filled in).
   const PT = {
+    // Loading screen
+    'Ready!': 'Pronto!',
+    'Loading the games… {n}/{total}': 'Carregando os jogos… {n}/{total}',
+    'Starting your accounts…': 'Iniciando suas contas…',
+    'Opening your streams… {n}/{total}': 'Abrindo suas streams… {n}/{total}',
+    'Almost ready…': 'Quase pronto…',
+
     // Top bar
     '♥ Support': '♥ Apoiar',
     'Support the dev: Pix and Discord': 'Apoiar o dev: Pix e Discord',
@@ -298,25 +305,334 @@
     [/\berror: /g, 'erro: '],
   ];
 
+  // English → Spanish. Same keys as PT.
+  const ES = {
+    // Loading screen
+    'Ready!': '¡Listo!',
+    'Loading the games… {n}/{total}': 'Cargando los juegos… {n}/{total}',
+    'Starting your accounts…': 'Iniciando tus cuentas…',
+    'Opening your streams… {n}/{total}': 'Abriendo tus streams… {n}/{total}',
+    'Almost ready…': 'Casi listo…',
+
+    // Top bar
+    '♥ Support': '♥ Apoyar',
+    'Support the dev: Pix and Discord': 'Apoyar al dev: Pix y Discord',
+    'Hide this bar to give the slots more room (▾ in the same corner brings it back)': 'Ocultar esta barra para dar más espacio a los slots (▾ en la misma esquina la vuelve a mostrar)',
+    "Grid: show all slots (click a slot's name to show it fullscreen instead)": 'Cuadrícula: muestra todos los slots (haz clic en el nombre de un slot para verlo en pantalla completa)',
+    'Settings': 'Configuración',
+    'Back to the grid': 'Volver a la cuadrícula',
+    'Downloading {pct}%': 'Descargando {pct}%',
+    'Version {v} is out: click to update (the app closes, installs it and opens again)': 'Salió la versión {v}: haz clic para actualizar (la app se cierra, la instala y se vuelve a abrir)',
+    'Version {v} is out: click to open its download page': 'Salió la versión {v}: haz clic para abrir su página de descarga',
+    'Update now?': '¿Actualizar ahora?',
+    'Check for updates': 'Buscar actualizaciones',
+    'Version {v} is out: use ⬆ on the top bar': 'Salió la versión {v}: usa ⬆ en la barra superior',
+    "Couldn't check for updates": 'No se pudieron buscar actualizaciones',
+    'Up to date': 'Actualizada',
+    'Show {name} fullscreen': 'Mostrar {name} en pantalla completa',
+    'Add a slot (another account, up to 4)': 'Agregar un slot (otra cuenta, hasta 4)',
+    '"/hunt for PokeIdle" extension loaded': 'Extensión "/hunt for PokeIdle" cargada',
+    '"/hunt for PokeIdle" not found in any installed browser': '"/hunt for PokeIdle" no se encontró en ningún navegador instalado',
+
+    // Slot header
+    "Left: this slot's controls · Right: its Twitch/Kick streams": 'Izquierda: controles de este slot · Derecha: sus streams de Twitch/Kick',
+    'Scroll the streams left': 'Desplazar los streams a la izquierda',
+    'Scroll the streams right': 'Desplazar los streams a la derecha',
+    '{platform} (not on a channel)': '{platform} (fuera de un canal)',
+    'Show this slot fullscreen': 'Mostrar este slot en pantalla completa',
+    'double-click to rename': 'doble clic para renombrar',
+    'Back to the game ({name} keeps running muted)': 'Volver al juego ({name} sigue en segundo plano sin sonido)',
+    '{count} {name} streams running in the background — click to show one (the pills pick which)': '{count} streams de {name} en segundo plano — haz clic para mostrar uno (las píldoras eligen cuál)',
+    '1 {name} stream running in the background — click to show it': '1 stream de {name} en segundo plano — haz clic para mostrarlo',
+    'Open {name} in this slot (log in here)': 'Abrir {name} en este slot (inicia sesión aquí)',
+    'Add a Twitch or Kick channel to this slot': 'Agregar un canal de Twitch o Kick a este slot',
+    'Channel on {name}': 'Canal en {name}',
+    'channel name or link': 'nombre del canal o enlace',
+    'Stop {name} ({platform})': 'Detener {name} ({platform})',
+    'Show {name} ({platform}) in this slot': 'Mostrar {name} ({platform}) en este slot',
+    'Stop {name}': 'Detener {name}',
+    '{bonus} from {platform}: {left} left': '{bonus} de {platform}: quedan {left}',
+    'no bonus': 'sin bono',
+    'No PokeIdle bonus from {platform} running': 'Ningún bono de PokeIdle de {platform} activo',
+    "The game hasn't reported this account's {platform} bonuses yet": 'El juego aún no informó los bonos de {platform} de esta cuenta',
+    'Bonuses from {platform}': 'Bonos de {platform}',
+    'Vote': 'Votar',
+    '{n}/{of} toward the next diamond': '{n}/{of} para el próximo diamante',
+    "IdleHub vote for {nick} is ready: opens the vote page in a window with this slot's session (sign in and confirm there)": 'El voto en IdleHub de {nick} está disponible: abre la página de votación en una ventana con la sesión de este slot (inicia sesión y confirma allí)',
+    'Next IdleHub vote for {nick} in {left} (click to open the vote page anyway)': 'Próximo voto en IdleHub de {nick} en {left} (haz clic para abrir la página de votación igualmente)',
+    '{n} vote': '{n} voto',
+    '{n} votes': '{n} votos',
+    '{n} diamond': '{n} diamante',
+    '{n} diamonds': '{n} diamantes',
+    'Unmute this game': 'Activar el sonido de este juego',
+    'Mute this game': 'Silenciar este juego',
+    'Show the top bar (+ SLOT, GRID, settings…)': 'Mostrar la barra superior (+ SLOT, GRID, configuración…)',
+    'Hide the stats panel': 'Ocultar el panel de estadísticas',
+    'Show the stats panel': 'Mostrar el panel de estadísticas',
+    'Reload the game': 'Recargar el juego',
+    'Close?': '¿Cerrar?',
+    'Close slot (keeps its login)': 'Cerrar el slot (mantiene la sesión)',
+    '{platform} streams': 'Streams de {platform}',
+    'No streams · + adds a channel': 'Sin streams · + agrega un canal',
+
+    // Stats panel
+    'Hide this panel (▤ in the slot header brings it back)': 'Ocultar este panel (▤ en la cabecera del slot lo vuelve a mostrar)',
+    'Bonuses': 'Bonos',
+    'linked in game': 'vinculada en el juego',
+    'not linked in game': 'no vinculada en el juego',
+    'waiting for the game': 'esperando al juego',
+    '{bonus} from {platform}: ends at {time}': '{bonus} de {platform}: termina a las {time}',
+    '{bonus}: not running': '{bonus}: inactivo',
+    'Kick redeem target:': 'Canje en Kick:',
+    'none (⚙ to pick)': 'ninguno (elige en ⚙)',
+    'Streams': 'Streams',
+    '{n} open': '{n} abiertos',
+    'No streams open in this slot': 'Ningún stream abierto en este slot',
+    '{platform} (no channel)': '{platform} (sin canal)',
+    'on screen': 'en pantalla',
+    'Channel points': 'Puntos de canal',
+    'None seen yet (they show once a stream reports them)': 'Ninguno visto aún (aparecen cuando un stream los informa)',
+    'Daily chores': 'Tareas diarias',
+    'IdleHub vote': 'Voto en IdleHub',
+    'Reminder off for this account (⚙)': 'Recordatorio desactivado para esta cuenta (⚙)',
+    'off': 'desactivado',
+    'Checking…': 'Verificando…',
+    '{n}/{of} to next': '{n}/{of} para el próximo',
+    'Vote now': 'Votar ahora',
+    'in {left}': 'en {left}',
+    "Opens the vote page in a window with this slot's session": 'Abre la página de votación en una ventana con la sesión de este slot',
+    'Kick Daily Reward': 'Daily Reward de Kick',
+    'Auto-claim off (⚙)': 'Reclamo automático desactivado (⚙)',
+    'Claimed today (UTC)': 'Reclamado hoy (UTC)',
+    'done': 'hecho',
+    'Claimed on the next manager pass': 'Se reclama en la próxima verificación',
+    'pending': 'pendiente',
+    'Game session': 'Sesión del juego',
+    'since the game loaded': 'desde que abrió el juego',
+    'Gold': 'Oro',
+    'Gold this session': 'Oro en esta sesión',
+    'Gold per hour': 'Oro por hora',
+    'XP': 'XP',
+    'XP this session': 'XP en esta sesión',
+    'XP per hour': 'XP por hora',
+    'Balls left': 'Pokéballs',
+    'Fighting': 'Peleando',
+    'Hunt analysis': 'Análisis de la hunt',
+    'Supplies': 'Suministros',
+    'Waiting for the game to show the bag (a few minutes)': 'Esperando a que el juego muestre la mochila (unos minutos)',
+    '{n}/h': '{n}/h',
+    'unused': 'sin uso',
+    '{n} used': '{n} usadas',
+    '{name}: {left} left, {rate} per hour — lasts about {time}': '{name}: quedan {left}, {rate} por hora — dura unas {time}',
+    '{name}: {left} left, not used in this hunt yet': '{name}: quedan {left}, aún sin uso en esta hunt',
+    'left': 'quedan',
+    'per hour': 'por hora',
+    'lasts': 'dura',
+    'Balls': 'Pokéballs',
+    'Potions': 'Pociones',
+    'Revives': 'Revivir',
+    'Kills per hour': 'Derrotas por hora',
+    'Supplies per hour': 'Gasto por hora',
+    'Net gold per hour': 'Ganancia por hora',
+    'Catches ({rate}%)': 'Capturas ({rate}%)',
+    'Catches': 'Capturas',
+    'Next level': 'Próximo nivel',
+    'in {time}': 'en {time}',
+    'Trainer': 'Entrenador',
+    'Rates show after 5 minutes of hunting.': 'Las tasas aparecen tras 5 minutos de hunt.',
+    '{n} shiny seen': '{n} shiny visto',
+    'Fighting {wild}': 'Peleando contra {wild}',
+    'Activity': 'Actividad',
+    'last {n}': 'últimas {n}',
+    'Nothing yet — the app logs swaps, redeems, reloads and claims here': 'Nada aún — la app registra aquí cambios, canjes, recargas y reclamos',
+
+    // Support window
+    'Support the dev': 'Apoyar al dev',
+    'If PokeIdle Multiview helps you and you can chip in, any amount helps keep it going. Thank you!': 'Si PokeIdle Multiview te ayuda y puedes contribuir, cualquier monto ayuda a mantener el desarrollo. ¡Gracias!',
+    "Scan it with your bank's app (Pix, Brazil)": 'Escanéalo con la app de tu banco (Pix, Brasil)',
+    'Pix copy and paste': 'Pix copiar y pegar',
+    'Copy': 'Copiar',
+    'Copied ✓': 'Copiado ✓',
+    'Invite friends to PokeIdle (free)': 'Invita amigos a PokeIdle (gratis)',
+    "Costs nothing: people who don't play yet can sign up with this invite link.": 'No cuesta nada: quien aún no juega puede crear su cuenta con este enlace de invitación.',
+    'Open': 'Abrir',
+    'Open in the browser': 'Abrir en el navegador',
+    'Star on GitHub (free)': 'Estrella en GitHub (gratis)',
+    'A ⭐ on the repository helps more players find the app.': 'Una ⭐ en el repositorio ayuda a que más jugadores encuentren la app.',
+    '⭐ Give a star': '⭐ Dar estrella',
+    'Discord (ideas, bugs, questions)': 'Discord (ideas, bugs, dudas)',
+    'Pix': 'Pix',
+    "Scan the QR code with your bank's app, or copy the Pix code and paste it there.": 'Escanea el código QR con la app de tu banco, o copia el código Pix y pégalo allí (Pix es de Brasil).',
+    'Copy Pix code': 'Copiar código Pix',
+    'Open profile': 'Abrir perfil',
+    'Copy username': 'Copiar usuario',
+    "Ideas, bugs, questions: the developer's Discord": 'Ideas, bugs, dudas: el Discord del dev',
+    'channel name': 'nombre del canal',
+
+    // Settings
+    'Language': 'Idioma',
+    'App language': 'Idioma de la app',
+    'Also on the top bar: the flags next to ⚙.': 'También en la barra superior: las banderas junto a ⚙.',
+    'Window': 'Ventana',
+    'Close to the tray': 'Cerrar a la bandeja',
+    '× keeps the app and its streams running near the clock. Quit from the tray icon.': 'La × deja la app y sus streams funcionando junto al reloj. Para salir, usa el ícono de la bandeja.',
+    'Minimize to the tray': 'Minimizar a la bandeja',
+    'Minimizing hides the app from the taskbar too.': 'Minimizar también oculta la app de la barra de tareas.',
+    'Layout': 'Diseño',
+    'Smooth transitions': 'Transiciones suaves',
+    'Slots slide into place when you go fullscreen, reset the grid or hide the top bar. Off by default: changes are instant.': 'Los slots se deslizan a su lugar al pasar a pantalla completa, restablecer la cuadrícula u ocultar la barra superior. Desactivado por defecto: los cambios son instantáneos.',
+    'Reset the grid': 'Restablecer la cuadrícula',
+    'Leaves fullscreen and makes every slot the same size again.': 'Sale de pantalla completa y deja todos los slots del mismo tamaño otra vez.',
+    'Reset': 'Restablecer',
+    'Keep the PC awake while streams run': 'Mantener la PC despierta con streams activos',
+    "Windows won't go to sleep and cut the streams. The screen can still turn off.": 'Windows no entrará en suspensión ni cortará los streams. La pantalla sí puede apagarse.',
+    'Lighter Kick streams in the background': 'Streams de Kick más livianos en segundo plano',
+    'Hidden Kick pages drop their chat and sidebars and play at the lowest quality, to save memory and CPU. Turn off if a Kick channel stops earning points.': 'Las páginas de Kick ocultas quitan el chat y las barras laterales y se reproducen en la menor calidad, para ahorrar memoria y CPU. Desactívalo si un canal de Kick deja de dar puntos.',
+    'Game': 'Juego',
+    'Reload all game pages': 'Recargar todas las páginas del juego',
+    "Useful to pick up the game's daily updates.": 'Útil para recibir las actualizaciones diarias del juego.',
+    'Never': 'Nunca',
+    'Every 15 min': 'Cada 15 min',
+    'Every 30 min': 'Cada 30 min',
+    'Every hour': 'Cada hora',
+    'Every 3 hours': 'Cada 3 horas',
+    'Every 6 hours': 'Cada 6 horas',
+    'Every 12 hours': 'Cada 12 horas',
+    'Every 24 hours': 'Cada 24 horas',
+    'About': 'Acerca de',
+    'Ideas, bugs, questions: Discord': 'Ideas, bugs, dudas: Discord',
+    '♥ Support the dev': '♥ Apoyar al dev',
+    '⭐ Star on GitHub': '⭐ Estrella en GitHub',
+    'Opens the project page: a star there helps more players find the app': 'Abre la página del proyecto: una estrella allí ayuda a que más jugadores encuentren la app',
+    'Invite friends to PokeIdle': 'Invita amigos a PokeIdle',
+    'A free way to support: new players can sign up with this referral link.': 'Una forma gratis de apoyar: los nuevos jugadores pueden crear su cuenta con este enlace de invitación.',
+    'Copy invite link': 'Copiar enlace de invitación',
+    'Copy invite': 'Copiar invitación',
+    'Open invite': 'Abrir invitación',
+    'Free ways to help': 'Ayuda gratis',
+    "Invite friends who don't play yet with your invite link, or give the app a ⭐ on GitHub so more players find it.": 'Invita a quien aún no juega con el enlace de invitación, o dale una ⭐ en GitHub para que más jugadores encuentren la app.',
+    "Every account keeps live channels of this list open, as many as you choose: <b>the ones where it has the most points first</b> (closest to its next bonus), this list's order deciding between equal ones. Every ~15 minutes each stream briefly loads its full page to grab the <b>bonus chest</b> (+50) and redeem the account's bonus. Empty list = you manage Twitch streams by hand.":
+      'Cada cuenta mantiene abiertos canales en vivo de esta lista, tantos como elijas: <b>primero aquellos donde tiene más puntos</b> (más cerca de su próximo bono), y el orden de la lista desempata. Cada ~15 minutos cada stream carga su página completa un momento para tomar el <b>cofre de bono</b> (+50) y canjear el bono de la cuenta. Lista vacía = manejas los streams de Twitch a mano.',
+    'Twitch lives per account': 'Directos de Twitch por cuenta',
+    'No limit on Twitch: choose 1 to 8.': 'Twitch no tiene límite: elige de 1 a 8.',
+    'Keep updated from the game': 'Mantener actualizada desde el juego',
+    'channel name or twitch.tv link': 'nombre del canal o enlace de twitch.tv',
+    'Add': 'Agregar',
+    'Kick pays channel points for 2 lives at a time per account, so every account keeps 2 live channels of this list open and closes its other Kick streams: <b>the ones where it has the most points first</b>, this list\'s order deciding between equal ones. When one goes offline, the next takes its place (checked every 2 minutes). Empty list = you manage Kick streams by hand.':
+      'Kick paga puntos de canal en 2 directos a la vez por cuenta, así que cada cuenta mantiene 2 canales en vivo de esta lista abiertos y cierra sus otros streams de Kick: <b>primero aquellos donde tiene más puntos</b>, y el orden de la lista desempata. Cuando uno se desconecta, el siguiente toma su lugar (se verifica cada 2 minutos). Lista vacía = manejas los streams de Kick a mano.',
+    'Kick only pays channel points for 2 lives at a time per account': 'Kick solo paga puntos de canal en 2 directos a la vez por cuenta',
+    'Kick lives per account': 'Directos de Kick por cuenta',
+    'Fixed: Kick pays points for 2 at a time.': 'Fijo: Kick paga puntos en 2 a la vez.',
+    "Claim Kick's Daily Reward": 'Reclamar el Daily Reward de Kick',
+    "Once a day per account, from Kick's gift button (not channel points). Off by default.": 'Una vez al día por cuenta, desde el botón de regalo de Kick (no usa puntos de canal). Desactivado por defecto.',
+    'channel name or kick.com link': 'nombre del canal o enlace de kick.com',
+    'Voting on IdleHub gives the account a diamond every 2 votes (one vote a day counts per nick). Tick the accounts to be reminded: their header shows when the vote is ready, and clicking it opens the vote page in a window with that slot\'s session, where you sign in and confirm. The app never votes by itself. IdleHub asks for "one person, one account" and may void votes it finds suspicious.':
+      'Votar en IdleHub da a la cuenta un diamante cada 2 votos (cuenta un voto por día por nick). Marca las cuentas para recibir el recordatorio: la cabecera del slot muestra cuándo el voto está disponible, y al hacer clic se abre la página de votación en una ventana con la sesión de ese slot, donde inicias sesión y confirmas. La app nunca vota sola. IdleHub pide "una persona, una cuenta" y puede anular votos que considere sospechosos.',
+    'Bonus per account': 'Bono por cuenta',
+    "Redeems the chosen PokeIdle bonus with the account's channel points as soon as they cover it, on its live Kick and Twitch channels (hours add up in the game). The account must have Kick and Twitch linked in the game (<i>Bônus na Kick</i>, <i>Bônus Twitch</i>), or the points are given back.":
+      'Canjea el bono de PokeIdle elegido con los puntos de canal de la cuenta en cuanto alcanzan, en sus canales en vivo de Kick y Twitch (las horas se suman en el juego). La cuenta debe tener Kick y Twitch vinculadas en el juego (<i>Bônus na Kick</i>, <i>Bônus Twitch</i>), o los puntos se devuelven.',
+    'Saved': 'Guardado',
+    'Grid reset': 'Cuadrícula restablecida',
+    'Not checked yet': 'Aún no verificado',
+    'Live': 'En vivo',
+    'Offline': 'Desconectado',
+    'Open in 1 account right now': 'Abierto en 1 cuenta ahora',
+    'Open in {n} accounts right now': 'Abierto en {n} cuentas ahora',
+    'Higher priority': 'Subir prioridad',
+    'Lower priority': 'Bajar prioridad',
+    'Remove': 'Quitar',
+    'No channels: {platform} streams are managed by hand.': 'Sin canales: los streams de {platform} se manejan a mano.',
+    'Asking the game for the vote status…': 'Preguntando al juego el estado del voto…',
+    "Couldn't read the vote status: {error}": 'No se pudo leer el estado del voto: {error}',
+    'vote ready now': 'voto disponible ahora',
+    'next vote in {left}': 'próximo voto en {left}',
+    '{n}/{of} toward the next': '{n}/{of} para el próximo',
+    'No slots open.': 'Ningún slot abierto.',
+    '1 stream needs attention': '1 stream necesita atención',
+    '{n} streams need attention': '{n} streams necesitan atención',
+    'New partner channels of the game are added at the end of the list (the game has {n} on {platform}).': 'Los nuevos canales asociados del juego se agregan al final de la lista (el juego tiene {n} en {platform}).',
+    'New partner channels of the game are added at the end of the list (waiting for the game to announce them).': 'Los nuevos canales asociados del juego se agregan al final de la lista (esperando a que el juego los anuncie).',
+    'Nothing': 'Nada',
+    '{platform} not linked': '{platform} no vinculada',
+    'Link {platform} in the game, or redeemed points are given back': 'Vincula {platform} en el juego, o los puntos canjeados se devuelven',
+    '{platform} is linked in the game': '{platform} está vinculada en el juego',
+    'Not reported by the game yet': 'El juego aún no lo informó',
+    'Points: not seen yet': 'Puntos: aún no vistos',
+    'Not a new {platform} channel name': 'No es un canal nuevo de {platform}',
+    '1 channel added from the game': '1 canal agregado desde el juego',
+    '{n} channels added from the game': '{n} canales agregados desde el juego',
+  };
+
+  const PHRASES_ES = [
+    // Errors
+    [/^All 4 slots are open$/, 'Los 4 slots ya están abiertos'],
+    [/^No such slot$/, 'Slot no encontrado'],
+    [/^"(.*)" is not a Twitch or Kick channel$/, '"$1" no es un canal de Twitch o Kick'],
+    [/^Slot (\d+) already runs (\d+) (\w+) streams; close one first$/, 'El slot $1 ya tiene $2 streams de $3; cierra uno primero'],
+    [/^No vote status yet$/, 'Aún sin estado del voto'],
+    [/This game page is not logged in/, 'Esta página del juego no tiene sesión iniciada'],
+    // Stream warnings
+    [/^Logged out: /, 'Sesión cerrada: '],
+    [/^Offline: /, 'Desconectado: '],
+    [/^Stalled: (.*)\. Reloaded, still not playing\.$/, 'Trabado: $1. Recargado, sigue sin reproducir.'],
+    [/No live player on the channel page/, 'No hay reproductor en vivo en la página del canal'],
+    [/Kick shows no channel points here: is this account logged in\?/, 'Kick no muestra puntos de canal aquí: ¿esta cuenta tiene sesión iniciada?'],
+    [/The Twitch player says the channel is offline/, 'El reproductor de Twitch dice que el canal está desconectado'],
+    [/The video is paused/, 'El video está en pausa'],
+    [/The video stopped at (\d+) s/, 'El video se detuvo en $1 s'],
+    // Activity log
+    [/^(\w+) closed: /, '$1 cerró: '],
+    [/^(\w+) opened: /, '$1 abrió: '],
+    [/: stalled, reloaded$/, ': se trabó, recargado'],
+    [/: playing normally again$/, ': reproduce normalmente otra vez'],
+    [/^Kick Daily Reward claimed$/, 'Daily Reward de Kick reclamado'],
+    [/^Kick Daily Reward already claimed today$/, 'Daily Reward de Kick ya reclamado hoy'],
+    [/^Kick Daily Reward: /, 'Daily Reward de Kick: '],
+    [/^IdleHub vote counted \(\+1 diamond\)$/, 'Voto en IdleHub contado (+1 diamante)'],
+    [/^IdleHub vote counted$/, 'Voto en IdleHub contado'],
+    [/Kick redeem: /, 'Canje en Kick: '],
+    [/chest claimed/g, 'cofre reclamado'],
+    [/not enough points/g, 'puntos insuficientes'],
+    [/redeem button disabled for /g, 'botón de canje desactivado para '],
+    [/no redeem button for /g, 'sin botón de canje para '],
+    [/\bredeemed /g, 'canjeó '],
+    [/no such reward on this channel|this channel has no such reward/g, 'este canal no tiene esa recompensa'],
+    [/no channel points here \(offline or logged out\?\)/g, 'sin puntos de canal aquí (¿desconectado o sin sesión?)'],
+    [/no points button \(logged out\?\)/g, 'sin botón de puntos (¿sin sesión?)'],
+    [/\bnot live\b/g, 'no está en vivo'],
+    [/nothing to do/g, 'nada que hacer'],
+    [/\berror: /g, 'error: '],
+  ];
+
+  const DICTS = { pt: PT, es: ES };
+  const PHRASE_LISTS = { pt: PHRASES, es: PHRASES_ES };
+  const LANGS = ['pt', 'en', 'es'];
+  const HTML_LANG = { pt: 'pt-BR', en: 'en', es: 'es' };
+
   const norm = (s) => String(s).replace(/\s+/g, ' ').trim();
   const fill = (s, vars) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);
   const listeners = [];
   let lang = 'pt';
-  try { lang = localStorage.getItem('multiview-lang') === 'en' ? 'en' : 'pt'; } catch {}
+  try {
+    const saved = localStorage.getItem('multiview-lang');
+    if (LANGS.includes(saved)) lang = saved;
+  } catch {}
 
   function t(en, vars) {
-    return fill(lang === 'pt' && PT[en] !== undefined ? PT[en] : en, vars);
+    const dict = DICTS[lang];
+    return fill(dict && dict[en] !== undefined ? dict[en] : en, vars);
   }
 
   function text(message) {
-    if (lang !== 'pt' || !message) return message;
+    const phrases = PHRASE_LISTS[lang];
+    if (!phrases || !message) return message;
     let out = String(message);
-    for (const [re, to] of PHRASES) out = out.replace(re, to);
+    for (const [re, to] of phrases) out = out.replace(re, to);
     return out;
   }
 
   function apply(root = document) {
-    document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
+    document.documentElement.lang = HTML_LANG[lang];
     for (const el of root.querySelectorAll('[data-i18n]')) {
       if (el.dataset.en === undefined) el.dataset.en = norm(el.innerHTML);
       el.innerHTML = t(el.dataset.en);
@@ -330,7 +646,7 @@
   }
 
   function set(next) {
-    if (next !== 'pt' && next !== 'en') return;
+    if (!LANGS.includes(next)) return;
     const changed = next !== lang;
     lang = next;
     try { localStorage.setItem('multiview-lang', lang); } catch {}
@@ -341,6 +657,7 @@
   window.I18N = {
     get lang() { return lang; },
     PT,
+    ES,
     t,
     text,
     apply,

@@ -233,6 +233,23 @@ pub struct Config {
     /// The app's language (the flags on the top bar). Portuguese unless changed.
     #[serde(default)]
     pub language: Language,
+    /// The main window's last size and maximized state (it always opens centered).
+    #[serde(default)]
+    pub window: Option<WindowGeom>,
+}
+
+/// The main window's size (logical pixels) and whether it was maximized.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct WindowGeom {
+    pub width: f64,
+    pub height: f64,
+    pub maximized: bool,
+}
+
+impl Default for WindowGeom {
+    fn default() -> Self {
+        WindowGeom { width: 1280.0, height: 800.0, maximized: false }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -242,14 +259,17 @@ pub enum Language {
     Pt,
     #[serde(rename = "en")]
     En,
+    #[serde(rename = "es")]
+    Es,
 }
 
 impl Language {
     /// Picks the text for this language.
-    pub fn pick<'a>(self, en: &'a str, pt: &'a str) -> &'a str {
+    pub fn pick<'a>(self, en: &'a str, pt: &'a str, es: &'a str) -> &'a str {
         match self {
             Language::En => en,
             Language::Pt => pt,
+            Language::Es => es,
         }
     }
 }
@@ -303,6 +323,7 @@ impl Default for Config {
             vote_slot: None,
             focus_panel: true,
             language: Language::Pt,
+            window: None,
         }
     }
 }

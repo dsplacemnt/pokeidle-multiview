@@ -42,8 +42,13 @@ under 10 MB.
   release; **⬆ &lt;version&gt;** then shows on the top bar. Click it twice: it downloads the
   installer, checks its signature, installs it and opens again with the same streams. The
   portable exe can't replace itself: its ⬆ opens the release page. ⚙ → About checks on demand.
-- **Português or English.** The app opens in Brazilian Portuguese; the 🇧🇷 / 🇺🇸 flags on the
-  top bar (or ⚙ → Language) switch every window, the tray menu and the app's messages at once.
+- **Loading screen.** While the games load, a small window shows each account's progress;
+  the main window appears once they're ready (or after 45 s), centered on the screen with its
+  last size (or maximized), with no white panels. Every page has a dark background while it
+  loads.
+- **Português, English or Español.** The app opens in Brazilian Portuguese; the 🇧🇷 / 🇺🇸 / 🇪🇸
+  flags on the top bar (or ⚙ → Language) switch every window, the tray menu and the app's
+  messages at once.
 - **Per-slot names and sound.** Double-click a slot's name to rename it (Enter saves, Esc
   cancels, empty goes back to "Slot N"). 🔊/🔇 mutes that slot's game.
 - **Settings (⚙).** Close or minimize to the tray, keep the PC awake while streams run (on by

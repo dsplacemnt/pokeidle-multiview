@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>PokeIdle Multiview</title>
+  <style>
+    :root {
+      --bg: #16181d;
+      --card: #1b1e24;
+      --chip: #23262e;
+      --line: #2e333d;
+      --text: #e6e8ee;
+      --muted: #8a90a0;
+      --accent: #f2c14e;
+      --ok: #3ddc84;
+    }
+    * { box-sizing: border-box; }
+    /* The window is transparent: the card draws the rounded shape and the shadow. */
+    html, body { margin: 0; height: 100%; background: transparent; color: var(--text);
+      font: 13px/1.4 "Segoe UI", system-ui, sans-serif; user-select: none; overflow: hidden; cursor: default; }
+    body { padding: 10px; }
+    .card { height: 100%; border-radius: 18px; background: radial-gradient(120% 90% at 50% 0%, #22262f 0%, var(--card) 55%, #15171c 100%);
+      border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 22px 28px;
+      animation: rise .35s ease-out both; }
+    .card.out { animation: fade .25s ease-in forwards; }
+    @keyframes rise { from { opacity: 0; transform: translateY(6px) scale(.98); } }
+    @keyframes fade { to { opacity: 0; transform: scale(.98); } }
+    .logo { width: 64px; height: 64px; filter: drop-shadow(0 4px 10px rgba(238, 43, 59, .25)); animation: wobble 1.6s ease-in-out infinite; transform-origin: 50% 85%; }
+    @keyframes wobble { 0%, 60%, 100% { transform: rotate(0); } 15% { transform: rotate(-14deg); } 30% { transform: rotate(11deg); } 45% { transform: rotate(-6deg); } }
+    .done .logo { animation: none; }
+    h1 { margin: 0; font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: .01em; }
+    .status { color: var(--muted); font-size: 12.5px; min-height: 18px; }
+    .bar { width: 100%; height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+    .bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #f2c14e, #ffd76b);
+      transition: width .35s ease; }
+    .accounts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+    .acc { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 12px; background: var(--chip);
+      font-size: 12px; color: var(--muted); max-width: 170px; }
+    .acc span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .acc.ok { color: var(--text); }
+    .spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #3a4150; border-top-color: var(--accent);
+      animation: spin .8s linear infinite; flex: none; }
+    .acc.ok .spin { border: 0; animation: none; background: var(--ok); width: 8px; height: 8px; margin: 1px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+  <script src="i18n.js"></script>
+</head>
+<body>
+  <div class="card" id="card">
+    <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+      <circle cx="32" cy="32" r="27" fill="#f4f6f9"/>
+      <path d="M5 32a27 27 0 0 1 54 0z" fill="#ee2b3b"/>
+      <rect x="5" y="29" width="54" height="6" fill="#1c1f26"/>
+      <circle cx="32" cy="32" r="28.5" fill="none" stroke="#1c1f26" stroke-width="3"/>
+      <circle cx="32" cy="32" r="10" fill="#1c1f26"/>
+      <circle cx="32" cy="32" r="6.5" fill="#f4f6f9"/>
+      <ellipse cx="22" cy="15" rx="8" ry="4.5" fill="#fff" opacity=".35" transform="rotate(-32 22 15)"/>
+    </svg>
+    <h1>PokeIdle Multiview</h1>
+    <div class="status" id="status"></div>
+    <div class="bar"><i id="fill"></i></div>
+    <div class="accounts" id="accounts"></div>
+  </div>
+  <script>
+    // While the games load: one chip per account (spinner, then green) and a progress bar.
+    const { invoke } = window.__TAURI__.core;
+    const { listen } = window.__TAURI__.event;
+    const { t } = I18N;
+    let view = null;
+
+    function render(v) {
+      view = v || view;
+      if (!view) return;
+      const total = view.slots.length;
+      const loaded = view.loaded.length;
+      const [opened, streams] = view.streams || [0, 0];
+      // One bar for both steps: the games, then the saved streams reopening.
+      const steps = total + streams;
+      document.getElementById('fill').style.width = `${steps ? Math.round(((loaded + opened) / steps) * 100) : 100}%`;
+      document.getElementById('status').textContent = view.done
+        ? t('Ready!')
+        : loaded < total
+          ? (loaded ? t('Loading the games… {n}/{total}', { n: loaded, total }) : t('Starting your accounts…'))
+          : streams && opened < streams
+            ? t('Opening your streams… {n}/{total}', { n: opened, total: streams })
+            : t('Almost ready…');
+      document.getElementById('accounts').replaceChildren(...view.slots.map(([id, name]) => {
+        const chip = document.createElement('div');
+        chip.className = 'acc' + (view.loaded.includes(id) ? ' ok' : '');
+        const dot = document.createElement('i');
+        dot.className = 'spin';
+        const label = document.createElement('span');
+        label.textContent = name;
+        chip.append(dot, label);
+        return chip;
+      }));
+      const card = document.getElementById('card');
+      card.classList.toggle('done', !!view.done);
+      if (view.done) card.classList.add('out');
+    }
+
+    listen('splash', (e) => render(e.payload));
+    I18N.onChange(() => render());
+    invoke('get_splash').then(render);
+  </script>
+</body>
+</html>
