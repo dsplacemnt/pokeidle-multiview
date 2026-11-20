@@ -20,3 +20,5 @@ webview2-com = "0.39"
 windows-core = "0.62"
 tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2"
+# Asks Kick's public API which channels are live (for the Kick priority list).
+ureq = "3"

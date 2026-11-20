@@ -4,32 +4,105 @@
   <meta charset="utf-8">
   <title>Settings</title>
   <style>
-    :root { --bg: #16181d; --card: #1f2229; --text: #e6e8ee; --muted: #8a90a0; --accent: #f2c14e; }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; background: var(--bg); color: var(--text);
-      font: 14px/1.4 "Segoe UI", system-ui, sans-serif; user-select: none; }
-    main { padding: 18px 20px; display: grid; gap: 14px; }
-    h1 { margin: 0 0 2px; font-size: 17px; font-weight: 600; color: var(--accent); }
-    section { background: var(--card); border-radius: 10px; padding: 12px 14px; display: grid; gap: 10px; }
-    h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-    label.row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+    :root {
+      --bg: #14161b; --card: #1d2027; --row: #252932; --row-hover: #2b303a; --line: #2e333d;
+      --text: #e6e8ee; --muted: #8b91a1; --accent: #f2c14e; --live: #3ddc84;
+    }
+    * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #3a4150 transparent; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font: 14px/1.45 "Segoe UI", system-ui, sans-serif; user-select: none; }
+    /* Columns side by side: general · Twitch · Kick · bonus per account. Twitch and Kick share
+       their rows (description | options | channels | add), so their tables line up and have the
+       same size. Each column scrolls on its own; narrow windows get a scrolling page instead. */
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    header { display: flex; align-items: baseline; gap: 16px; padding: 18px 24px 14px; flex: none; }
+    h1 { margin: 0; font-size: 18px; font-weight: 600; color: var(--accent); letter-spacing: .01em; }
+    main { flex: 1; min-height: 0; padding: 0 24px 20px; display: grid; gap: 18px;
+      grid-template-columns: minmax(240px, 0.8fr) minmax(560px, 2.2fr) minmax(300px, 1.1fr); }
+    .col { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding: 2px 4px 2px 2px; }
+    .pair { min-height: 0; display: grid; gap: 18px; grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto minmax(0, 1fr) auto; }
+    .pair > section { grid-row: 1 / span 4; display: grid; grid-template-rows: subgrid; gap: 14px; min-height: 0; }
+    .pair .intro { display: grid; gap: 10px; align-content: start; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+    .pair .options { display: grid; gap: 12px; align-content: start; }
+    @media (max-width: 1150px) {
+      body { overflow: auto; display: block; }
+      main { grid-template-columns: 1fr; }
+      .col { overflow: visible; }
+      .pair { grid-template-columns: 1fr; grid-template-rows: none; }
+      .pair > section { grid-row: auto; grid-template-rows: none; }
+      .klist { max-height: 340px; }
+    }
+    section { background: var(--card); border-radius: 14px; padding: 18px 20px; display: grid; gap: 14px;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 6px 18px rgba(0, 0, 0, .18); }
+    h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    label.row { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
     label.row > span, div.row > span { flex: 1; min-width: 0; }
-    div.row { display: flex; align-items: center; gap: 10px; }
-    button { background: #2a2e37; color: var(--text); border: 1px solid #3a3f4b; border-radius: 6px;
-      padding: 5px 12px; font: inherit; cursor: pointer; }
-    button:hover { border-color: var(--accent); }
+    div.row { display: flex; align-items: center; gap: 12px; }
+    button { background: #2a2e38; color: var(--text); border: 1px solid #3a3f4b; border-radius: 8px;
+      padding: 6px 14px; font: inherit; cursor: pointer; transition: border-color .12s, background .12s; }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: .35; cursor: default; }
     label.row select { flex: none; align-self: center; }
-    label.row input { margin-top: 3px; accent-color: var(--accent); }
-    .hint { display: block; color: var(--muted); font-size: 12px; }
-    select { background: #2a2e37; color: var(--text); border: 1px solid #3a3f4b; border-radius: 6px;
-      padding: 5px 8px; font: inherit; }
-    .saved { color: var(--muted); font-size: 12px; min-height: 16px; text-align: right; }
+    label.row input { margin-top: 3px; accent-color: var(--accent); width: 15px; height: 15px; }
+    .hint { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+    select { background: #2a2e38; color: var(--text); border: 1px solid #3a3f4b; border-radius: 8px;
+      padding: 6px 10px; font: inherit; }
+    .saved { color: var(--muted); font-size: 12.5px; min-height: 16px; }
+    select:disabled { opacity: .55; cursor: not-allowed; }
+    /* Text on top, the control below at full width (for narrow cards). */
+    label.row.stack { flex-direction: column; align-items: stretch; gap: 10px; }
+    label.row.stack select { align-self: stretch; width: 100%; }
+    label.row:has(select:disabled) { cursor: default; }
+    /* Channel priority lists */
+    .klist { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 3px; list-style: none;
+      min-height: 80px; overflow-y: auto; }
+    .klist li { display: flex; align-items: center; gap: 10px; flex: none; background: var(--row);
+      border-radius: 9px; padding: 7px 8px 7px 12px; transition: background .12s; }
+    .klist li:hover { background: var(--row-hover); }
+    /* Drawn inside the row, so the list's edge never cuts it. */
+    .klist li.picked { box-shadow: inset 0 0 0 1px var(--accent); background: rgba(242, 193, 78, .06); }
+    .klist .rank { color: var(--muted); font-size: 12px; min-width: 18px; text-align: right; font-variant-numeric: tabular-nums; }
+    .klist .slug { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .klist .dot { width: 8px; height: 8px; border-radius: 50%; background: #4d5361; flex: none; }
+    .klist .dot.live { background: var(--live); box-shadow: 0 0 0 3px rgba(61, 220, 132, .15); }
+    /* How many accounts have the channel open: a small badge (details on hover). */
+    .klist .tag { flex: none; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 10px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+      font-size: 11.5px; font-weight: 600; color: #1a1408; background: var(--accent); }
+    .klist .tag:empty { display: none; }
+    .klist .tag svg { width: 11px; height: 11px; }
+    .klist .actions { display: flex; gap: 4px; flex: none; }
+    .klist button { width: 26px; height: 24px; padding: 0; font-size: 13px; border-radius: 7px; }
+    .kadd { display: flex; gap: 8px; }
+    .kadd input { flex: 1; min-width: 0; background: #111318; color: var(--text); border: 1px solid #3a3f4b;
+      border-radius: 8px; padding: 7px 10px; font: inherit; }
+    .kadd input:focus { outline: none; border-color: var(--accent); }
+    .empty { color: var(--muted); font-size: 12.5px; padding: 8px 4px; }
+    /* One card per account: name + bonus on top, link status and points below. */
+    .account select { width: 150px; }
+    .account { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px;
+      padding: 14px 0; border-top: 1px solid var(--line); }
+    .account:first-child { border-top: 0; padding-top: 4px; }
+    .account .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .account .links, .account .points { grid-column: 1 / -1; }
+    .account .links { display: flex; gap: 6px; flex-wrap: wrap; }
+    .account .chip { font-size: 11.5px; padding: 2px 8px; border-radius: 10px; background: var(--row); color: var(--muted); }
+    .account .chip.ok { color: #8fe0b0; background: rgba(61, 220, 132, .1); }
+    .account .chip.bad { color: #ff8a80; background: rgba(255, 138, 128, .12); }
+    .account .points { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+    .account .points > div { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+    .account .plat { color: var(--text); font-weight: 600; min-width: 44px; }
+    .account .pt { font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
-  <main>
+  <header>
     <h1>Settings</h1>
-
+    <div class="saved" id="saved"></div>
+  </header>
+  <main>
+   <div class="col">
     <section>
       <h2>Window</h2>
       <label class="row"><input type="checkbox" id="close_to_tray">
@@ -52,11 +125,13 @@
       <h2>Streams</h2>
       <label class="row"><input type="checkbox" id="keep_awake">
         <span>Keep the PC awake while streams run<span class="hint">Windows won't go to sleep and cut the streams. The screen can still turn off.</span></span></label>
+      <label class="row"><input type="checkbox" id="light_kick_background">
+        <span>Lighter Kick streams in the background<span class="hint">Hidden Kick pages drop their chat and sidebars and play at the lowest quality, to save memory and CPU. Turn off if a Kick channel stops earning points.</span></span></label>
     </section>
 
     <section>
       <h2>Game</h2>
-      <label class="row" for="auto_reload_minutes">
+      <label class="row stack" for="auto_reload_minutes">
         <span>Reload all game pages<span class="hint">Useful to pick up the game's daily updates.</span></span>
         <select id="auto_reload_minutes">
           <option value="0">Never</option>
@@ -70,12 +145,73 @@
         </select>
       </label>
     </section>
+   </div>
 
-    <div class="saved" id="saved"></div>
+   <div class="pair">
+    <section>
+      <div class="intro">
+        <h2>Twitch</h2>
+        <span class="hint">Every account keeps live channels of this list open, as many as you choose:
+          <b>the ones where it has the most points first</b> (closest to its next bonus), this list's
+          order deciding between equal ones. Every ~15 minutes each stream briefly loads its full page
+          to grab the <b>bonus chest</b> (+50) and redeem the account's bonus. Empty list = you manage
+          Twitch streams by hand.</span>
+      </div>
+      <div class="options">
+        <label class="row" for="twitch-count">
+          <span>Twitch lives per account<span class="hint">No limit on Twitch: choose 1 to 8.</span></span>
+          <select id="twitch-count"></select>
+        </label>
+        <label class="row"><input type="checkbox" id="sync-twitch">
+          <span>Keep updated from the game<span class="hint" id="sync-twitch-hint"></span></span></label>
+      </div>
+      <ul class="klist" id="list-twitch"></ul>
+      <div class="kadd">
+        <input id="input-twitch" placeholder="channel name or twitch.tv link" maxlength="200">
+        <button id="add-twitch">Add</button>
+      </div>
+    </section>
+
+    <section>
+      <div class="intro">
+        <h2>Kick</h2>
+        <span class="hint">Kick pays channel points for 2 lives at a time per account, so every account
+          keeps 2 live channels of this list open and closes its other Kick streams: <b>the ones where it
+          has the most points first</b>, this list's order deciding between equal ones. When one goes
+          offline, the next takes its place (checked every 2 minutes). Empty list = you manage Kick
+          streams by hand.</span>
+      </div>
+      <div class="options">
+        <!-- Same control as Twitch's, fixed at 2: Kick only pays points for 2 lives at a time. -->
+        <label class="row" for="kick-count" title="Kick only pays channel points for 2 lives at a time per account">
+          <span>Kick lives per account<span class="hint">Fixed: Kick pays points for 2 at a time.</span></span>
+          <select id="kick-count" disabled><option>2</option></select>
+        </label>
+        <label class="row"><input type="checkbox" id="sync-kick">
+          <span>Keep updated from the game<span class="hint" id="sync-kick-hint"></span></span></label>
+      </div>
+      <ul class="klist" id="list-kick"></ul>
+      <div class="kadd">
+        <input id="input-kick" placeholder="channel name or kick.com link" maxlength="200">
+        <button id="add-kick">Add</button>
+      </div>
+    </section>
+   </div>
+
+   <div class="col">
+    <section>
+      <h2>Bonus per account</h2>
+      <span class="hint">Redeems the chosen PokeIdle bonus with the account's channel points as soon as
+        they cover it, on its live Kick and Twitch channels (hours add up in the game). The account
+        must have Kick and Twitch linked in the game (<i>Bônus na Kick</i>, <i>Bônus Twitch</i>), or
+        the points are given back.</span>
+      <div id="kbonus" style="display: grid;"></div>
+    </section>
+   </div>
   </main>
   <script>
     const { invoke } = window.__TAURI__.core;
-    const boxes = ['close_to_tray', 'minimize_to_tray', 'keep_awake', 'smooth_transitions'];
+    const boxes = ['close_to_tray', 'minimize_to_tray', 'keep_awake', 'smooth_transitions', 'light_kick_background'];
     const reload = document.getElementById('auto_reload_minutes');
     const saved = document.getElementById('saved');
 
@@ -112,7 +248,163 @@
         saved.textContent = String(e);
       }
     });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close(); });
+    // --- Kick/Twitch priority lists and bonus per account --------------------------------
+    const { listen } = window.__TAURI__.event;
+    const kbonus = document.getElementById('kbonus');
+    const twitchCount = document.getElementById('twitch-count');
+    const NAMES = { kick: 'Kick', twitch: 'Twitch' };
+    let auto = null;
+
+    function flash(msg) {
+      saved.textContent = msg;
+      clearTimeout(save.t);
+      save.t = setTimeout(() => { saved.textContent = ''; }, 1500);
+    }
+    const apply = (promise, ok = 'Saved') =>
+      promise.then((v) => { render(v); flash(ok); return v; }).catch((e) => { flash(String(e)); throw e; });
+    const setPriority = (platform, priority) => apply(invoke('set_priority', { platform, priority }));
+
+    function smallButton(text, title, onClick, disabled) {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.title = title;
+      b.disabled = !!disabled;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    function renderList(platform, view) {
+      const list = document.getElementById(`list-${platform}`);
+      // How many accounts have each channel open now (each picks by its own points).
+      const watching = (c) => (view.watching && view.watching[c]) || 0;
+      list.replaceChildren(...view.priority.map((channel, i) => {
+        const li = document.createElement('li');
+        if (watching(channel)) li.classList.add('picked');
+        const rank = Object.assign(document.createElement('span'), { className: 'rank', textContent: i + 1 });
+        const dot = document.createElement('span');
+        dot.className = 'dot' + (view.live[channel] ? ' live' : '');
+        dot.title = view.live[channel] === undefined ? 'Not checked yet' : view.live[channel] ? 'Live' : 'Offline';
+        const name = Object.assign(document.createElement('span'), { className: 'slug', textContent: channel });
+        const n = watching(channel);
+        const tag = Object.assign(document.createElement('span'), { className: 'tag' });
+        if (n) {
+          tag.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="3" fill="currentColor"/><path d="M2 15c0-3.3 2.7-5 6-5s6 1.7 6 5z" fill="currentColor"/></svg>${n}`;
+          tag.title = `Open in ${n} account${n === 1 ? '' : 's'} right now`;
+        }
+        const move = (from, to) => {
+          const next = [...view.priority];
+          next.splice(to, 0, next.splice(from, 1)[0]);
+          setPriority(platform, next);
+        };
+        const actions = Object.assign(document.createElement('span'), { className: 'actions' });
+        actions.append(
+          smallButton('↑', 'Higher priority', () => move(i, i - 1), i === 0),
+          smallButton('↓', 'Lower priority', () => move(i, i + 1), i === view.priority.length - 1),
+          smallButton('×', 'Remove', () => setPriority(platform, view.priority.filter((c) => c !== channel))));
+        li.append(rank, dot, name, tag, actions);
+        return li;
+      }));
+      if (!view.priority.length) {
+        list.replaceChildren(Object.assign(document.createElement('li'), {
+          className: 'empty', textContent: `No channels: ${NAMES[platform]} streams are managed by hand.` }));
+      }
+    }
+
+    function render(view) {
+      auto = view;
+      for (const platform of ['kick', 'twitch']) {
+        renderList(platform, view[platform]);
+        document.getElementById(`sync-${platform}`).checked = view[platform].sync;
+        document.getElementById(`sync-${platform}-hint`).textContent = view[platform].partners
+          ? `New partner channels of the game are added at the end of the list (the game has ${view[platform].partners} on ${NAMES[platform]}).`
+          : 'New partner channels of the game are added at the end of the list (waiting for the game to announce them).';
+      }
+      twitchCount.value = String(view.twitch.lives_per_slot);
+      kbonus.replaceChildren(...view.slots.map((slot) => {
+        // Name and bonus on one line; link status and points below, full width.
+        const card = document.createElement('div');
+        card.className = 'account';
+        const name = Object.assign(document.createElement('span'), { className: 'name', textContent: slot.name });
+        const select = document.createElement('select');
+        for (const [value, text] of [['', 'Nothing'], ['xp', '+15% XP'], ['capture', '+15% Capture Boost'], ['lure', '+15% Secret Lure']]) {
+          select.append(Object.assign(document.createElement('option'), { value, textContent: text }));
+        }
+        select.value = slot.bonus || '';
+        select.addEventListener('change', () => apply(invoke('set_bonus', { id: slot.id, bonus: select.value || null })));
+        // Whether the game has this account's Twitch / Kick linked: without it, redeemed points
+        // are given back.
+        const links = document.createElement('div');
+        links.className = 'links';
+        for (const [platform, linked] of [['Twitch', slot.twitch_linked], ['Kick', slot.kick_linked]]) {
+          const chip = document.createElement('span');
+          chip.className = 'chip' + (linked === false ? ' bad' : linked ? ' ok' : '');
+          chip.textContent = linked === false ? `${platform} not linked` : linked ? `${platform} ✓` : `${platform} ?`;
+          chip.title = linked === false
+            ? `Link ${platform} in the game, or redeemed points are given back`
+            : linked ? `${platform} is linked in the game` : 'Not reported by the game yet';
+          links.append(chip);
+        }
+        // Last seen channel points (the account prefers the live channels where it has most).
+        const points = document.createElement('div');
+        points.className = 'points';
+        for (const platform of ['twitch', 'kick']) {
+          const top = slot.points.filter(([p]) => p === platform).slice(0, 3);
+          if (!top.length) continue;
+          const line = document.createElement('div');
+          line.append(Object.assign(document.createElement('span'), { className: 'plat', textContent: platform === 'twitch' ? 'Twitch' : 'Kick' }),
+            ...top.map(([, c, n]) => Object.assign(document.createElement('span'), { className: 'pt', textContent: `${c} ${n.toLocaleString()}` })));
+          points.append(line);
+        }
+        if (!points.children.length) points.append(Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Points: not seen yet' }));
+        points.title = slot.points.map(([p, c, n]) => `${p} ${c}: ${n}`).join('\n');
+        card.append(name, select, links, points);
+        return card;
+      }));
+      if (!view.slots.length) kbonus.replaceChildren(Object.assign(document.createElement('span'), { className: 'empty', textContent: 'No slots open.' }));
+    }
+
+    for (let n = 1; n <= 8; n++) twitchCount.append(Object.assign(document.createElement('option'), { value: String(n), textContent: String(n) }));
+    twitchCount.addEventListener('change', () => apply(invoke('set_twitch_lives', { count: Number(twitchCount.value) })));
+
+    for (const platform of ['kick', 'twitch']) {
+      const input = document.getElementById(`input-${platform}`);
+      const add = () => {
+        const value = input.value.trim();
+        if (!value || !auto) return;
+        const before = auto[platform].priority.length;
+        invoke('set_priority', { platform, priority: [...auto[platform].priority, value] })
+          .then((v) => {
+            render(v);
+            if (v[platform].priority.length > before) {
+              input.value = '';
+              flash('Saved');
+            } else {
+              flash(`Not a new ${NAMES[platform]} channel name`);
+            }
+          })
+          .catch((e) => flash(String(e)));
+      };
+      document.getElementById(`add-${platform}`).addEventListener('click', add);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+
+      // "Keep updated from the game": the game announces its partner channels by itself; with
+      // this on, new ones are added at the end of the list.
+      document.getElementById(`sync-${platform}`).addEventListener('change', (e) => {
+        const before = auto ? auto[platform].priority.length : 0;
+        invoke('set_sync', { platform, on: e.target.checked })
+          .then((v) => {
+            render(v);
+            const added = v[platform].priority.length - before;
+            flash(e.target.checked && added > 0 ? `${added} channel${added === 1 ? '' : 's'} added from the game` : 'Saved');
+          })
+          .catch((err) => flash(String(err)));
+      });
+    }
+    invoke('get_automation').then(render);
+    // The app sends fresh live statuses after every check.
+    listen('automation', (e) => render(e.payload));
+
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.activeElement?.tagName !== 'INPUT') window.close(); });
   </script>
 </body>
 </html>
