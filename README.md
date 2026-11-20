@@ -27,6 +27,13 @@ under 10 MB.
   only that slot, filling the window (the others keep running hidden); click it again or press
   **Grid** to go back. **Drag the bars between slots** to resize them; the sizes are remembered. **Reset**
   in ⚙ → Layout leaves fullscreen and makes every slot the same size again.
+- **Single focus stats panel.** A fullscreen slot gets a panel on its right with that account
+  at a glance: its Twitch and Kick bonuses (time left, linked in game or not, the Kick redeem
+  target), daily chores (IdleHub vote countdown with a vote button, Kick Daily Reward), game
+  session numbers (gold and XP gained since the game loaded and per hour, balls left, the
+  Pokémon being fought), its open streams and their warnings, last seen channel points, and an
+  activity log of what the app did for it (swaps, redeems, chests, reloads, claims). **▤** in
+  the slot's header hides or shows it; the choice is remembered.
 - **Per-slot names and sound.** Double-click a slot's name to rename it (Enter saves, Esc
   cancels, empty goes back to "Slot N"). 🔊/🔇 mutes that slot's game.
 - **Settings (⚙).** Close or minimize to the tray, keep the PC awake while streams run (on by
@@ -92,7 +99,10 @@ under 10 MB.
 - **Stream health.** Every 2 minutes each background stream checks that its video is moving.
   A stalled stream is reloaded once quietly; if it still doesn't play, its pill gets a ⚠ and it
   is reloaded again every 10 minutes. Logged-out accounts and offline channels get a ⚠ too. The
-  settings window shows how many streams need attention.
+  settings window shows how many streams need attention. A channel of a priority list that its
+  page finds offline is swapped sooner: the first report runs the priority check right away,
+  and after two in a row the page is believed even if Kick/Twitch still say "live" (their
+  status can lag for minutes), so that account opens its next live channel.
 - **IdleHub vote reminder (⚙ → IdleHub vote).** Tick the accounts to be reminded. Each one's
   header shows when its vote is ready (asked from the game, like its own "Vote no IdleHub.io"
   window does) and its votes/diamonds; clicking opens the vote page in a window with that slot's
@@ -183,7 +193,7 @@ These environment variables only apply to **debug** builds, except
 
 | Variable | Effect |
 | --- | --- |
-| `MULTIVIEW_DEVTOOLS=1` | Slot N (and its Twitch/Kick pages) answers the Chrome DevTools Protocol on `127.0.0.1:930N`. Open `edge://inspect` to debug it. |
+| `MULTIVIEW_DEVTOOLS=1` | Slot N (and its Twitch/Kick pages) answers the Chrome DevTools Protocol on `127.0.0.1:930N`. Open `edge://inspect` to debug it. The app's own pages (toolbar, headers, stats panel, settings) answer on `127.0.0.1:9300`. |
 | `MULTIVIEW_EXTENSION_DIR=<path>` | Loads this unpacked extension instead of /hunt, for example `tests/fixtures/test-extension`. |
 | `MULTIVIEW_ALLOW_WEBAUTHN=1` | Keeps WebAuthn (passkeys) on in slots. By default it is off; see [Privacy and security](#privacy-and-security). |
 

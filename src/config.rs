@@ -227,6 +227,9 @@ pub struct Config {
     /// Read from files of the single-account version, then moved into `vote_slots`.
     #[serde(default, skip_serializing)]
     pub vote_slot: Option<u8>,
+    /// A fullscreen slot shows its stats panel at the right ("single focus").
+    #[serde(default = "enabled")]
+    pub focus_panel: bool,
 }
 
 pub fn balance_key(slot: u8, platform: Platform, channel: &str) -> String {
@@ -276,6 +279,7 @@ impl Default for Config {
             kick_daily_done: std::collections::HashMap::new(),
             vote_slots: Vec::new(),
             vote_slot: None,
+            focus_panel: true,
         }
     }
 }
