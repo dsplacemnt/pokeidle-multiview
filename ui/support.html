@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Support the dev</title>
+  <style>
+    :root {
+      --bg: #14161b;
+      --card: #1d2027;
+      --chip: #262a33;
+      --chip-active: #333845;
+      --line: #2e333d;
+      --text: #e6e8ee;
+      --muted: #8b91a1;
+      --accent: #f2c14e;
+      --ok: #3ddc84;
+      --heart: #ff6b81;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font: 13.5px/1.45 "Segoe UI", system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; gap: 14px; padding: 22px 22px 16px; overflow-y: auto; }
+    header { text-align: center; display: grid; gap: 6px; }
+    h1 { margin: 0; font-size: 19px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    h1 .heart { color: var(--heart); }
+    header p { margin: 0 auto; color: var(--muted); max-width: 340px; }
+    .card { background: var(--card); border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset; }
+    .card h2 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+      color: var(--muted); }
+    .card p { margin: 0; color: var(--muted); font-size: 12.5px; }
+    /* Pix: the QR, then one big copy button (the key itself isn't shown). */
+    .pix { justify-items: center; text-align: center; }
+    .qr { background: #fff; border-radius: 12px; padding: 8px; width: 200px; height: 200px; }
+    .actions.three > button { padding: 0 8px; }
+    .qr svg { width: 100%; height: 100%; display: block; }
+    .actions { display: flex; gap: 8px; }
+    .actions > button { flex: 1 1 0; }
+    .handle { font-size: 15px; font-weight: 600; }
+    button { background: var(--chip); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+      height: 34px; padding: 0 14px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: background .12s, border-color .12s; }
+    button:hover { background: var(--chip-active); border-color: #444a58; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #1a1408; }
+    button.primary:hover { background: #ffd76b; border-color: #ffd76b; }
+    button.wide { width: 100%; }
+    button.done, button.done:hover { background: var(--ok); border-color: var(--ok); color: #08140d; }
+    .foot { display: flex; justify-content: center; align-items: center; gap: 8px; color: var(--muted); font-size: 12px;
+      margin-top: auto; padding-top: 4px; }
+    .foot a { color: var(--muted); cursor: pointer; text-decoration: underline; }
+    .foot a:hover { color: var(--text); }
+  </style>
+  <script src="i18n.js"></script>
+</head>
+<body>
+  <header>
+    <h1><span class="heart">♥</span> <span data-i18n>Support the dev</span></h1>
+    <p data-i18n>If PokeIdle Multiview helps you and you can chip in, any amount helps keep it going. Thank you!</p>
+  </header>
+
+  <section class="card pix">
+    <h2 data-i18n>Pix</h2>
+    <div class="qr" id="qr" data-i18n-title title="Scan it with your bank's app (Pix, Brazil)"></div>
+    <p data-i18n>Scan the QR code with your bank's app, or copy the Pix code and paste it there.</p>
+    <button id="copy-pix" class="primary wide" data-i18n>Copy Pix code</button>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n>Free ways to help</h2>
+    <p data-i18n>Invite friends who don't play yet with your invite link, or give the app a ⭐ on GitHub so more players find it.</p>
+    <div class="actions three">
+      <button id="copy-referral" data-i18n>Copy invite</button>
+      <button id="open-referral" data-i18n data-i18n-title title="Open in the browser">Open invite</button>
+      <button id="star" data-i18n>⭐ Give a star</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n>Discord (ideas, bugs, questions)</h2>
+    <span class="handle" id="discord"></span>
+    <div class="actions">
+      <button id="open-discord" data-i18n>Open profile</button>
+      <button id="copy-discord" data-i18n>Copy username</button>
+    </div>
+  </section>
+
+  <div class="foot">
+    <span id="version"></span>·<a id="github">GitHub</a>
+  </div>
+  <script>
+    // The developer's Pix (QR + copy button), invite link, GitHub and Discord. Nothing here is
+    // sent anywhere: the QR is drawn by the app from the code, and the buttons only copy text or
+    // open pages in the default browser.
+    const { invoke } = window.__TAURI__.core;
+    const { t } = I18N;
+
+    async function copy(text, btn) {
+      const label = btn.dataset.en;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Fallback for when the clipboard API is refused.
+        const area = Object.assign(document.createElement('textarea'), { value: text });
+        document.body.append(area);
+        area.select();
+        document.execCommand('copy');
+        area.remove();
+      }
+      btn.textContent = t('Copied ✓');
+      btn.classList.add('done');
+      setTimeout(() => { btn.textContent = t(label); btn.classList.remove('done'); }, 1800);
+    }
+
+    invoke('support_info').then((info) => {
+      document.getElementById('qr').innerHTML = info.qr;
+      document.getElementById('discord').textContent = `@${info.discord}`;
+      document.getElementById('version').textContent = `PokeIdle Multiview ${info.version}`;
+      document.getElementById('copy-pix').addEventListener('click', (e) => copy(info.pix, e.currentTarget));
+      document.getElementById('copy-referral').addEventListener('click', (e) => copy(info.referral, e.currentTarget));
+      document.getElementById('copy-discord').addEventListener('click', (e) => copy(info.discord, e.currentTarget));
+    });
+    document.getElementById('open-referral').addEventListener('click', () => invoke('open_referral'));
+    document.getElementById('open-discord').addEventListener('click', () => invoke('open_discord'));
+    // Opens the repo page; the Star button there needs the person's own GitHub login.
+    document.getElementById('star').addEventListener('click', () => invoke('open_github'));
+    document.getElementById('github').addEventListener('click', () => invoke('open_github'));
+  </script>
+</body>
+</html>

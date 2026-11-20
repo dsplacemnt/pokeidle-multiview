@@ -9,7 +9,9 @@ mod twitch;
 mod layout;
 mod native;
 mod power;
+mod support;
 mod tray;
+mod updater;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -269,7 +271,7 @@ fn save_and_publish(app: &AppHandle, state: &AppState) {
         eprintln!("[config] could not save: {e}");
     }
     publish(app, state);
-    tray::set_tooltip(app, &state.panels);
+    tray::set_tooltip(app, &state.panels, state.config.language);
     power::set_keep_awake(app, state.config.keep_awake && any_pages(state));
 }
 
@@ -359,6 +361,41 @@ fn get_focus(state: tauri::State<'_, Mutex<AppState>>) -> Option<FocusView> {
     focus_view(&state.lock().unwrap())
 }
 
+#[tauri::command]
+fn get_language(state: tauri::State<'_, Mutex<AppState>>) -> config::Language {
+    state.lock().unwrap().config.language
+}
+
+/// The flags on the top bar (or ⚙): saved, and every open page, the tray and the window titles
+/// switch right away.
+#[tauri::command]
+fn set_language(app: AppHandle, lang: config::Language) {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        state.config.language = lang;
+        if let Err(e) = state.config.save(&state.config_path) {
+            eprintln!("[config] could not save: {e}");
+        }
+    }
+    let mut pages = vec!["toolbar".to_string(), FOCUS_PANEL.to_string(), "settings".to_string(), "support".to_string()];
+    pages.extend((1..=MAX_SLOTS).map(header_label));
+    for page in pages {
+        let _ = app.emit_to(page.as_str(), "language", lang);
+    }
+    tray::set_language(&app);
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.set_title(settings_title(lang));
+    }
+    if let Some(w) = app.get_webview_window("support") {
+        let _ = w.set_title(support::title(lang));
+    }
+}
+
+fn settings_title(lang: config::Language) -> &'static str {
+    lang.pick("Settings — PokeIdle Multiview", "Configurações — PokeIdle Multiview")
+}
+
 /// The ▤ button: shows or hides the stats panel of a fullscreen slot (saved).
 #[tauri::command]
 fn set_focus_panel(app: AppHandle, on: bool) {
@@ -399,7 +436,7 @@ fn split_tile(tile: Rect) -> (Rect, Rect) {
 }
 
 /// Width of the stats panel at the right of a fullscreen slot ("single focus"), logical px.
-const FOCUS_PANEL_W: f64 = 330.0;
+const FOCUS_PANEL_W: f64 = 360.0;
 const FOCUS_PANEL: &str = "focus";
 
 /// The stats panel shows while a slot is fullscreen, unless the player hid it.
@@ -1600,10 +1637,11 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
     let main = app.get_window("main").ok_or("No window")?;
     // Wide: general · Kick · Twitch · bonus per account side by side, each column scrolling on
     // its own (the page falls back to two columns if the window is made narrower).
-    let (w, h) = (1360.0, 820.0);
+    let (w, h) = (1480.0, 860.0);
+    let lang = app.state::<Mutex<AppState>>().lock().unwrap().config.language;
     let builder =
         tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
-            .title("Settings — PokeIdle Multiview")
+            .title(settings_title(lang))
             .inner_size(w, h);
     let builder = match centered_over(&main, w, h) {
         Some((x, y)) => builder.position(x, y),
@@ -1845,13 +1883,16 @@ fn check_vote(app: &AppHandle) {
     }
 }
 
-/// A game page sent its session numbers ([[label, value], …], see game-watch.js): kept for the
-/// stats panel, which is refreshed if it shows this account.
+/// A game page sent its hunt analysis (see game-watch.js): kept as-is for the stats panel,
+/// which is refreshed if it shows this account.
 fn stats_reported(app: &AppHandle, id: u8, json: &str) {
-    let Ok(rows) = serde_json::from_str::<Vec<(String, serde_json::Value)>>(json) else { return };
+    let Ok(stats) = serde_json::from_str::<serde_json::Value>(json) else { return };
+    if !stats.is_object() {
+        return;
+    }
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
-    state.game_stats.insert(id, serde_json::json!(rows));
+    state.game_stats.insert(id, stats);
     if state.config.focus == Some(id) {
         let _ = app.emit_to(FOCUS_PANEL, "focus", focus_view(&state));
     }
@@ -1923,11 +1964,11 @@ async fn open_vote(app: AppHandle, id: u8) -> Result<(), String> {
         let _ = existing.unminimize();
         return existing.set_focus().map_err(|e| e.to_string());
     }
-    let (url, nick) = {
+    let (url, nick, lang) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
         let status = state.vote.get(&id).map(|(s, _)| s.clone()).ok_or("No vote status yet")?;
-        (status.url, status.nick)
+        (status.url, status.nick, state.config.language)
     };
     let parsed: Url = url.parse().map_err(|_| "Bad vote link")?;
     if parsed.scheme() != "https" || !parsed.host_str().is_some_and(is_idlehub) {
@@ -1936,7 +1977,7 @@ async fn open_vote(app: AppHandle, id: u8) -> Result<(), String> {
     let main = app.get_window("main").ok_or("No window")?;
     let (w, h) = (560.0, 820.0);
     let builder = WindowBuilder::new(&app, &label)
-        .title(format!("Vote on IdleHub — {nick}"))
+        .title(format!("{} — {nick}", lang.pick("Vote on IdleHub", "Votar no IdleHub")))
         .inner_size(w, h);
     // Centered over the main window, like the settings.
     let builder = match centered_over(&main, w, h) {
@@ -2882,6 +2923,8 @@ fn main() {
         }))
         // Remembers the main window's size, position and maximized state between runs.
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updater::UpdateState::default())
         .setup(|app| {
             let handle = app.handle().clone();
             let base = app.path().app_local_data_dir()?;
@@ -2972,6 +3015,7 @@ fn main() {
             apply_layout(&handle)?;
 
             tray::create(&handle)?;
+            updater::start(handle.clone());
             tray::update_tooltip(&handle);
             {
                 let state = handle.state::<Mutex<AppState>>();
@@ -3037,7 +3081,17 @@ fn main() {
             set_vote_slot,
             open_vote,
             get_focus,
-            set_focus_panel
+            set_focus_panel,
+            get_language,
+            set_language,
+            support::support_info,
+            support::open_support,
+            support::open_github,
+            support::open_referral,
+            support::open_discord,
+            updater::get_update,
+            updater::check_update,
+            updater::install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running PokeIdle Multiview");

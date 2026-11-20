@@ -230,6 +230,28 @@ pub struct Config {
     /// A fullscreen slot shows its stats panel at the right ("single focus").
     #[serde(default = "enabled")]
     pub focus_panel: bool,
+    /// The app's language (the flags on the top bar). Portuguese unless changed.
+    #[serde(default)]
+    pub language: Language,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Language {
+    #[default]
+    #[serde(rename = "pt")]
+    Pt,
+    #[serde(rename = "en")]
+    En,
+}
+
+impl Language {
+    /// Picks the text for this language.
+    pub fn pick<'a>(self, en: &'a str, pt: &'a str) -> &'a str {
+        match self {
+            Language::En => en,
+            Language::Pt => pt,
+        }
+    }
 }
 
 pub fn balance_key(slot: u8, platform: Platform, channel: &str) -> String {
@@ -280,6 +302,7 @@ impl Default for Config {
             vote_slots: Vec::new(),
             vote_slot: None,
             focus_panel: true,
+            language: Language::Pt,
         }
     }
 }

@@ -25,15 +25,25 @@ under 10 MB.
   one wide below, four make a 2×2 grid. Fullscreen: click a slot's name (in its header or the
   toolbar, or press `Ctrl+1`…`Ctrl+4`, which also works while a game page has focus) to show
   only that slot, filling the window (the others keep running hidden); click it again or press
-  **Grid** to go back. **Drag the bars between slots** to resize them; the sizes are remembered. **Reset**
+  **GRID** to go back. **Drag the bars between slots** to resize them; the sizes are remembered. **Reset**
   in ⚙ → Layout leaves fullscreen and makes every slot the same size again.
 - **Single focus stats panel.** A fullscreen slot gets a panel on its right with that account
-  at a glance: its Twitch and Kick bonuses (time left, linked in game or not, the Kick redeem
-  target), daily chores (IdleHub vote countdown with a vote button, Kick Daily Reward), game
-  session numbers (gold and XP gained since the game loaded and per hour, balls left, the
-  Pokémon being fought), its open streams and their warnings, last seen channel points, and an
-  activity log of what the app did for it (swaps, redeems, chests, reloads, claims). **▤** in
-  the slot's header hides or shows it; the choice is remembered.
+  at a glance, starting with a **hunt analysis** that adds what the game doesn't show: for each
+  ball, potion and revive, how many are left, how many go per hour and **how long they last**
+  (warned in orange/red when low); kills, XP and gold per hour, what the supplies cost per hour
+  and the net gold; the time to the trainer's and the active Pokémon's next level; catches and
+  catch rate. It counts since the game loaded and starts over when the hunt changes. Then its
+  Twitch and Kick bonuses (time left, linked in game or not, the Kick redeem target), daily
+  chores (IdleHub vote countdown with a vote button, Kick Daily Reward), its open streams and
+  their warnings, last seen channel points, and an activity log of what the app did for it
+  (swaps, redeems, chests, reloads, claims). **▤** in the slot's header hides or shows it; the
+  choice is remembered.
+- **Updates in the app.** A little after it starts and every 6 hours the app looks for a newer
+  release; **⬆ &lt;version&gt;** then shows on the top bar. Click it twice: it downloads the
+  installer, checks its signature, installs it and opens again with the same streams. The
+  portable exe can't replace itself: its ⬆ opens the release page. ⚙ → About checks on demand.
+- **Português or English.** The app opens in Brazilian Portuguese; the 🇧🇷 / 🇺🇸 flags on the
+  top bar (or ⚙ → Language) switch every window, the tray menu and the app's messages at once.
 - **Per-slot names and sound.** Double-click a slot's name to rename it (Enter saves, Esc
   cancels, empty goes back to "Slot N"). 🔊/🔇 mutes that slot's game.
 - **Settings (⚙).** Close or minimize to the tray, keep the PC awake while streams run (on by
@@ -183,7 +193,10 @@ npx @tauri-apps/cli@2 build
 
 The [Release workflow](.github/workflows/release.yml) checks that the tag matches both
 versions, runs the tests, builds the portable exe and both installers, and publishes them as a
-GitHub release. The [CI workflow](.github/workflows/ci.yml) runs the tests on every push and
+GitHub release, with a `latest.json` that the in-app updater reads. The installers are signed
+for the updater with the private key in the `TAURI_SIGNING_PRIVATE_KEY` repository secret (no
+password); its public half is `plugins.updater.pubkey` in `tauri.conf.json`. Keep the private
+key safe: without it, installed copies can't be updated anymore. The [CI workflow](.github/workflows/ci.yml) runs the tests on every push and
 pull request.
 
 ### Development helpers
@@ -259,6 +272,25 @@ Planned, roughly in priority order:
       Capture ≥ 5h, then Lure ≥ 3h) instead of one fixed bonus, using the running times the game
       already reports; when every target is met, save the points or spend them on the last kind.
 - [ ] Light mode: Kick via its HLS feed and Twitch via authenticated chat, without video players.
+
+## Apoie o projeto ♥
+
+If the app helps you and you'd like to chip in, any amount helps keep it going. In the app:
+**♥ Apoiar** on the top bar, ⚙ → About, or the tray menu.
+
+<img src="docs/pix-qr.svg" alt="Pix QR code" width="200">
+
+**Pix copia e cola** (random key, you pick the amount):
+
+```
+00020126580014BR.GOV.BCB.PIX0136384baaaf-07f9-495b-96d0-f365b7ac99e55204000053039865802BR5924Thainan Henrique Feistel6009SAO PAULO62140510TlU51tMQRA6304856D
+```
+
+**Free ways to help:** give this repository a ⭐ (it helps more players find the app), and
+invite friends who don't play PokeIdle yet with the referral link
+<https://pokeidle.io/?ref=DBCHW36>.
+
+Ideas, bugs or questions: Discord **dsplacemnt**.
 
 ## Disclaimer
 
