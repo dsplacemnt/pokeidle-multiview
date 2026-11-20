@@ -58,7 +58,28 @@
     .showbar { width: 26px; padding: 0; margin-right: 4px; background: var(--chip); color: var(--accent);
       font-size: 14px; }
     .sep { width: 1px; height: 16px; background: var(--chip-active); margin: 0 4px; }
-    .zoom { color: var(--muted); min-width: 34px; text-align: center; }
+    /* Running bonuses: small colored chips with the time left. */
+    .bonuses { display: inline-flex; gap: 8px; margin-left: 4px; }
+    .bonuses:empty { display: none; }
+    .bgroup { display: inline-flex; align-items: center; gap: 3px; padding: 0 2px; }
+    .bgroup + .bgroup { border-left: 1px solid var(--chip-active); padding-left: 8px; }
+    .bmark { display: inline-flex; width: 14px; height: 14px; margin-right: 1px; }
+    .bmark svg { width: 14px; height: 14px; display: block; }
+    /* IdleHub vote reminder: muted countdown, bright when the vote is ready. */
+    .votebox { display: inline-flex; margin-left: 6px; }
+    .votebox:empty { display: none; }
+    .vote { height: 20px; padding: 0 9px; border-radius: 10px; font-size: 11.5px; font-weight: 600;
+      color: var(--muted); background: var(--chip); font-variant-numeric: tabular-nums; }
+    .vote.ready { color: #1a1408; background: var(--accent); animation: votepulse 2s ease-in-out infinite; }
+    .vote.ready:hover { background: #ffd76b; }
+    @keyframes votepulse { 50% { box-shadow: 0 0 0 3px rgba(242, 193, 78, .25); } }
+    .bonus { height: 20px; padding: 0 7px; border-radius: 10px; display: inline-flex; align-items: center;
+      font-size: 11.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: default; }
+    .bonus.xp { color: #ffd76b; background: rgba(242, 193, 78, .14); }
+    .bonus.capture { color: #8fd3ff; background: rgba(90, 170, 255, .14); }
+    .bonus.lure { color: #d8a8ff; background: rgba(180, 120, 255, .16); }
+    .bonus.none { color: var(--muted); background: transparent; border: 1px dashed var(--chip-active);
+      font-weight: 500; }
     .muted { opacity: .75; }
     .armed { background: #8a2c2c; }
     .spacer { flex: 1 1 auto; }
@@ -89,6 +110,9 @@
     .pill.dragging { opacity: .7; outline: 1px dashed var(--accent); cursor: grabbing; }
     .pill.dragging button { cursor: grabbing; }
     .pill.shown { background: var(--chip-active); outline: 1px solid var(--accent); }
+    /* ⚠: a stream the app couldn't fix by itself (details on hover). */
+    .pill.warn { background: rgba(255, 138, 128, .14); outline: 1px solid rgba(255, 138, 128, .55); }
+    .pill .warn-icon { color: #ff8a80; font-size: 12px; margin-left: 1px; }
     .pill button { height: 22px; border-radius: 11px; }
     .pill .show { display: inline-flex; align-items: center; gap: 5px; padding: 0 3px 0 7px; max-width: 160px; }
     .pill .show span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -288,6 +312,8 @@
       const el = document.createElement('span');
       el.className = 'pill' + (shown ? ' shown' : '');
       el.dataset.label = page.label;
+      // A problem the app couldn't fix by itself (stalled, logged out, offline).
+      if (page.warning) el.classList.add('warn');
       const show = button('', shown
         ? `Back to the game (${pageName(page)} keeps running muted)`
         : `Show ${pageName(page)} (${name}) in this slot`,
@@ -296,9 +322,82 @@
       const text = document.createElement('span');
       text.textContent = page.login || name;
       show.append(text);
+      if (page.warning) {
+        show.append(Object.assign(document.createElement('span'), { className: 'warn-icon', textContent: '⚠' }));
+        show.title = `${page.warning}\n\n${show.title}`;
+      }
       el.append(show, button('×', `Stop ${pageName(page)}`, () => call('stop_page', { label: page.label }), 'stop'));
       return el;
     }
+
+    // --- Running PokeIdle bonuses (from the game's own state), e.g. "XP 6h12" -------------
+    const bonusBox = Object.assign(document.createElement('span'), { className: 'bonuses' });
+    const BONUSES = [['xp', 'XP', '+15% XP'], ['capture', 'Cap', '+15% Capture Boost'], ['lure', 'Lure', '+15% Secret Lure']];
+    function left(ms) {
+      if (ms < 60000) return '<1m';
+      const m = Math.floor(ms / 60000);
+      const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+      if (d) return `${d}d ${h}h`;
+      if (h) return `${h}h${String(mm).padStart(2, '0')}`;
+      return `${mm}m`;
+    }
+    function renderBonuses() {
+      const running = latest?.bonuses?.[id] || {};
+      const now = Date.now();
+      // Each platform's bonuses run on their own clock: one group per platform (Twitch, then
+      // Kick), each with its platform mark and a chip per running bonus.
+      const groups = [];
+      for (const platform of ['twitch', 'kick']) {
+        const chips = [];
+        for (const [key, short, long] of BONUSES) {
+          const ms = (running[platform]?.[key] || 0) - now;
+          if (ms <= 0) continue;
+          const chip = Object.assign(document.createElement('span'), { className: `bonus ${key}`, textContent: `${short} ${left(ms)}` });
+          chip.title = `${long} from ${PLATFORMS[platform].name}: ${left(ms)} left`;
+          chips.push(chip);
+        }
+        // A platform without bonuses stays visible, marked as such ("?" until the game says).
+        if (!chips.length) {
+          const known = !!running[platform];
+          const none = Object.assign(document.createElement('span'), { className: 'bonus none', textContent: known ? 'no bonus' : '?' });
+          none.title = known
+            ? `No PokeIdle bonus from ${PLATFORMS[platform].name} running`
+            : `The game hasn't reported this account's ${PLATFORMS[platform].name} bonuses yet`;
+          chips.push(none);
+        }
+        const group = document.createElement('span');
+        group.className = 'bgroup';
+        const mark = Object.assign(document.createElement('span'), { className: 'bmark' });
+        mark.innerHTML = PLATFORMS[platform].svg;
+        mark.title = `Bonuses from ${PLATFORMS[platform].name}`;
+        group.append(mark, ...chips);
+        groups.push(group);
+      }
+      bonusBox.replaceChildren(...groups);
+      bonusBox.title = groups.length ? '' : 'No PokeIdle bonus from Kick or Twitch running';
+      renderVote();
+    }
+
+    // --- IdleHub vote reminder (accounts ticked in ⚙) --------------------------------------
+    const voteBox = Object.assign(document.createElement('span'), { className: 'votebox' });
+    function renderVote() {
+      const s = latest?.vote?.[id];
+      if (!s || s.error) {
+        voteBox.replaceChildren();
+        voteBox.title = s?.error || '';
+        return;
+      }
+      const ms = s.readyAt - Date.now();
+      const ready = ms <= 0;
+      const chip = button(ready ? 'Vote' : `Vote ${left(ms)}`, '', () => invoke('open_vote', { id }).catch(showError), `vote${ready ? ' ready' : ''}`);
+      const pair = s.perDiamond ? ` · ${s.inPair}/${s.perDiamond} toward the next diamond` : '';
+      chip.title = (ready
+        ? `IdleHub vote for ${s.nick} is ready: opens the vote page in a window with this slot's session (sign in and confirm there)`
+        : `Next IdleHub vote for ${s.nick} in ${left(ms)} (click to open the vote page anyway)`)
+        + `\n${s.votes} vote${s.votes === 1 ? '' : 's'}, ${s.diamonds} diamond${s.diamonds === 1 ? '' : 's'}${pair}`;
+      voteBox.replaceChildren(chip);
+    }
+    setInterval(renderBonuses, 30000);
 
     function render(state) {
       latest = state;
@@ -310,9 +409,6 @@
       document.body.classList.toggle('focused', focused);
 
       const scroll = controls.scrollLeft;
-      const zoom = document.createElement('span');
-      zoom.className = 'zoom';
-      zoom.textContent = Math.round(slot.zoom * 100) + '%';
       const error = document.createElement('span');
       error.className = 'error';
       error.id = 'error';
@@ -329,19 +425,19 @@
         ...showBar,
         nameButton(slot, focused),
         mute,
-        button('−', 'Zoom out', () => call('set_zoom', { zoom: slot.zoom - 0.1 })),
-        zoom,
-        button('+', 'Zoom in', () => call('set_zoom', { zoom: slot.zoom + 0.1 })),
         sep(),
         platformButton('twitch', panels),
         platformButton('kick', panels),
         ...stopButton(panels),
+        bonusBox,
+        voteBox,
         error,
         Object.assign(document.createElement('span'), { className: 'spacer' }),
         button('⟳', 'Reload the game', () => call('reload_slot')),
         confirmButton('×', 'Close?', 'Close slot (keeps its login)', '', () => call('close_slot')),
       );
       controls.scrollLeft = scroll;
+      renderBonuses();
 
       // Right part: "+", then the pills (they scroll).
       const pillScroll = pills.scrollLeft;

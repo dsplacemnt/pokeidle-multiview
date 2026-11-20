@@ -61,6 +61,14 @@ struct AppState {
     partners: HashMap<Platform, Vec<String>>,
     /// Whether each account (slot, platform) has that platform linked in the game.
     linked: HashMap<(u8, Platform), bool>,
+    /// When each account's bonuses from each platform end (PC clock).
+    bonus_ends: HashMap<(u8, Platform), BonusEnds>,
+    /// What the health check has seen of each stream page, by label.
+    health: HashMap<String, HealthTrack>,
+    /// Kick Daily Reward tries per slot today: (UTC day, tries).
+    daily_tries: HashMap<u8, (i64, u8)>,
+    /// The last IdleHub vote status of each reminded account: (status, when it was asked).
+    vote: HashMap<u8, (VoteStatus, std::time::Instant)>,
 }
 
 #[derive(Serialize, Clone)]
@@ -75,6 +83,22 @@ struct StateView {
     /// The slot in the top-left corner, whose header shows the button that brings the toolbar
     /// back.
     corner: Option<u8>,
+    /// Each account's running PokeIdle bonuses, as the game reports them.
+    bonuses: HashMap<u8, SlotBonuses>,
+    /// The IdleHub vote status of the reminded accounts, by slot.
+    vote: HashMap<u8, VoteStatus>,
+}
+
+fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
+    let mut out: HashMap<u8, SlotBonuses> = HashMap::new();
+    for ((id, platform), ends) in &state.bonus_ends {
+        let entry = out.entry(*id).or_default();
+        match platform {
+            Platform::Kick => entry.kick = Some(*ends),
+            Platform::Twitch => entry.twitch = Some(*ends),
+        }
+    }
+    out
 }
 
 fn header_label(id: u8) -> String {
@@ -209,6 +233,8 @@ fn state_view(state: &AppState) -> StateView {
             .focus
             .filter(|f| state.config.slots.iter().any(|s| s.id == *f))
             .or_else(|| state.config.slots.first().map(|s| s.id)),
+        bonuses: slot_bonuses(state),
+        vote: vote_view(state),
     }
 }
 
@@ -576,6 +602,8 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
         .on_document_title_changed(move |_, title| {
             if let Some(json) = title.strip_prefix("[multiview-game] ") {
                 game_reported(&title_app, id, json);
+            } else if let Some(json) = title.strip_prefix("[multiview-vote] ") {
+                vote_reported(&title_app, id, json);
             }
         })
         .on_navigation(move |url| {
@@ -613,7 +641,6 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
             webview
         }
     };
-    webview.set_zoom(slot.zoom)?;
     if slot.muted {
         set_muted(&webview, true);
     }
@@ -660,6 +687,10 @@ struct Page {
     platform: Platform,
     /// The channel it is on; None on other pages (login, home).
     login: Option<String>,
+    /// A problem the health check found and the app couldn't fix by itself (shown as ⚠ on the
+    /// page's pill): stalled, logged out, offline.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<String>,
 }
 
 /// Per slot: its Twitch/Kick pages, in the order they were opened, and the one (if any) shown
@@ -955,6 +986,10 @@ fn create_page(
                 println!("[auto] {}: {message}", webview.label());
             } else if let Some(json) = title.strip_prefix("[multiview-points] ") {
                 points_reported(&title_app, id, json);
+            } else if let Some(json) = title.strip_prefix("[multiview-health] ") {
+                health_reported(&title_app, webview.label(), json);
+            } else if let Some(json) = title.strip_prefix("[multiview-daily] ") {
+                daily_reported(&title_app, id, json);
             }
         });
     let mut r = match tile_of(app, id)? {
@@ -975,7 +1010,7 @@ fn create_page(
     let login = url.parse::<Url>().ok().and_then(|u| channels::channel_from_url(&u)).map(|c| c.login);
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
-    state.panels.entry(id).or_default().pages.push(Page { label: label.clone(), platform, login });
+    state.panels.entry(id).or_default().pages.push(Page { label: label.clone(), platform, login, warning: None });
     Ok(label)
 }
 
@@ -1048,6 +1083,9 @@ fn stop_pages_inner(app: &AppHandle, id: u8, labels: Option<&[String]>) -> tauri
         for label in &closing {
             panels.forget(label);
         }
+        for label in &closing {
+            state.health.remove(label);
+        }
         closing
     };
     for label in &closing {
@@ -1106,6 +1144,10 @@ async fn close_slot(app: AppHandle, id: u8) -> Result<(), String> {
                 eprintln!("[{label}] close failed: {e}");
             }
         }
+    }
+    // Its IdleHub vote window, if open (it uses the slot's session).
+    if let Some(vote) = app.get_window(&vote_window_label(id)) {
+        let _ = vote.close();
     }
     apply_layout_smooth(&app).map_err(|e| e.to_string())?;
     let state = app.state::<Mutex<AppState>>();
@@ -1188,21 +1230,6 @@ async fn stop_all_pages(app: AppHandle, id: u8) -> Result<(), String> {
 fn reload_slot(app: AppHandle, id: u8) -> Result<(), String> {
     let webview = app.get_webview(&slot_label(id)).ok_or("No such slot")?;
     webview.reload().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn set_zoom(app: AppHandle, id: u8, zoom: f64) -> Result<(), String> {
-    // 50%–200% in 10% steps.
-    let zoom = ((zoom * 10.0).round() / 10.0).clamp(0.5, 2.0);
-    let webview = app.get_webview(&slot_label(id)).ok_or("No such slot")?;
-    webview.set_zoom(zoom).map_err(|e| e.to_string())?;
-    let state = app.state::<Mutex<AppState>>();
-    let mut state = state.lock().unwrap();
-    if let Some(slot) = state.config.slots.iter_mut().find(|s| s.id == id) {
-        slot.zoom = zoom;
-    }
-    save_and_publish(&app, &state);
-    Ok(())
 }
 
 /// Shows `id` alone, filling the whole game area (the other slots hide and keep running);
@@ -1316,6 +1343,7 @@ struct Settings {
     auto_reload_minutes: u32,
     smooth_transitions: bool,
     light_kick_background: bool,
+    kick_daily: bool,
 }
 
 #[tauri::command]
@@ -1328,6 +1356,7 @@ fn get_settings(state: tauri::State<'_, Mutex<AppState>>) -> Settings {
         auto_reload_minutes: config.auto_reload_minutes,
         smooth_transitions: config.smooth_transitions,
         light_kick_background: config.light_kick_background,
+        kick_daily: config.kick_daily,
     }
 }
 
@@ -1343,6 +1372,7 @@ fn set_settings(app: AppHandle, settings: Settings) {
         state.config.auto_reload_minutes = settings.auto_reload_minutes;
         state.config.smooth_transitions = settings.smooth_transitions;
         state.config.light_kick_background = settings.light_kick_background;
+        state.config.kick_daily = settings.kick_daily;
         state.config = state.config.clone().normalized();
         save_and_publish(&app, &state);
         // The Kick pages running in the background, if the light page was just turned on/off.
@@ -1372,6 +1402,22 @@ fn set_settings(app: AppHandle, settings: Settings) {
     }
 }
 
+/// Where a `w`×`h` window goes to be centered over the main window (logical px); None when the
+/// main window is minimized, hidden or can't be read (then the screen's center is used).
+fn centered_over(main: &tauri::Window, w: f64, h: f64) -> Option<(f64, f64)> {
+    (|| -> tauri::Result<Option<(f64, f64)>> {
+        if main.is_minimized()? || !main.is_visible()? {
+            return Ok(None);
+        }
+        let scale = main.scale_factor()?;
+        let pos = main.outer_position()?.to_logical::<f64>(scale);
+        let size = main.outer_size()?.to_logical::<f64>(scale);
+        Ok(Some((pos.x + (size.width - w) / 2.0, pos.y + (size.height - h) / 2.0)))
+    })()
+    .ok()
+    .flatten()
+}
+
 // Async: creates a window.
 #[tauri::command]
 async fn open_settings(app: AppHandle) -> Result<(), String> {
@@ -1387,19 +1433,7 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
             .title("Settings — PokeIdle Multiview")
             .inner_size(w, h);
-    // Centered over the main window (or the screen, if it is minimized or can't be read).
-    let over_main = (|| -> tauri::Result<Option<(f64, f64)>> {
-        if main.is_minimized()? || !main.is_visible()? {
-            return Ok(None);
-        }
-        let scale = main.scale_factor()?;
-        let pos = main.outer_position()?.to_logical::<f64>(scale);
-        let size = main.outer_size()?.to_logical::<f64>(scale);
-        Ok(Some((pos.x + (size.width - w) / 2.0, pos.y + (size.height - h) / 2.0)))
-    })()
-    .ok()
-    .flatten();
-    let builder = match over_main {
+    let builder = match centered_over(&main, w, h) {
         Some((x, y)) => builder.position(x, y),
         None => builder.center(),
     };
@@ -1439,6 +1473,9 @@ fn start_stream_manager(app: AppHandle) {
             let _ = app.emit_to("settings", "automation", automation_view(&app));
             redeem_kick_bonuses(&app);
             request_kick_points(&app);
+            check_stream_health(&app);
+            claim_kick_daily(&app);
+            check_vote(&app);
             start_twitch_visits(&app);
             let started = std::time::Instant::now();
             while started.elapsed() < kick::CHECK_EVERY && !AUTO_WAKE.swap(false, Ordering::SeqCst) {
@@ -1546,6 +1583,428 @@ fn points_reported(app: &AppHandle, id: u8, json: &str) {
 
 /// Asks every live Kick page (all accounts) for its channel points; they answer through
 /// `points_reported`, and the next check uses them.
+const GAME_VOTE: &str = include_str!("../scripts/game-vote.js");
+
+/// An account's IdleHub vote status, as its game reports it.
+#[derive(serde::Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+struct VoteStatus {
+    #[serde(default)]
+    votes: u64,
+    #[serde(default)]
+    diamonds: u64,
+    /// Votes per diamond, and how many of the current pair are in.
+    #[serde(default)]
+    per_diamond: u64,
+    #[serde(default)]
+    in_pair: u64,
+    /// When the next vote counts again (PC clock, ms); in the past = it's time to vote.
+    #[serde(default, skip_deserializing)]
+    ready_at: i64,
+    #[serde(default)]
+    wait_ms: i64,
+    #[serde(default)]
+    nick: String,
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// How often a reminded account's vote status is asked: rarely while the vote is far off,
+/// often while it's due (so the header updates soon after the player votes).
+const VOTE_CHECK_WAITING: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+const VOTE_CHECK_READY: std::time::Duration = std::time::Duration::from_secs(4 * 60);
+
+fn vote_window_label(id: u8) -> String {
+    format!("vote-{id}")
+}
+
+/// Asks each reminded account's game page for its IdleHub vote status when it's due
+/// (scripts/game-vote.js); the answers come to `vote_reported`.
+fn check_vote(app: &AppHandle) {
+    let due: Vec<u8> = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        state
+            .config
+            .vote_slots
+            .iter()
+            .copied()
+            .filter(|id| match state.vote.get(id) {
+                Some((status, at)) => {
+                    let ready = status.ready_at <= now_ms();
+                    at.elapsed() >= if ready { VOTE_CHECK_READY } else { VOTE_CHECK_WAITING }
+                        || (!ready && status.ready_at <= now_ms() + 60_000)
+                }
+                None => true,
+            })
+            .collect()
+    };
+    let script = format!("{}\n{GAME_VOTE}", kick::REPORT);
+    for id in due {
+        if let Some(game) = app.get_webview(&slot_label(id)) {
+            let _ = game.eval(&script);
+        }
+    }
+}
+
+/// A game page answered with its account's vote status: remembered, and shown in its header
+/// and in ⚙.
+fn vote_reported(app: &AppHandle, id: u8, json: &str) {
+    let Ok(mut status) = serde_json::from_str::<VoteStatus>(json) else { return };
+    status.ready_at = now_ms() + status.wait_ms;
+    println!(
+        "[vote] slot {id}: {} vote(s), {} diamond(s), next in {} min{}",
+        status.votes,
+        status.diamonds,
+        status.wait_ms / 60_000,
+        status.error.as_deref().map(|e| format!(" ({e})")).unwrap_or_default()
+    );
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    state.vote.insert(id, (status, std::time::Instant::now()));
+    publish(app, &state);
+    drop(state);
+    let _ = app.emit_to("settings", "automation", automation_view(app));
+}
+
+/// The vote status of the reminded accounts, by slot.
+fn vote_view(state: &AppState) -> HashMap<u8, VoteStatus> {
+    state
+        .config
+        .vote_slots
+        .iter()
+        .filter_map(|id| Some((*id, state.vote.get(id)?.0.clone())))
+        .collect()
+}
+
+/// "Remind me to vote" in ⚙: whether account `id` is reminded.
+#[tauri::command]
+fn set_vote_slot(app: AppHandle, id: u8, on: bool) -> AutomationView {
+    automation_changed(&app, |state| {
+        state.config.vote_slots.retain(|v| *v != id);
+        if on && state.config.slots.iter().any(|s| s.id == id) {
+            state.config.vote_slots.push(id);
+            state.config.vote_slots.sort_unstable();
+        }
+        state.vote.remove(&id);
+    })
+}
+
+fn is_idlehub(host: &str) -> bool {
+    host == "idlehub.io" || host.ends_with(".idlehub.io")
+}
+
+/// The vote chip: opens account `id`'s IdleHub vote page in a window of its own that uses the
+/// slot's browser session, so each account keeps its own IdleHub sign-in and votes with its
+/// own nick. The player signs in and confirms there; the app never touches the page. When the
+/// window closes, the account's vote status is asked again.
+#[tauri::command]
+async fn open_vote(app: AppHandle, id: u8) -> Result<(), String> {
+    let label = vote_window_label(id);
+    if let Some(existing) = app.get_window(&label) {
+        let _ = existing.unminimize();
+        return existing.set_focus().map_err(|e| e.to_string());
+    }
+    let (url, nick) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        let status = state.vote.get(&id).map(|(s, _)| s.clone()).ok_or("No vote status yet")?;
+        (status.url, status.nick)
+    };
+    let parsed: Url = url.parse().map_err(|_| "Bad vote link")?;
+    if parsed.scheme() != "https" || !parsed.host_str().is_some_and(is_idlehub) {
+        return Err("The vote link isn't an idlehub.io page".into());
+    }
+    let main = app.get_window("main").ok_or("No window")?;
+    let (w, h) = (560.0, 820.0);
+    let builder = WindowBuilder::new(&app, &label)
+        .title(format!("Vote on IdleHub — {nick}"))
+        .inner_size(w, h);
+    // Centered over the main window, like the settings.
+    let builder = match centered_over(&main, w, h) {
+        Some((x, y)) => builder.position(x, y),
+        None => builder.center(),
+    };
+    let window = builder
+        .min_inner_size(400.0, 500.0)
+        .owner_raw(main.hwnd().map_err(|e| e.to_string())?)
+        .build()
+        .map_err(|e| e.to_string())?;
+    // The slot's session (cookies, sign-ins). IdleHub and its sign-ins (Google, Discord) open
+    // here; anything else goes to the default browser.
+    let builder = slot_session_builder(&app, id, format!("{label}-page"), parsed.as_str())
+        .on_navigation(|url| {
+            let in_window = url.scheme() == "https" && url.host_str().is_some_and(is_idlehub);
+            in_window || guard_navigation(url)
+        })
+        .on_new_window(|url, _features| {
+            if url.scheme() == "https" && url.host_str().is_some_and(is_idlehub) {
+                return NewWindowResponse::Allow;
+            }
+            guard_popup(&url)
+        });
+    let page = window
+        .add_child(builder, LogicalPosition::new(0.0, 0.0), LogicalSize::new(w, h))
+        .map_err(|e| e.to_string())?;
+    native::attach(&page, app.clone());
+    let event_app = app.clone();
+    let event_window = window.clone();
+    window.on_window_event(move |event| match event {
+        // The page fills the window.
+        WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+            if let (Ok(size), Ok(scale)) = (event_window.inner_size(), event_window.scale_factor()) {
+                let size = size.to_logical::<f64>(scale);
+                let _ = page.set_size(LogicalSize::new(size.width, size.height));
+            }
+        }
+        // Closed: ask the game for the account's status again at the next check.
+        WindowEvent::Destroyed => {
+            let state = event_app.state::<Mutex<AppState>>();
+            state.lock().unwrap().vote.remove(&id);
+            AUTO_WAKE.store(true, Ordering::SeqCst);
+        }
+        _ => {}
+    });
+    Ok(())
+}
+
+const KICK_DAILY: &str = include_str!("../scripts/kick-daily.js");
+/// Tries per account per day to claim Kick's Daily Reward before giving up until tomorrow.
+const DAILY_TRIES: u8 = 3;
+
+/// Days since 1970 in UTC: Kick's daily rewards reset at 00:00 UTC.
+fn utc_day() -> i64 {
+    now_ms().div_euclid(86_400_000)
+}
+
+/// With "Claim Kick's Daily Reward" on: every account that hasn't claimed it today gets one try
+/// per check, in one of its live background Kick pages (scripts/kick-daily.js), up to
+/// DAILY_TRIES a day. The answer comes to `daily_reported`.
+fn claim_kick_daily(app: &AppHandle) {
+    let today = utc_day();
+    let due: Vec<u8> = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        if !state.config.kick_daily {
+            return;
+        }
+        state.daily_tries.retain(|_, (day, _)| *day == today);
+        let ids: Vec<u8> = state.config.slots.iter().map(|s| s.id).collect();
+        ids.into_iter()
+            .filter(|id| state.config.kick_daily_done.get(id) != Some(&today))
+            .filter(|id| state.daily_tries.get(id).is_none_or(|(_, n)| *n < DAILY_TRIES))
+            .collect()
+    };
+    if due.is_empty() {
+        return;
+    }
+    let pages = background_channel_pages(app, Platform::Kick, true);
+    let script = format!("{}\n{KICK_DAILY}\nwindow.__multiviewDaily();", kick::REPORT);
+    for id in due {
+        let Some((_, label, _, _)) = pages.iter().find(|p| p.0 == id) else { continue };
+        let Some(page) = app.get_webview(label) else { continue };
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().unwrap();
+            let tries = state.daily_tries.entry(id).or_insert((today, 0));
+            tries.1 += 1;
+        }
+        println!("[daily] slot {id}: claiming Kick's Daily Reward in {label}");
+        let _ = page.eval(&script);
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct DailyReport {
+    result: String,
+    #[serde(default)]
+    detail: String,
+}
+
+/// A Kick page answered the Daily Reward try: claimed (or already claimed today) marks the
+/// account done until tomorrow; anything else is retried on a later check.
+fn daily_reported(app: &AppHandle, id: u8, json: &str) {
+    let Ok(report) = serde_json::from_str::<DailyReport>(json) else { return };
+    println!("[daily] slot {id}: {} {}", report.result, report.detail);
+    if report.result == "claimed" || report.result == "not available" {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        state.config.kick_daily_done.insert(id, utc_day());
+        if let Err(e) = state.config.save(&state.config_path) {
+            eprintln!("[config] could not save: {e}");
+        }
+    }
+}
+
+const STREAM_HEALTH: &str = include_str!("../scripts/stream-health.js");
+/// A stalled stream that a reload didn't fix is reloaded again at most this often.
+const STALLED_RETRY: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// What the health check has seen of one page (see `health_reported`).
+#[derive(Default)]
+struct HealthTrack {
+    /// Checks in a row that found the video not moving.
+    stalls: u8,
+    /// Reloads since the stream last played normally.
+    reloads: u8,
+    last_reload: Option<std::time::Instant>,
+    /// The current problems, each cleared by its own signal: a playing video clears
+    /// `stalled` and `offline`; only seeing the channel points again clears `logged_out`
+    /// (Twitch's light player can't tell; its visits can).
+    stalled: Option<String>,
+    offline: Option<String>,
+    logged_out: Option<String>,
+}
+
+/// Asks every background stream page whether it is playing (scripts/stream-health.js); the
+/// answers come to `health_reported`. Pages in the middle of a Twitch visit are skipped.
+fn check_stream_health(app: &AppHandle) {
+    let script = format!("{}\n{STREAM_HEALTH}", kick::REPORT);
+    let visiting = app.state::<Mutex<AppState>>().lock().unwrap().visiting.clone();
+    for platform in PLATFORMS {
+        for (_, label, _, _) in background_channel_pages(app, platform, true) {
+            if visiting.contains(&label) {
+                continue;
+            }
+            if let Some(page) = app.get_webview(&label) {
+                let _ = page.eval(&script);
+            }
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct HealthReport {
+    state: String,
+    #[serde(default)]
+    detail: String,
+}
+
+/// A stream page answered the health check. A video that stopped moving in two checks in a row
+/// gets its page reloaded; if that doesn't fix it, its pill shows ⚠ and it is reloaded again
+/// every 10 minutes. Logged-out and offline pages get ⚠ (they need the player, or the priority
+/// lists close them). A stream playing again clears it all.
+/// What to do with one health answer: whether to reload the page, and the warning to show
+/// (`None` inside = clear it). `None` overall = nothing changes this time.
+fn next_health(
+    track: &mut HealthTrack,
+    state: &str,
+    detail: &str,
+    now: std::time::Instant,
+) -> Option<(bool, Option<String>)> {
+    let mut reload = false;
+    match state {
+        "ok" => {
+            track.stalls = 0;
+            track.reloads = 0;
+            track.last_reload = None;
+            track.stalled = None;
+            track.offline = None;
+        }
+        "logged-in" => track.logged_out = None,
+        "logged-out" => track.logged_out = Some(format!("Logged out: {detail}")),
+        "offline" => track.offline = Some(format!("Offline: {detail}")),
+        "stalled" => {
+            track.stalls += 1;
+            if track.stalls < 2 {
+                return None;
+            }
+            track.stalls = 0;
+            let due = track.last_reload.is_none_or(|t| now.duration_since(t) >= STALLED_RETRY);
+            reload = track.reloads == 0 || due;
+            if reload {
+                track.reloads = track.reloads.saturating_add(1);
+                track.last_reload = Some(now);
+            }
+            // The first reload is silent; if the stream still stalls after it, it's shown.
+            if track.reloads > 1 || !reload {
+                track.stalled = Some(format!("Stalled: {detail}. Reloaded, still not playing."));
+            }
+        }
+        // "first" (a page just loaded) and anything unknown change nothing.
+        _ => return None,
+    }
+    let warning = track.logged_out.clone().or_else(|| track.offline.clone()).or_else(|| track.stalled.clone());
+    Some((reload, warning))
+}
+
+fn health_reported(app: &AppHandle, label: &str, json: &str) {
+    let Ok(report) = serde_json::from_str::<HealthReport>(json) else { return };
+    let (reload, changed) = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        let track = state.health.entry(label.to_string()).or_default();
+        let Some((reload, warning)) =
+            next_health(track, &report.state, &report.detail, std::time::Instant::now())
+        else {
+            return;
+        };
+        let page = state.panels.values_mut().flat_map(|p| p.pages.iter_mut()).find(|p| p.label == label);
+        let changed = match page {
+            Some(page) if page.warning != warning => {
+                page.warning = warning;
+                true
+            }
+            _ => false,
+        };
+        (reload, changed)
+    };
+    if reload {
+        println!("[health] {label}: {} ({}); reloading", report.state, report.detail);
+        if let Some(page) = app.get_webview(label) {
+            let _ = page.reload();
+        }
+    }
+    if changed {
+        let state = app.state::<Mutex<AppState>>();
+        publish(app, &state.lock().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_stall_reloads_once_quietly_then_warns_and_retries_every_10_minutes() {
+        let mut t = HealthTrack::default();
+        let start = Instant::now();
+        // One stalled check is not enough.
+        assert_eq!(next_health(&mut t, "stalled", "x", start), None);
+        // Two in a row: reload, no warning yet.
+        assert_eq!(next_health(&mut t, "stalled", "x", start), Some((true, None)));
+        // The reloaded page's first check changes nothing (the reload is remembered).
+        assert_eq!(next_health(&mut t, "first", "", start), None);
+        // Still stalled: warning, no reload before 10 minutes.
+        next_health(&mut t, "stalled", "x", start + Duration::from_secs(120));
+        let (reload, warning) = next_health(&mut t, "stalled", "x", start + Duration::from_secs(240)).unwrap();
+        assert!(!reload && warning.is_some());
+        // After 10 minutes: reloads again, warning kept.
+        next_health(&mut t, "stalled", "x", start + Duration::from_secs(660));
+        let (reload, warning) = next_health(&mut t, "stalled", "x", start + Duration::from_secs(780)).unwrap();
+        assert!(reload && warning.is_some());
+        // Playing again clears everything.
+        assert_eq!(next_health(&mut t, "ok", "", start + Duration::from_secs(900)), Some((false, None)));
+        assert_eq!(t.reloads, 0);
+    }
+
+    #[test]
+    fn logged_out_and_offline_warn_without_reloading() {
+        let mut t = HealthTrack::default();
+        let now = Instant::now();
+        assert!(matches!(next_health(&mut t, "logged-out", "y", now), Some((false, Some(w))) if w.starts_with("Logged out")));
+        // A playing video doesn't clear "logged out" (Twitch's light player can't see logins)...
+        assert!(matches!(next_health(&mut t, "ok", "", now), Some((false, Some(w))) if w.starts_with("Logged out")));
+        // ...seeing the points again does.
+        assert_eq!(next_health(&mut t, "logged-in", "", now), Some((false, None)));
+        assert!(matches!(next_health(&mut t, "offline", "z", now), Some((false, Some(w))) if w.starts_with("Offline")));
+        assert_eq!(next_health(&mut t, "ok", "", now), Some((false, None)));
+    }
+}
+
 fn request_kick_points(app: &AppHandle) {
     let script = kick::points_script();
     for (_, label, _, _) in background_channel_pages(app, Platform::Kick, true) {
@@ -1722,6 +2181,8 @@ struct BonusSlotView {
     twitch_linked: Option<bool>,
     /// Last seen channel points per channel, most first: [platform, channel, points].
     points: Vec<(Platform, String, u64)>,
+    /// The account's running bonuses per platform.
+    running: SlotBonuses,
 }
 
 /// Slot `id`'s last seen balances, most first.
@@ -1764,6 +2225,11 @@ struct AutomationView {
     kick: PriorityView,
     twitch: PriorityView,
     slots: Vec<BonusSlotView>,
+    /// Streams with a ⚠ (stalled, logged out, offline): [slot name, channel, warning].
+    problems: Vec<(String, String, String)>,
+    /// The account reminded to vote on IdleHub, and its status.
+    vote_slots: Vec<u8>,
+    vote: HashMap<u8, VoteStatus>,
 }
 
 fn automation_view(app: &AppHandle) -> AutomationView {
@@ -1784,7 +2250,25 @@ fn automation_view(app: &AppHandle) -> AutomationView {
         }
         count
     };
+    let slot_name = |id: u8| {
+        state.config.slots.iter().find(|s| s.id == id).and_then(|s| s.name.clone()).unwrap_or_else(|| format!("Slot {id}"))
+    };
+    let mut problems: Vec<(String, String, String)> = state
+        .panels
+        .iter()
+        .flat_map(|(id, p)| {
+            p.pages.iter().filter_map(move |pg| {
+                let warning = pg.warning.clone()?;
+                Some((*id, format!("{} {}", pg.platform.name(), pg.login.clone().unwrap_or_default()), warning))
+            })
+        })
+        .map(|(id, channel, warning)| (slot_name(id), channel, warning))
+        .collect();
+    problems.sort();
     AutomationView {
+        problems,
+        vote_slots: state.config.vote_slots.clone(),
+        vote: vote_view(&state),
         kick: PriorityView {
             priority: state.config.kick_priority.clone(),
             live: live(Platform::Kick),
@@ -1812,6 +2296,10 @@ fn automation_view(app: &AppHandle) -> AutomationView {
                 kick_linked: state.linked.get(&(s.id, Platform::Kick)).copied(),
                 twitch_linked: state.linked.get(&(s.id, Platform::Twitch)).copied(),
                 points: slot_points(&state.config, s.id),
+                running: SlotBonuses {
+                    kick: state.bonus_ends.get(&(s.id, Platform::Kick)).copied(),
+                    twitch: state.bonus_ends.get(&(s.id, Platform::Twitch)).copied(),
+                },
             })
             .collect(),
     }
@@ -1862,6 +2350,62 @@ struct GameReport {
     channels: Vec<String>,
     #[serde(default)]
     linked: bool,
+    /// When each bonus from this platform ends, in the server's clock (ms; 0 = none).
+    #[serde(default)]
+    bonus: BonusEnds,
+    /// The server's clock when it sent this (ms; 0 = unknown).
+    #[serde(default)]
+    now: i64,
+}
+
+/// When an account's bonuses from one platform end, in ms since 1970 (0 = not running). Kept
+/// in the PC's clock (corrected for the difference to the game server's).
+#[derive(serde::Deserialize, Serialize, Clone, Copy, Default, Debug, PartialEq)]
+struct BonusEnds {
+    #[serde(default)]
+    xp: i64,
+    #[serde(default)]
+    capture: i64,
+    #[serde(default)]
+    lure: i64,
+}
+
+impl BonusEnds {
+    /// Moves server-clock times to the PC's clock: `server_now` was the server's time when the
+    /// PC's clock read `local_now`.
+    fn to_local(self, server_now: i64, local_now: i64) -> BonusEnds {
+        let offset = if server_now > 0 { server_now - local_now } else { 0 };
+        let shift = |t: i64| if t > 0 { t - offset } else { 0 };
+        BonusEnds { xp: shift(self.xp), capture: shift(self.capture), lure: shift(self.lure) }
+    }
+}
+
+/// An account's running bonuses per platform, for the slot header and the settings.
+#[derive(Serialize, Clone, Copy, Default, Debug)]
+struct SlotBonuses {
+    kick: Option<BonusEnds>,
+    twitch: Option<BonusEnds>,
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
+}
+
+#[cfg(test)]
+mod bonus_tests {
+    use super::*;
+
+    #[test]
+    fn bonus_ends_follow_the_pc_clock() {
+        // The server is 5 s ahead of the PC: its "ends at" times are 5 s later than the PC's.
+        let server = BonusEnds { xp: 1_000_005_000, capture: 0, lure: 2_000_005_000 };
+        let local = server.to_local(500_005_000, 500_000_000);
+        assert_eq!(local, BonusEnds { xp: 1_000_000_000, capture: 0, lure: 2_000_000_000 });
+        // Unknown server time: kept as is.
+        assert_eq!(server.to_local(0, 500_000_000), server);
+    }
 }
 
 /// Adds the channels of `partners` missing from `platform`'s priority list at its end, in the
@@ -1905,6 +2449,8 @@ fn game_reported(app: &AppHandle, id: u8, json: &str) {
         if !report.channels.is_empty() {
             state.partners.insert(report.platform, report.channels.clone());
         }
+        let ends = report.bonus.to_local(report.now, now_ms());
+        let bonus_changed = state.bonus_ends.insert((id, report.platform), ends) != Some(ends);
         let added = if sync_on(&state.config, report.platform) && !report.channels.is_empty() {
             merge_partners(&mut state.config, report.platform, &report.channels)
         } else {
@@ -1913,6 +2459,9 @@ fn game_reported(app: &AppHandle, id: u8, json: &str) {
         if added > 0 {
             println!("[sync] {}: {added} new partner channel(s) from the game", report.platform.name());
             save_and_publish(app, &state);
+        } else if bonus_changed {
+            // The slot headers show the running bonuses.
+            publish(app, &state);
         }
         added
     };
@@ -2060,6 +2609,10 @@ fn main() {
                 visiting: std::collections::HashSet::new(),
                 partners: HashMap::new(),
                 linked: HashMap::new(),
+                bonus_ends: HashMap::new(),
+                health: HashMap::new(),
+                daily_tries: HashMap::new(),
+                vote: HashMap::new(),
             }));
 
             let window = WindowBuilder::new(app, "main")
@@ -2141,7 +2694,6 @@ fn main() {
             stop_all_pages,
             add_channel,
             reorder_pages,
-            set_zoom,
             focus_slot,
             toggle_mute,
             rename_slot,
@@ -2156,7 +2708,9 @@ fn main() {
             set_priority,
             set_twitch_lives,
             set_bonus,
-            set_sync
+            set_sync,
+            set_vote_slot,
+            open_vote
         ])
         .run(tauri::generate_context!())
         .expect("error while running PokeIdle Multiview");

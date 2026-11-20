@@ -1,7 +1,8 @@
 // Loaded at the start of every game page. PokeIdle's server keeps sending the game state over
 // its WebSocket ({"t":"estado","estado":{…}}), including, for Kick and Twitch, the game's
-// official partner channels ("oficiais": slug/login, aoVivo, ativo) and whether this account
-// has that platform linked ("vinculado"). This listens to those messages (it never sends
+// official partner channels ("oficiais": slug/login, aoVivo, ativo), whether this account has
+// that platform linked ("vinculado") and when its bonuses from that platform end ("bonus":
+// xp/captura/shiny, server time in ms). This listens to those messages (it never sends
 // anything) and tells the app when one of them changes, through a brief title change:
 // "[multiview-game] {"platform":"kick","channels":[…],"linked":true}".
 (() => {
@@ -44,10 +45,15 @@
         .map((c) => String(c.slug || c.login || '').toLowerCase())
         .filter(Boolean);
       const linked = info.vinculado === true;
-      const key = JSON.stringify([channels, linked]);
+      // When each bonus of this account on this platform ends (server time, ms; 0 = none).
+      const b = info.bonus || {};
+      const bonus = { xp: Number(b.xp) || 0, capture: Number(b.captura) || 0, lure: Number(b.shiny) || 0 };
+      const key = JSON.stringify([channels, linked, bonus]);
       if (last[platform] === key) continue;
       last[platform] = key;
-      report({ platform, channels, linked });
+      // The server's clock, so the app can correct a PC clock that is off.
+      const now = Number(state.servidorAgora) || 0;
+      report({ platform, channels, linked, bonus, now });
     }
   }
 

@@ -15,7 +15,7 @@ under 10 MB.
 - **Up to 4 slots.** Each slot has its own WebView2 data folder, so cookies, storage and logins
   stay separate and are kept between runs.
 - **A header on each slot.** Every slot has its own strip on top: its controls (name, sound,
-  zoom, Twitch/Kick, reload, close) on the left and its stream pills on the right, past a
+  Twitch/Kick, running bonuses, reload, close) on the left and its stream pills on the right, past a
   divider. Everything about one account sits next to its game. The toolbar at the top keeps
   the app-wide buttons and a quick switch between slots; **▴** in its top-left corner hides it
   for more room, and **▾** in the same corner (on the top-left slot) brings it back.
@@ -86,6 +86,21 @@ under 10 MB.
   (+50) is claimed and the bonus redeemed, then it goes back to the light player. Each account
   shows whether the game has its Kick and Twitch linked; without that, the points are given
   back.
+- **Running bonuses at a glance.** Each slot's header shows the account's PokeIdle bonuses that
+  are running and the time left (e.g. `XP 6h12`, `Cap 1h40`; Kick's and Twitch's times on
+  hover), read from the game's own state. The same appears in ⚙ → Bonus per account.
+- **Stream health.** Every 2 minutes each background stream checks that its video is moving.
+  A stalled stream is reloaded once quietly; if it still doesn't play, its pill gets a ⚠ and it
+  is reloaded again every 10 minutes. Logged-out accounts and offline channels get a ⚠ too. The
+  settings window shows how many streams need attention.
+- **IdleHub vote reminder (⚙ → IdleHub vote).** Tick the accounts to be reminded. Each one's
+  header shows when its vote is ready (asked from the game, like its own "Vote no IdleHub.io"
+  window does) and its votes/diamonds; clicking opens the vote page in a window with that slot's
+  session, so each account keeps its own IdleHub sign-in and votes with its own nick. You sign in
+  and confirm there; the app never votes by itself.
+- **Kick Daily Reward (⚙ → Kick, off by default).** Once a day per account, the app opens Kick's
+  gift dialog in one of the account's background Kick pages, moves its carousel to the Daily
+  Reward card and claims it (up to 3 tries a day; Kick's day resets at 00:00 UTC).
 - **"/hunt for PokeIdle" extension.** If
   [the extension](https://chromewebstore.google.com/detail/hunt-for-pokeidle/mhnplloljgchpfpcpbhmcokmnefodjnh)
   is installed in a Chromium browser on the PC (Chrome, Edge, Brave, Vivaldi, Opera, Comet,
@@ -94,14 +109,15 @@ under 10 MB.
   720 px wide or less, which a 2×2 grid often is. Slots default the game's own setting to the
   desktop layout, and the game then scales itself down to fit. If you picked a layout in the
   game, your choice is kept.
-- **Per-slot controls.** Zoom from 50% to 200%, reload, and close. Closing asks for a second click
-  and keeps the slot's login.
+- **Per-slot controls.** Reload and close. Closing asks for a second click and keeps the slot's
+  login. (The game scales itself to the slot; `Ctrl` + mouse wheel still zooms a page for the
+  moment.)
 - **Tray.** Closing (×) hides the app to the tray (the Poké Ball near the clock), and streams
   keep running; its tooltip shows how many. Click it to bring the window back, or right-click →
   **Quit** to exit. Minimizing works as usual (taskbar); both can be changed in ⚙.
 - **One copy at a time.** Starting the app again brings the open window to the front instead
   of running a second copy, which would play every background stream twice.
-- **Remembers** the open slots, zoom, focused slot, background streams, and the window's size,
+- **Remembers** the open slots, focused slot, background streams, and the window's size,
   position and maximized state.
 
 ## Download
@@ -175,7 +191,7 @@ These environment variables only apply to **debug** builds, except
 
 | What | Where |
 | --- | --- |
-| Settings (slots, zoom, focus, background streams) | `%LOCALAPPDATA%\io.pokeidle-multiview.app\config.json` |
+| Settings (slots, focus, streams, lists, bonuses) | `%LOCALAPPDATA%\io.pokeidle-multiview.app\config.json` |
 | Each slot's browser data (cookies, logins, storage) | `%LOCALAPPDATA%\io.pokeidle-multiview.app\slots\slot-N\` |
 | Copy of the /hunt extension | `%LOCALAPPDATA%\io.pokeidle-multiview.app\extensions\` |
 | Window size and position | `%APPDATA%\io.pokeidle-multiview.app\.window-state.json` |
@@ -229,7 +245,9 @@ Some details that are easy to miss:
 
 Planned, roughly in priority order:
 
-- [ ] Stream health: a ⚠ on the slot when a stream stalls (crashed pages already reload).
+- [ ] Smart redeem goals: per account, an ordered list of targets (e.g. keep XP ≥ 10h, then
+      Capture ≥ 5h, then Lure ≥ 3h) instead of one fixed bonus, using the running times the game
+      already reports; when every target is met, save the points or spend them on the last kind.
 - [ ] Light mode: Kick via its HLS feed and Twitch via authenticated chat, without video players.
 
 ## Disclaimer
