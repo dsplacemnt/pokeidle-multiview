@@ -153,6 +153,13 @@ fn finish(app: &AppHandle) {
             let _ = window.set_focus();
         }
     });
+    // Streams created while the window was hidden didn't start playing (the browser doesn't
+    // autoplay in a hidden window): now that it's shown, they're started.
+    let resume = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        crate::resume_paused_streams(&resume);
+    });
     // The splash fades out (splash.html), then closes.
     let app = app.clone();
     std::thread::spawn(move || {

@@ -19,8 +19,6 @@ under 10 MB.
   divider. Everything about one account sits next to its game. The toolbar at the top keeps
   the app-wide buttons and a quick switch between slots; **▴** in its top-left corner hides it
   for more room, and **▾** in the same corner (on the top-left slot) brings it back.
-- **Smooth transitions.** Slots slide into place when you go fullscreen, reset the grid, hide
-  the toolbar or add/close a slot. Off by default; turn it on in ⚙ → Layout.
 - **Layouts.** Grid: one slot fills the window, two sit side by side, three put two on top and
   one wide below, four make a 2×2 grid. Fullscreen: click a slot's name (in its header or the
   toolbar, or press `Ctrl+1`…`Ctrl+4`, which also works while a game page has focus) to show
@@ -108,16 +106,26 @@ under 10 MB.
   (+50) is claimed and the bonus redeemed, then it goes back to the light player. Each account
   shows whether the game has its Kick and Twitch linked; without that, the points are given
   back.
+- **Redeem goals.** Instead of one fixed bonus, an account can switch to **Goals**: an ordered
+  list such as XP ≥ 10h, Capture ≥ 5h, Lure ≥ 3h. Its points buy the first goal not met yet,
+  each platform judged by its own clock (Kick points buy Kick bonuses); once every goal is met
+  it saves the points or keeps buying the last one. After a redeem it waits for the game's new
+  time before buying again, and on Kick only the channel with the most points redeems per pass,
+  so goals aren't overshot. Each goal shows its time left on Twitch and Kick (green when met,
+  outlined while being bought); the stats panel marks the goals on its bars. "Copy to all
+  accounts" applies one account's setup to the others.
 - **Running bonuses at a glance.** Each slot's header shows the account's PokeIdle bonuses that
   are running and the time left (e.g. `XP 6h12`, `Cap 1h40`; Kick's and Twitch's times on
   hover), read from the game's own state. The same appears in ⚙ → Bonus per account.
-- **Stream health.** Every 2 minutes each background stream checks that its video is moving.
+- **Stream health.** Every 30 seconds each background stream checks that its video is moving.
   A stalled stream is reloaded once quietly; if it still doesn't play, its pill gets a ⚠ and it
-  is reloaded again every 10 minutes. Logged-out accounts and offline channels get a ⚠ too. The
-  settings window shows how many streams need attention. A channel of a priority list that its
-  page finds offline is swapped sooner: the first report runs the priority check right away,
-  and after two in a row the page is believed even if Kick/Twitch still say "live" (their
-  status can lag for minutes), so that account opens its next live channel.
+  is reloaded again every 10 minutes. Logged-out accounts and offline channels get a ⚠ too (a
+  page that is still loading isn't flagged). The settings window shows how many streams need
+  attention. A live that ends is caught right away (the player's "offline" screen over a frozen
+  video), not taken for a stall. A channel of a priority list that its page finds offline is
+  swapped within seconds: the first report runs the priority check and asks the page again 10 s
+  later, and a second "offline" is believed even if Kick/Twitch still say "live" (their status
+  can lag for minutes), so that account opens its next live channel.
 - **IdleHub vote reminder (⚙ → IdleHub vote).** Tick the accounts to be reminded. Each one's
   header shows when its vote is ready (asked from the game, like its own "Vote no IdleHub.io"
   window does) and its votes/diamonds; clicking opens the vote page in a window with that slot's
@@ -273,9 +281,6 @@ Some details that are easy to miss:
 
 Planned, roughly in priority order:
 
-- [ ] Smart redeem goals: per account, an ordered list of targets (e.g. keep XP ≥ 10h, then
-      Capture ≥ 5h, then Lure ≥ 3h) instead of one fixed bonus, using the running times the game
-      already reports; when every target is met, save the points or spend them on the last kind.
 - [ ] Light mode: Kick via its HLS feed and Twitch via authenticated chat, without video players.
 
 ## Apoie o projeto ♥

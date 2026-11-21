@@ -11,27 +11,35 @@
     * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #3a4150 transparent; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
       font: 14px/1.45 "Segoe UI", system-ui, sans-serif; user-select: none; }
-    /* Columns side by side: general · Twitch · Kick · bonus per account. Twitch and Kick share
-       their rows (description | options | channels | add), so their tables line up and have the
-       same size. Each column scrolls on its own; narrow windows get a scrolling page instead. */
+    /* Tabs: General · Channels · Accounts · About. One pane shows at a time and scrolls on its
+       own; the header (tabs, "saved", the ⚠ count) stays. */
     body { display: flex; flex-direction: column; overflow: hidden; }
-    header { display: flex; align-items: baseline; gap: 16px; padding: 18px 24px 14px; flex: none; }
+    header { display: flex; align-items: center; gap: 18px; padding: 16px 24px 14px; flex: none; }
     h1 { margin: 0; font-size: 18px; font-weight: 600; color: var(--accent); letter-spacing: .01em; }
-    main { flex: 1; min-height: 0; padding: 0 24px 20px; display: grid; gap: 18px;
-      grid-template-columns: minmax(300px, 1fr) minmax(600px, 2.1fr) minmax(340px, 1.2fr); }
-    .col { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding: 2px 4px 2px 2px; }
-    .pair { min-height: 0; display: grid; gap: 18px; grid-template-columns: 1fr 1fr;
-      grid-template-rows: auto auto minmax(0, 1fr) auto; }
+    .tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--card); }
+    .tabs button { border: 0; background: transparent; padding: 6px 16px; border-radius: 8px; color: var(--muted); font-weight: 500; }
+    .tabs button:hover:not(.on) { color: var(--text); border: 0; }
+    .tabs button.on { background: #2f3440; color: var(--text); font-weight: 600; }
+    main { flex: 1; min-height: 0; padding: 0 24px 20px; }
+    .pane { display: none; height: 100%; overflow-y: auto; padding: 2px 4px 2px 2px; }
+    .pane.on { display: block; }
+    /* General: cards in columns, as many as fit. */
+    .pane.general.on { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; align-content: start; }
+    /* Channels: Twitch and Kick share their rows (description | options | channels | add), so
+       their lists line up and have the same size. */
+    .pane.pair.on { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden; }
     .pair > section { grid-row: 1 / span 4; display: grid; grid-template-rows: subgrid; gap: 14px; min-height: 0; }
     .pair .intro { display: grid; gap: 10px; align-content: start; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
     .pair .options { display: grid; gap: 12px; align-content: start; }
-    @media (max-width: 1150px) {
-      body { overflow: auto; display: block; }
-      main { grid-template-columns: 1fr; }
-      .col { overflow: visible; }
-      .pair { grid-template-columns: 1fr; grid-template-rows: none; }
+    /* Accounts: the bonus cards (one per account, side by side), then the vote reminders. */
+    .pane.accounts.on { display: grid; gap: 18px; align-content: start; }
+    #kbonus { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 14px; }
+    .about-pane section { max-width: 560px; }
+    @media (max-width: 900px) {
+      .pane.pair.on { grid-template-columns: 1fr; grid-template-rows: none; overflow-y: auto; }
       .pair > section { grid-row: auto; grid-template-rows: none; }
       .klist { max-height: 340px; }
+      #kbonus { grid-template-columns: 1fr; }
     }
     section { background: var(--card); border-radius: 14px; padding: 18px 20px; display: grid; gap: 14px;
       box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 6px 18px rgba(0, 0, 0, .18); }
@@ -83,14 +91,55 @@
       border-radius: 8px; padding: 7px 10px; font: inherit; }
     .kadd input:focus { outline: none; border-color: var(--accent); }
     .empty { color: var(--muted); font-size: 12.5px; padding: 8px 4px; }
-    /* One card per account: name + bonus on top, link status and points below. */
-    .account select { width: 150px; }
-    .account { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px;
-      padding: 14px 0; border-top: 1px solid var(--line); }
-    .account:first-child { border-top: 0; padding-top: 4px; }
-    .account .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .account .links, .account .points, .account .running { grid-column: 1 / -1; }
+    /* One card per account: name + mode switch, link status, the bonus (fixed) or the goals,
+       then the points. */
+    .account { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: #191c22; align-content: start; }
+    .account .links { margin-top: -4px; }
+    .acc-head { display: flex; align-items: center; gap: 10px; }
+    .account .name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .seg { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--row); flex: none; }
+    .seg button { border: 0; background: transparent; padding: 4px 12px; border-radius: 7px; font-size: 12.5px; color: var(--muted); }
+    .seg button:hover:not(.on) { color: var(--text); }
+    .seg button.on { background: #353a46; color: var(--text); font-weight: 600; }
+    .account .fixed { display: grid; gap: 10px; }
+    .account .fixed select { width: 100%; }
     .account .running { display: grid; gap: 4px; }
+    /* Goals: # · bonus · hours · time left on Twitch / Kick · ↑ × */
+    .goals { display: grid; gap: 6px; }
+    .goal { display: grid; grid-template-columns: 14px 116px 62px minmax(0, 1fr) 28px; gap: 8px; align-items: center; }
+    .goal .handle { color: var(--muted); cursor: grab; text-align: center; letter-spacing: -2px; font-size: 13px; line-height: 26px;
+      user-select: none; touch-action: none; border-radius: 5px; }
+    .goal .handle:hover { color: var(--text); background: var(--row); }
+    .goal.dragging { opacity: .85; }
+    .goal.dragging .handle { cursor: grabbing; color: var(--accent); }
+    .goal.dragging select, .goal.dragging input { box-shadow: 0 0 0 1px var(--accent); }
+    .goal select.kind { width: 100%; padding: 5px 8px; font-weight: 600; }
+    .goal select.kind.xp { color: #ffd76b; }
+    .goal select.kind.capture { color: #8fd3ff; }
+    .goal select.kind.lure { color: #d8a8ff; }
+    .goal .hours { display: flex; align-items: center; gap: 3px; }
+    .goal .hours input { width: 48px; background: #111318; color: var(--text); border: 1px solid #3a3f4b; border-radius: 8px;
+      padding: 5px 6px; font: inherit; font-variant-numeric: tabular-nums; text-align: right; appearance: textfield; }
+    /* No spin arrows: they covered the number; type it or use ↑/↓ keys. */
+    .goal .hours input::-webkit-inner-spin-button, .goal .hours input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .goal .hours input:focus { outline: none; border-color: var(--accent); }
+    .goal .unit { color: var(--muted); font-size: 12px; }
+    .goal .status { display: flex; gap: 4px; justify-content: flex-end; min-width: 0; }
+    /* Time left per platform: a colored dot (Twitch purple, Kick green), green text once met,
+       outlined while it's being bought. */
+    .tm { display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 6px; border-radius: 10px;
+      background: var(--row); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .tm::before { content: ''; width: 6px; height: 6px; border-radius: 50%; flex: none; }
+    .tm.twitch::before { background: #9146ff; }
+    .tm.kick::before { background: #53fc18; }
+    .tm.met { color: #8fe0b0; }
+    .tm.now { color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+    .goal button.icon { width: 26px; height: 26px; padding: 0; font-size: 13px; border-radius: 7px; }
+    .goal-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+    .goal-foot .add { padding: 5px 10px; font-size: 12.5px; }
+    .goal-foot select.when { flex: 1; min-width: 150px; padding: 5px 8px; font-size: 12.5px; }
+    .goal-foot .link { border: 0; background: transparent; padding: 4px 2px; color: var(--muted); font-size: 12px; text-decoration: underline; }
+    .goal-foot .link:hover { color: var(--text); }
     .account .bline { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
     .bonus { height: 20px; padding: 0 8px; border-radius: 10px; display: inline-flex; align-items: center;
       font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -130,11 +179,17 @@
 <body>
   <header>
     <h1 data-i18n>Settings</h1>
+    <nav class="tabs" id="tabs">
+      <button data-tab="general" data-i18n>General</button>
+      <button data-tab="channels" data-i18n>Channels</button>
+      <button data-tab="accounts" data-i18n>Accounts</button>
+      <button data-tab="about" data-i18n>About</button>
+    </nav>
     <div class="saved" id="saved"></div>
     <div class="problems" id="problems"></div>
   </header>
   <main>
-   <div class="col">
+   <div class="pane general" data-pane="general">
     <section>
       <h2 data-i18n>Language</h2>
       <label class="row stack" for="language">
@@ -157,8 +212,6 @@
 
     <section>
       <h2 data-i18n>Layout</h2>
-      <label class="row"><input type="checkbox" id="smooth_transitions">
-        <span><span data-i18n>Smooth transitions</span><span class="hint" data-i18n>Slots slide into place when you go fullscreen, reset the grid or hide the top bar. Off by default: changes are instant.</span></span></label>
       <div class="row">
         <span><span data-i18n>Reset the grid</span><span class="hint" data-i18n>Leaves fullscreen and makes every slot the same size again.</span></span>
         <button id="reset" data-i18n>Reset</button>
@@ -189,31 +242,9 @@
         </select>
       </label>
     </section>
-
-    <section class="about">
-      <h2 data-i18n>About</h2>
-      <div class="app">PokeIdle Multiview <span class="ver" id="about-version"></span></div>
-      <div class="update-row">
-        <span class="hint" id="update-status"></span>
-        <button id="update-check" data-i18n>Check for updates</button>
-      </div>
-      <div class="buttons">
-        <button id="about-support" class="primary full" data-i18n>♥ Support the dev</button>
-        <button id="about-github" data-i18n-title title="Opens the project page: a star there helps more players find the app">⭐ GitHub</button>
-        <button id="about-discord" data-i18n-title title="Ideas, bugs, questions: the developer's Discord">Discord</button>
-      </div>
-      <div class="sub">
-        <span data-i18n>Invite friends to PokeIdle</span>
-        <span class="hint" data-i18n>A free way to support: new players can sign up with this referral link.</span>
-      </div>
-      <div class="buttons">
-        <button id="about-referral-copy" data-i18n>Copy invite</button>
-        <button id="about-referral-open" data-i18n>Open</button>
-      </div>
-    </section>
    </div>
 
-   <div class="pair">
+   <div class="pane pair" data-pane="channels">
     <section>
       <div class="intro">
         <h2>Twitch</h2>
@@ -258,24 +289,61 @@
     </section>
    </div>
 
-   <div class="col">
+   <div class="pane accounts" data-pane="accounts">
+    <section>
+      <h2 data-i18n>Bonus per account</h2>
+      <span class="hint" data-i18n>Spends each account's channel points on PokeIdle bonuses, on its live Kick and Twitch channels. <b>Fixed</b>: always the same bonus. <b>Goals</b>: keeps each bonus above its hours, top first.</span>
+      <div id="kbonus" style="display: grid;"></div>
+    </section>
+
     <section>
       <h2 data-i18n>IdleHub vote</h2>
       <span class="hint" data-i18n>Voting on IdleHub gives the account a diamond every 2 votes (one vote a day counts per nick). Tick the accounts to be reminded: their header shows when the vote is ready, and clicking it opens the vote page in a window with that slot's session, where you sign in and confirm. The app never votes by itself. IdleHub asks for "one person, one account" and may void votes it finds suspicious.</span>
       <div id="vote-slots" style="display: grid; gap: 10px;"></div>
     </section>
+   </div>
 
-    <section>
-      <h2 data-i18n>Bonus per account</h2>
-      <span class="hint" data-i18n>Redeems the chosen PokeIdle bonus with the account's channel points as soon as they cover it, on its live Kick and Twitch channels (hours add up in the game). The account must have Kick and Twitch linked in the game (<i>Bônus na Kick</i>, <i>Bônus Twitch</i>), or the points are given back.</span>
-      <div id="kbonus" style="display: grid;"></div>
+   <div class="pane about-pane" data-pane="about">
+    <section class="about">
+      <h2 data-i18n>About</h2>
+      <div class="app">PokeIdle Multiview <span class="ver" id="about-version"></span></div>
+      <div class="update-row">
+        <span class="hint" id="update-status"></span>
+        <button id="update-check" data-i18n>Check for updates</button>
+      </div>
+      <div class="buttons">
+        <button id="about-support" class="primary full" data-i18n>♥ Support the dev</button>
+        <button id="about-github" data-i18n-title title="Opens the project page: a star there helps more players find the app">⭐ GitHub</button>
+        <button id="about-discord" data-i18n-title title="Ideas, bugs, questions: the developer's Discord">Discord</button>
+      </div>
+      <div class="sub">
+        <span data-i18n>Invite friends to PokeIdle</span>
+        <span class="hint" data-i18n>A free way to support: new players can sign up with this referral link.</span>
+      </div>
+      <div class="buttons">
+        <button id="about-referral-copy" data-i18n>Copy invite</button>
+        <button id="about-referral-open" data-i18n>Open</button>
+      </div>
     </section>
    </div>
   </main>
   <script>
     const { invoke } = window.__TAURI__.core;
     const { t } = I18N;
-    const boxes = ['close_to_tray', 'minimize_to_tray', 'keep_awake', 'smooth_transitions', 'light_kick_background', 'kick_daily'];
+
+    // Tabs: one pane at a time; the last one used opens again next time.
+    const tabs = [...document.querySelectorAll('#tabs button')];
+    function showTab(name) {
+      if (!tabs.some((b) => b.dataset.tab === name)) name = 'general';
+      for (const b of tabs) b.classList.toggle('on', b.dataset.tab === name);
+      for (const pane of document.querySelectorAll('.pane')) pane.classList.toggle('on', pane.dataset.pane === name);
+      try { localStorage.setItem('settings-tab', name); } catch {}
+    }
+    tabs.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+    let savedTab = 'general';
+    try { savedTab = localStorage.getItem('settings-tab') || 'general'; } catch {}
+    showTab(savedTab);
+    const boxes = ['close_to_tray', 'minimize_to_tray', 'keep_awake', 'light_kick_background', 'kick_daily'];
     const reload = document.getElementById('auto_reload_minutes');
     const saved = document.getElementById('saved');
 
@@ -418,74 +486,218 @@
           : t('New partner channels of the game are added at the end of the list (waiting for the game to announce them).');
       }
       twitchCount.value = String(view.twitch.lives_per_slot);
-      kbonus.replaceChildren(...view.slots.map((slot) => {
-        // Name and bonus on one line; link status and points below, full width.
-        const card = document.createElement('div');
-        card.className = 'account';
-        const name = Object.assign(document.createElement('span'), { className: 'name', textContent: slot.name });
-        const select = document.createElement('select');
-        for (const [value, text] of [['', t('Nothing')], ['xp', '+15% XP'], ['capture', '+15% Capture Boost'], ['lure', '+15% Secret Lure']]) {
-          select.append(Object.assign(document.createElement('option'), { value, textContent: text }));
-        }
-        select.value = slot.bonus || '';
-        select.addEventListener('change', () => apply(invoke('set_bonus', { id: slot.id, bonus: select.value || null })));
-        // Whether the game has this account's Twitch / Kick linked: without it, redeemed points
-        // are given back.
-        const links = document.createElement('div');
-        links.className = 'links';
-        for (const [platform, linked] of [['Twitch', slot.twitch_linked], ['Kick', slot.kick_linked]]) {
-          const chip = document.createElement('span');
-          chip.className = 'chip' + (linked === false ? ' bad' : linked ? ' ok' : '');
-          chip.textContent = linked === false ? t('{platform} not linked', { platform }) : linked ? `${platform} ✓` : `${platform} ?`;
-          chip.title = linked === false
-            ? t('Link {platform} in the game, or redeemed points are given back', { platform })
-            : linked ? t('{platform} is linked in the game', { platform }) : t('Not reported by the game yet');
-          links.append(chip);
-        }
-        // Last seen channel points (the account prefers the live channels where it has most).
-        const points = document.createElement('div');
-        points.className = 'points';
-        for (const platform of ['twitch', 'kick']) {
-          const top = slot.points.filter(([p]) => p === platform).slice(0, 3);
-          if (!top.length) continue;
-          const line = document.createElement('div');
-          const items = Object.assign(document.createElement('span'), { className: 'items' });
-          items.append(...top.map(([, c, n]) => Object.assign(document.createElement('span'), { className: 'pt', textContent: `${c} ${n.toLocaleString()}` })));
-          line.append(Object.assign(document.createElement('span'), { className: 'plat', textContent: platform === 'twitch' ? 'Twitch' : 'Kick' }), items);
-          points.append(line);
-        }
-        if (!points.children.length) points.append(Object.assign(document.createElement('span'), { className: 'hint', textContent: t('Points: not seen yet') }));
-        points.title = slot.points.map(([p, c, n]) => `${p} ${c}: ${n}`).join('\n');
-        // Bonuses running now, per kind: the longer of Kick's and Twitch's (both on hover).
-        const running = document.createElement('div');
-        running.className = 'running';
-        const now = Date.now();
-        const left = (ms) => {
-          const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
-          return ms < 60000 ? '<1m' : d ? `${d}d ${h}h` : h ? `${h}h${String(m % 60).padStart(2, '0')}` : `${m}m`;
-        };
-        // One line per platform (Twitch, then Kick): each runs its bonuses on its own clock.
-        for (const [platform, name] of [['twitch', 'Twitch'], ['kick', 'Kick']]) {
-          const chips = [['xp', 'XP'], ['capture', 'Capture'], ['lure', 'Lure']]
-            .map(([key, label]) => [key, label, (slot.running?.[platform]?.[key] || 0) - now])
-            .filter(([, , ms]) => ms > 0)
-            .map(([key, label, ms]) => Object.assign(document.createElement('span'), { className: `bonus ${key}`, textContent: `${label} ${left(ms)}` }));
-          // A platform without bonuses stays listed, marked as such ("?" until the game says).
-          if (!chips.length) {
-            chips.push(Object.assign(document.createElement('span'), {
-              className: 'bonus none', textContent: slot.running?.[platform] ? t('no bonus') : '?' }));
-          }
-          const line = document.createElement('div');
-          line.className = 'bline';
-          const items = Object.assign(document.createElement('span'), { className: 'items' });
-          items.append(...chips);
-          line.append(Object.assign(document.createElement('span'), { className: 'plat', textContent: name }), items);
-          running.append(line);
-        }
-        card.append(name, select, links, running, points);
-        return card;
-      }));
+      // While a goal's hours are being typed, the cards aren't rebuilt under the cursor.
+      const typing = draggingGoal || (kbonus.contains(document.activeElement) && document.activeElement.tagName === 'INPUT');
+      if (!typing) kbonus.replaceChildren(...view.slots.map(accountCard));
       if (!view.slots.length) kbonus.replaceChildren(Object.assign(document.createElement('span'), { className: 'empty', textContent: t('No slots open.') }));
+    }
+
+    // --- Bonus per account: a fixed bonus, or ordered goals -----------------------------
+    const KINDS = [['xp', 'XP'], ['capture', 'Capture'], ['lure', 'Lure']];
+    const DEFAULT_HOURS = { xp: 10, capture: 5, lure: 3 };
+    const el = (tag, className, text) => {
+      const e = document.createElement(tag);
+      if (className) e.className = className;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    };
+    const leftText = (ms) => {
+      if (ms <= 0) return '0';
+      const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
+      return ms < 60000 ? '<1m' : d ? `${d}d${h ? `${h}h` : ''}` : h ? `${h}h${m % 60 ? String(m % 60).padStart(2, '0') : ''}` : `${m}m`;
+    };
+
+    function accountCard(slot) {
+      const card = el('div', 'account');
+      const goalsMode = !!slot.goals;
+      const setGoals = (goals) => apply(invoke('set_goals', { id: slot.id, goals }));
+
+      // Header: name and the mode switch.
+      const head = el('div', 'acc-head');
+      const mode = el('div', 'seg');
+      for (const [value, label] of [[false, t('Fixed')], [true, t('Goals')]]) {
+        const b = el('button', value === goalsMode ? 'on' : '', label);
+        b.addEventListener('click', () => {
+          if (value === goalsMode) return;
+          if (!value) return setGoals(null);
+          // Goals start as XP, then Capture, then Lure.
+          setGoals({ list: KINDS.map(([bonus]) => ({ bonus, hours: DEFAULT_HOURS[bonus] })), when_met: 'save' });
+        });
+        mode.append(b);
+      }
+      head.append(el('span', 'name', slot.name), mode);
+
+      // Whether the game has this account's Twitch / Kick linked: without it, redeemed points
+      // are given back.
+      const links = el('div', 'links');
+      for (const [platform, linked] of [['Twitch', slot.twitch_linked], ['Kick', slot.kick_linked]]) {
+        const chip = el('span', 'chip' + (linked === false ? ' bad' : linked ? ' ok' : ''),
+          linked === false ? t('{platform} not linked', { platform }) : linked ? `${platform} ✓` : `${platform} ?`);
+        chip.title = linked === false
+          ? t('Link {platform} in the game, or redeemed points are given back', { platform })
+          : linked ? t('{platform} is linked in the game', { platform }) : t('Not reported by the game yet');
+        links.append(chip);
+      }
+
+      card.append(head, links, goalsMode ? goalsEditor(slot, setGoals) : fixedEditor(slot), pointsLine(slot));
+      return card;
+    }
+
+    function fixedEditor(slot) {
+      const box = el('div', 'fixed');
+      const select = document.createElement('select');
+      for (const [value, text] of [['', t('Nothing')], ['xp', '+15% XP'], ['capture', '+15% Capture Boost'], ['lure', '+15% Secret Lure']]) {
+        select.append(Object.assign(document.createElement('option'), { value, textContent: text }));
+      }
+      select.value = slot.bonus || '';
+      select.addEventListener('change', () => apply(invoke('set_bonus', { id: slot.id, bonus: select.value || null })));
+      box.append(select, runningLines(slot));
+      return box;
+    }
+
+    // Bonuses running now, one line per platform (each runs on its own clock).
+    function runningLines(slot) {
+      const running = el('div', 'running');
+      const now = Date.now();
+      for (const [platform, name] of [['twitch', 'Twitch'], ['kick', 'Kick']]) {
+        const chips = KINDS
+          .map(([key, label]) => [key, label, (slot.running?.[platform]?.[key] || 0) - now])
+          .filter(([, , ms]) => ms > 0)
+          .map(([key, label, ms]) => el('span', `bonus ${key}`, `${label} ${leftText(ms)}`));
+        if (!chips.length) chips.push(el('span', 'bonus none', slot.running?.[platform] ? t('no bonus') : '?'));
+        const line = el('div', 'bline');
+        const items = el('span', 'items');
+        items.append(...chips);
+        line.append(el('span', 'plat', name), items);
+        running.append(line);
+      }
+      return running;
+    }
+
+    // Dragging a goal row by its handle: the row follows the pointer among its siblings, and the
+    // new order is saved when it's let go (only if it changed).
+    let draggingGoal = false;
+    function startDrag(e, row, box, done) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      draggingGoal = true;
+      row.classList.add('dragging');
+      // Followed on the whole window: moving the row in the page would drop a pointer capture.
+      const handle = window;
+      const before = [...box.querySelectorAll('.goal')].map((r) => Number(r.dataset.index));
+      const move = (ev) => {
+        const rows = [...box.querySelectorAll('.goal')].filter((r) => r !== row);
+        const next = rows.find((r) => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
+        if (next) { if (row.nextElementSibling !== next) box.insertBefore(row, next); }
+        else if (rows.length) rows[rows.length - 1].after(row);
+      };
+      const end = () => {
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', end);
+        handle.removeEventListener('pointercancel', end);
+        row.classList.remove('dragging');
+        draggingGoal = false;
+        const after = [...box.querySelectorAll('.goal')].map((r) => Number(r.dataset.index));
+        if (after.join() !== before.join()) done(after);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', end);
+      handle.addEventListener('pointercancel', end);
+    }
+
+    function goalsEditor(slot, setGoals) {
+      const goals = slot.goals;
+      const save = (list, whenMet = goals.when_met) => setGoals({ list, when_met: whenMet });
+      const box = el('div', 'goals');
+      const now = Date.now();
+      // The row each platform is buying now: the first goal not met there whose bonus is the
+      // app's pick (the app decides; this only shows it).
+      const buying = {};
+      for (const platform of ['twitch', 'kick']) {
+        const pick = slot.next?.[platform];
+        const i = goals.list.findIndex((g) => g.bonus === pick
+          && ((slot.running?.[platform]?.[g.bonus] || 0) - now) / 3600000 < g.hours);
+        buying[platform] = i >= 0 ? i : goals.list.findIndex((g) => g.bonus === pick);
+      }
+      goals.list.forEach((goal, i) => {
+        const row = el('div', 'goal');
+        const kind = document.createElement('select');
+        for (const [value, label] of KINDS) kind.append(Object.assign(document.createElement('option'), { value, textContent: label }));
+        kind.value = goal.bonus;
+        kind.className = `kind ${goal.bonus}`;
+        kind.addEventListener('change', () => save(goals.list.map((g, j) => (j === i ? { ...g, bonus: kind.value } : g))));
+        const hours = Object.assign(document.createElement('input'), { type: 'number', min: 1, max: 999, value: goal.hours });
+        hours.addEventListener('change', () => {
+          const h = Math.max(1, Math.min(999, Math.round(Number(hours.value) || goal.hours)));
+          save(goals.list.map((g, j) => (j === i ? { ...g, hours: h } : g)));
+        });
+        hours.addEventListener('keydown', (e) => { if (e.key === 'Enter') hours.blur(); });
+        const hoursBox = el('span', 'hours');
+        hoursBox.append(hours, el('span', 'unit', 'h'));
+        // Each platform's time left for this bonus, against the goal.
+        const status = el('span', 'status');
+        for (const [platform, name] of [['twitch', 'Twitch'], ['kick', 'Kick']]) {
+          const ms = (slot.running?.[platform]?.[goal.bonus] || 0) - now;
+          const known = !!slot.running?.[platform];
+          const met = known && ms / 3600000 >= goal.hours;
+          const now_ = buying[platform] === i;
+          const badge = el('span', `tm ${platform}${met ? ' met' : ''}${now_ ? ' now' : ''}`, known ? leftText(ms) : '?');
+          badge.title = known
+            ? t('{platform}: {left} of {bonus} (goal {hours}h)', { platform: name, left: leftText(ms), bonus: KINDS.find(([k]) => k === goal.bonus)[1], hours: goal.hours })
+              + (now_ ? `\n${t('Buying this now')}` : '')
+            : t('Not reported by the game yet');
+          status.append(badge);
+        }
+        // Drag this handle up or down to change the order.
+        const handle = el('span', 'handle', '⋮⋮');
+        handle.title = t('Drag to change the order');
+        handle.addEventListener('pointerdown', (e) => startDrag(e, row, box, (order) => save(order.map((j) => goals.list[j]))));
+        row.dataset.index = String(i);
+        const remove = el('button', 'icon', '×');
+        remove.title = t('Remove');
+        remove.addEventListener('click', () => save(goals.list.filter((_, j) => j !== i)));
+        row.append(handle, kind, hoursBox, status, remove);
+        box.append(row);
+      });
+      if (!goals.list.length) box.append(el('span', 'hint', t('No goals: the points are saved.')));
+
+      const foot = el('div', 'goal-foot');
+      const add = el('button', 'add', `+ ${t('Goal')}`);
+      add.disabled = goals.list.length >= 6;
+      add.addEventListener('click', () => {
+        const used = goals.list.map((g) => g.bonus);
+        const bonus = (KINDS.find(([k]) => !used.includes(k)) || KINDS[0])[0];
+        save([...goals.list, { bonus, hours: DEFAULT_HOURS[bonus] }]);
+      });
+      const whenMet = document.createElement('select');
+      whenMet.className = 'when';
+      for (const [value, label] of [['save', t('All met: save points')], ['keep_last', t('All met: keep buying the last')]]) {
+        whenMet.append(Object.assign(document.createElement('option'), { value, textContent: label }));
+      }
+      whenMet.value = goals.when_met || 'save';
+      whenMet.addEventListener('change', () => save(goals.list, whenMet.value));
+      const copy = el('button', 'link', t('Copy to all accounts'));
+      copy.addEventListener('click', () => apply(invoke('copy_redeem_to_all', { id: slot.id }), t('Copied to all accounts')));
+      foot.append(add, whenMet, copy);
+      box.append(foot);
+      return box;
+    }
+
+    // Last seen channel points (the account prefers the live channels where it has most).
+    function pointsLine(slot) {
+      const points = el('div', 'points');
+      for (const platform of ['twitch', 'kick']) {
+        const top = slot.points.filter(([p]) => p === platform).slice(0, 3);
+        if (!top.length) continue;
+        const line = el('div');
+        const items = el('span', 'items');
+        items.append(...top.map(([, c, n]) => el('span', 'pt', `${c} ${n.toLocaleString()}`)));
+        line.append(el('span', 'plat', platform === 'twitch' ? 'Twitch' : 'Kick'), items);
+        points.append(line);
+      }
+      if (!points.children.length) points.append(el('span', 'hint', t('Points: not seen yet')));
+      points.title = slot.points.map(([p, c, n]) => `${p} ${c}: ${n}`).join('\n');
+      return points;
     }
 
     for (let n = 1; n <= 8; n++) twitchCount.append(Object.assign(document.createElement('option'), { value: String(n), textContent: String(n) }));

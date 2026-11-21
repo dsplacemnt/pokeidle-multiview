@@ -48,6 +48,13 @@
     .brow.off .label, .brow.off .time { color: var(--muted); font-weight: 500; }
     .bar { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
     .bar i { display: block; height: 100%; border-radius: 3px; }
+    /* Goals mode: the goal as a mark on the bar; met = green time, being bought = outlined. */
+    .bar { position: relative; overflow: visible; }
+    .bar i { overflow: hidden; }
+    .bar b.goal { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px;
+      background: var(--text); opacity: .55; }
+    .brow.met .time { color: var(--ok); }
+    .brow.buying .time { color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 8px; padding: 0 4px; }
     .xp .label { color: #ffd76b; } .xp .bar i { background: #f2c14e; }
     .capture .label { color: #8fd3ff; } .capture .bar i { background: #5aaaff; }
     .lure .label { color: #d8a8ff; } .lure .bar i { background: #b478ff; }
@@ -172,22 +179,39 @@
         const ends = v.running?.[platform];
         for (const [key, short, long] of BONUSES) {
           const ms = (ends?.[key] || 0) - now;
-          const row = el('div', `brow ${key}` + (ms > 0 ? '' : ' off'));
+          // Goals mode: this bonus's goal (the first one for it), drawn as a mark on the bar.
+          const goal = v.goals?.list.find((g) => g.bonus === key);
+          const met = goal && ms / 3600000 >= goal.hours;
+          const buying = goal && v.next?.[platform] === key;
+          const row = el('div', `brow ${key}` + (ms > 0 ? '' : ' off') + (met ? ' met' : '') + (buying ? ' buying' : ''));
           const bar = el('div', 'bar');
           const fill = el('i');
           fill.style.width = `${Math.max(0, Math.min(1, ms / DAY)) * 100}%`;
           bar.append(fill);
+          if (goal) {
+            const mark_ = el('b', 'goal');
+            mark_.style.left = `${Math.min(1, goal.hours / 24) * 100}%`;
+            bar.append(mark_);
+          }
           row.append(el('span', 'label', short), bar, el('span', 'time', ms > 0 ? left(ms) : ends ? '—' : '?'));
-          row.title = ms > 0
+          row.title = (ms > 0
             ? t('{bonus} from {platform}: ends at {time}', { bonus: long, platform: PLATFORMS[platform].name, time: clock(now + ms) })
-            : t('{bonus}: not running', { bonus: long });
+            : t('{bonus}: not running', { bonus: long }))
+            + (goal ? `\n${t('Goal: {hours}h', { hours: goal.hours })}` : '');
           block.append(row);
         }
         c.append(block);
       }
+      // What the points buy now: the fixed bonus, or per platform what the goals ask for.
       const names = { xp: 'XP', capture: 'Capture Boost', lure: 'Secret Lure' };
       const target = el('div', 'target');
-      target.append(t('Kick redeem target:') + ' ', el('b', '', v.bonus ? names[v.bonus] : t('none (⚙ to pick)')));
+      if (v.goals) {
+        const parts = ['twitch', 'kick'].map((p) => `${PLATFORMS[p].name} ${v.next?.[p] ? `→ ${names[v.next[p]]}` : '✓'}`);
+        target.append(t('Goals:') + ' ', el('b', '', parts.join(' · ')));
+        target.title = t('→ = buying now · ✓ = goals met (or waiting for the game)');
+      } else {
+        target.append(t('Redeeming:') + ' ', el('b', '', v.bonus ? names[v.bonus] : t('none (⚙ to pick)')));
+      }
       c.append(target);
       return c;
     }
