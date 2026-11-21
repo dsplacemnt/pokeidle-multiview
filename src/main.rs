@@ -1239,47 +1239,62 @@ fn create_page(
 /// Writes every running page and where it is into the config, so the streams come back after
 /// a restart. Called on each page change and when the window closes (to catch channels the
 /// user switched to inside a page).
+///
+/// Asking a page for its URL or the window for its size waits for the UI thread, so that's
+/// done with the state unlocked: the manager calls this from its own thread, and holding the
+/// lock there while the UI thread waits for it in a command froze the app.
 fn remember_panels(app: &AppHandle) {
-    let state = app.state::<Mutex<AppState>>();
-    let mut state = state.lock().unwrap();
-    let running = state.panels.clone();
-    for slot in &mut state.config.slots {
-        let pages = running.get(&slot.id).map(|p| p.pages.clone()).unwrap_or_default();
-        slot.panels = pages
-            .into_iter()
-            .map(|page| {
-                let url = app
-                    .get_webview(&page.label)
-                    .and_then(|w| w.url().ok())
-                    // Not loaded yet (about:blank): fall back to what we know below.
-                    .filter(|u| u.scheme() == "https")
-                    // Channels are saved as their full page, whichever player is running.
-                    .map(|u| channels::channel_from_url(&u).map_or_else(|| u.to_string(), |c| c.page_url()))
-                    .or_else(|| {
-                        page.login.clone().map(|login| {
-                            channels::Channel { platform: page.platform, login }.page_url()
+    let running = app.state::<Mutex<AppState>>().lock().unwrap().panels.clone();
+    let saved: HashMap<u8, Vec<SavedPanel>> = running
+        .iter()
+        .map(|(id, panels)| {
+            let pages = panels
+                .pages
+                .iter()
+                .map(|page| {
+                    let url = app
+                        .get_webview(&page.label)
+                        .and_then(|w| w.url().ok())
+                        // Not loaded yet (about:blank): fall back to what we know below.
+                        .filter(|u| u.scheme() == "https")
+                        // Channels are saved as their full page, whichever player is running.
+                        .map(|u| channels::channel_from_url(&u).map_or_else(|| u.to_string(), |c| c.page_url()))
+                        .or_else(|| {
+                            page.login.clone().map(|login| {
+                                channels::Channel { platform: page.platform, login }.page_url()
+                            })
                         })
-                    })
-                    .unwrap_or_else(|| page.platform.start_url().to_string());
-                SavedPanel { platform: page.platform, url }
-            })
-            .collect();
-    }
+                        .unwrap_or_else(|| page.platform.start_url().to_string());
+                    SavedPanel { platform: page.platform, url }
+                })
+                .collect();
+            (*id, pages)
+        })
+        .collect();
     // The main window's size and maximized state, for the next start (it opens centered).
-    if let Some(window) = app.get_window("main") {
+    // A maximized or minimized window's size isn't the one to come back to.
+    let window = app.get_window("main").map(|window| {
         let maximized = window.is_maximized().unwrap_or(false);
         let minimized = window.is_minimized().unwrap_or(false);
+        let size = (!maximized && !minimized && window.is_visible().unwrap_or(false))
+            .then(|| Some(window.inner_size().ok()?.to_logical::<f64>(window.scale_factor().ok()?)))
+            .flatten()
+            .filter(|s| s.width >= 640.0 && s.height >= 400.0);
+        (maximized, size)
+    });
+
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    for slot in &mut state.config.slots {
+        // Pages opened or closed meanwhile are caught by the next call.
+        slot.panels = saved.get(&slot.id).cloned().unwrap_or_default();
+    }
+    if let Some((maximized, size)) = window {
         let mut geom = state.config.window.unwrap_or_default();
         geom.maximized = maximized;
-        // A maximized or minimized window's size isn't the one to come back to.
-        if !maximized && !minimized && window.is_visible().unwrap_or(false) {
-            if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
-                let size = size.to_logical::<f64>(scale);
-                if size.width >= 640.0 && size.height >= 400.0 {
-                    geom.width = size.width;
-                    geom.height = size.height;
-                }
-            }
+        if let Some(size) = size {
+            geom.width = size.width;
+            geom.height = size.height;
         }
         state.config.window = Some(geom);
     }
