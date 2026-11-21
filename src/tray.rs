@@ -106,6 +106,8 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
 }
 
 /// "PokeIdle Multiview — 8 streams running", so it's clear the app is still working.
+/// Callers often hold the app state, and changing the tray waits for the UI thread: the change
+/// is posted to that thread instead of waited for (waiting there froze the app).
 pub fn set_tooltip(app: &AppHandle, panels: &HashMap<u8, PanelState>, lang: Language) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
     let streams: usize = panels.values().map(|p| p.pages.len()).sum();
@@ -114,7 +116,9 @@ pub fn set_tooltip(app: &AppHandle, panels: &HashMap<u8, PanelState>, lang: Lang
         1 => lang.pick("PokeIdle Multiview — 1 stream running", "PokeIdle Multiview — 1 stream rodando", "PokeIdle Multiview — 1 stream activo").to_string(),
         n => format!("PokeIdle Multiview — {n} {}", lang.pick("streams running", "streams rodando", "streams activos")),
     };
-    let _ = tray.set_tooltip(Some(text));
+    let _ = app.run_on_main_thread(move || {
+        let _ = tray.set_tooltip(Some(text));
+    });
 }
 
 pub fn update_tooltip(app: &AppHandle) {
