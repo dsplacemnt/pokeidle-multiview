@@ -44,6 +44,16 @@
   // A live that ended leaves the player on its last frame with an "offline" screen: that's
   // offline now, not a stall to reload first.
   if (stuck && saysOffline()) return report('offline', offlineDetail);
+  // Merely paused (the player paused itself): pressed play here, which keeps the watch time;
+  // only after a few checks still paused is it a stall the app reloads.
+  if (video.paused && !video.ended) {
+    const tries = (window.__multiviewPlayTries || 0) + 1;
+    window.__multiviewPlayTries = tries;
+    video.play().catch(() => {});
+    if (tries < 3) return report('first', 'pressed play');
+  } else {
+    window.__multiviewPlayTries = 0;
+  }
   // A freshly (re)loaded page has nothing to compare with yet; neither has a player that
   // started over while playing (Twitch swaps in a new video for ads or after reconnecting).
   if (last === undefined || (!video.paused && time + 1 < last)) return report('first', '');
