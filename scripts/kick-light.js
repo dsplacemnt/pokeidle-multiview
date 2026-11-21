@@ -62,28 +62,38 @@
     }
   }
 
+  // Returns how many parts it hid or showed again (0 = the page was already in shape).
   function hideAround() {
     const player = streamVideo();
     // Reward animations play on offline channel pages too.
     pauseExtras();
     // Until the player exists, nothing is hidden: a wrapper hidden now could receive it later.
-    if (!player) return;
+    if (!player) return 1;
+    let changed = 0;
     // A part hidden earlier that has since received the player comes back.
     for (const el of document.querySelectorAll(`.${HIDE}`)) {
-      if (el.contains(player)) el.classList.remove(HIDE);
+      if (el.contains(player)) { el.classList.remove(HIDE); changed++; }
     }
     for (const el of document.querySelectorAll(AROUND)) {
       if (el.classList.contains(HIDE) || el.contains(player)) continue;
       el.classList.add(HIDE);
+      changed++;
     }
+    return changed;
   }
 
   // Kick is a single-page app that keeps adding content (chat messages, recommendations), so
-  // new parts are hidden too, at most once a second.
+  // new parts are hidden too: at most once a second, or every 5 s once several sweeps in a row
+  // found nothing to do (the hidden chat keeps changing the page all the time).
   let observer = null;
   let sweep = 0;
+  let quiet = 0;
   const scheduleSweep = () => {
-    if (!sweep) sweep = setTimeout(() => { sweep = 0; hideAround(); }, 1000);
+    if (sweep) return;
+    sweep = setTimeout(() => {
+      sweep = 0;
+      quiet = hideAround() ? 0 : quiet + 1;
+    }, quiet >= 5 ? 5000 : 1000);
   };
 
   // --- player quality -------------------------------------------------------------------
@@ -169,6 +179,7 @@
     if (on) {
       if (!style.isConnected) (document.head || root).appendChild(style);
       root.classList.add(LIGHT);
+      quiet = 0;
       hideAround();
       if (!observer) {
         observer = new MutationObserver(scheduleSweep);

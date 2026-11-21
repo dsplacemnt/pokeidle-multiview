@@ -24,15 +24,9 @@ pub fn points_script() -> String {
 /// (`/api/v2/channels/<slug>`): `livestream` is null while offline.
 pub fn is_live(slug: &str) -> Result<bool, String> {
     let url = format!("https://kick.com/api/v2/channels/{slug}");
-    let agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(15)))
-        .build()
-        .new_agent();
-    let body = agent
+    let body = crate::net::agent()
         .get(&url)
-        // The app says what it is: Kick's Cloudflare front refuses (403) clients that claim to be
-        // a browser but don't look like one, and accepts a plain app user agent.
-        .header("User-Agent", concat!("pokeidle-multiview/", env!("CARGO_PKG_VERSION")))
+        .header("User-Agent", crate::net::USER_AGENT)
         .header("Accept", "application/json")
         .call()
         .map_err(|e| e.to_string())?
@@ -42,12 +36,20 @@ pub fn is_live(slug: &str) -> Result<bool, String> {
     live_from_json(&body)
 }
 
+/// Only the part of the channel JSON that matters (the rest is skipped, not built).
+#[derive(serde::Deserialize)]
+struct Channel {
+    livestream: Option<Livestream>,
+}
+
+#[derive(serde::Deserialize)]
+struct Livestream {
+    is_live: Option<bool>,
+}
+
 fn live_from_json(body: &str) -> Result<bool, String> {
-    let json: serde_json::Value = serde_json::from_str(body).map_err(|e| e.to_string())?;
-    Ok(json
-        .get("livestream")
-        .filter(|l| !l.is_null())
-        .is_some_and(|l| l.get("is_live").and_then(|v| v.as_bool()).unwrap_or(true)))
+    let channel: Channel = serde_json::from_str(body).map_err(|e| e.to_string())?;
+    Ok(channel.livestream.is_some_and(|l| l.is_live.unwrap_or(true)))
 }
 
 /// The first `n` channels of `priority` that are live (unknown status counts as offline).

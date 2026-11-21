@@ -3,11 +3,13 @@
 mod channels;
 mod config;
 mod external;
+mod goals;
 mod hunt;
 mod kick;
 mod twitch;
 mod layout;
 mod native;
+mod net;
 mod power;
 mod splash;
 mod support;
@@ -79,6 +81,9 @@ struct AppState {
     log: HashMap<u8, std::collections::VecDeque<(i64, String)>>,
     /// The game's session numbers per account (see game-watch.js), for the panel.
     game_stats: HashMap<u8, serde_json::Value>,
+    /// A redeem just went through for this account and platform: in goals mode it waits for
+    /// the game to report the new time before buying again (see `bonus_now`).
+    redeemed: HashMap<(u8, Platform), std::time::Instant>,
 }
 
 /// Events kept per account in the automation log.
@@ -276,8 +281,31 @@ fn save_and_publish(app: &AppHandle, state: &AppState) {
     power::set_keep_awake(app, state.config.keep_awake && any_pages(state));
 }
 
+/// A state update is on its way to the pages (see `publish`).
+static PUBLISH_PENDING: AtomicBool = AtomicBool::new(false);
+/// Changes that come close together (pages loading at startup, a manager pass) go out as one
+/// update this long after the first.
+const PUBLISH_AFTER: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Sends the state to the app's own pages: the toolbar, every slot header and the stats panel.
-fn publish(app: &AppHandle, state: &AppState) {
+/// Coalesced: the first call schedules one send with the state as it is then, and calls until
+/// it goes out join it, so a burst of changes redraws the pages once instead of every time.
+fn publish(app: &AppHandle, _state: &AppState) {
+    if PUBLISH_PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(PUBLISH_AFTER);
+        // Cleared before reading the state: a change after this point schedules another send.
+        PUBLISH_PENDING.store(false, Ordering::SeqCst);
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        publish_now(&app, &state);
+    });
+}
+
+fn publish_now(app: &AppHandle, state: &AppState) {
     let view = state_view(state);
     let _ = app.emit_to("toolbar", "state", view.clone());
     for id in 1..=MAX_SLOTS {
@@ -300,6 +328,9 @@ struct FocusView {
     slot: u8,
     name: String,
     bonus: Option<KickBonus>,
+    goals: Option<config::Goals>,
+    /// What the next redeem buys on each platform (None = nothing now).
+    next: NextRedeem,
     running: SlotBonuses,
     streams: Vec<FocusStream>,
     /// Last seen channel points, most first: [platform, channel, points].
@@ -340,6 +371,8 @@ fn focus_view(state: &AppState) -> Option<FocusView> {
         slot: id,
         name: slot.name.clone().unwrap_or_else(|| format!("Slot {id}")),
         bonus: slot.bonus,
+        goals: slot.goals.clone(),
+        next: next_redeem(state, slot),
         running: SlotBonuses {
             kick: state.bonus_ends.get(&(id, Platform::Kick)).copied(),
             twitch: state.bonus_ends.get(&(id, Platform::Twitch)).copied(),
@@ -401,7 +434,7 @@ fn settings_title(lang: config::Language) -> &'static str {
 #[tauri::command]
 fn set_focus_panel(app: AppHandle, on: bool) {
     app.state::<Mutex<AppState>>().lock().unwrap().config.focus_panel = on;
-    if let Err(e) = apply_layout_smooth(&app) {
+    if let Err(e) = apply_layout(&app) {
         eprintln!("[layout] {e}");
     }
     let state = app.state::<Mutex<AppState>>();
@@ -492,28 +525,11 @@ enum Placement {
     Hide(Option<Rect>),
 }
 
-/// Bumped by every layout, so an animation still running stops when a newer layout arrives.
-static LAYOUT_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-const ANIMATION_MS: u64 = 180;
-const FRAME_MS: u64 = 15;
-
-/// Places every webview for the current layout at once (dragging a splitter, window resizes,
-/// showing a stream).
-fn apply_layout(app: &AppHandle) -> tauri::Result<()> {
-    run_layout(app, false)
-}
-
-/// Same, but slots that move or change size slide there (fullscreen, grid reset, toolbar,
-/// adding or closing a slot), unless smooth transitions are off in the settings.
-fn apply_layout_smooth(app: &AppHandle) -> tauri::Result<()> {
-    let smooth = app.state::<Mutex<AppState>>().lock().unwrap().config.smooth_transitions;
-    run_layout(app, smooth)
-}
 
 fn layout_plan(app: &AppHandle) -> tauri::Result<Vec<(String, Placement)>> {
     let mut plan = Vec::new();
     let area = game_area(app)?;
-    // The toolbar never animates: it shows or hides, and the slots slide into its place.
+    // The toolbar shows or hides; the slots take its place.
     plan.push((
         "toolbar".to_string(),
         if area.y > 0.0 {
@@ -600,30 +616,17 @@ fn set_rect(webview: &tauri::Webview, r: Rect) -> tauri::Result<()> {
     webview.set_size(LogicalSize::new(r.w, r.h))
 }
 
-/// Where a webview is now, in logical pixels.
-fn current_rect(webview: &tauri::Webview, scale: f64) -> Option<Rect> {
-    let pos = webview.position().ok()?.to_logical::<f64>(scale);
-    let size = webview.size().ok()?.to_logical::<f64>(scale);
-    Some(Rect { x: pos.x, y: pos.y, w: size.width, h: size.height })
-}
-
-fn run_layout(app: &AppHandle, animate: bool) -> tauri::Result<()> {
-    let Some(window) = app.get_window("main") else { return Ok(()) };
-    let generation = LAYOUT_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-    let scale = window.scale_factor()?;
-    let mut moves = Vec::new();
+/// Places every webview for the current layout (window resizes, splitters, fullscreen, the
+/// toolbar, slots and streams coming and going).
+fn apply_layout(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_window("main").is_none() {
+        return Ok(());
+    }
     for (label, placement) in layout_plan(app)? {
         let Some(webview) = app.get_webview(&label) else { continue };
         match placement {
             Placement::Show(to) => {
-                // Slide only webviews that are already in the window somewhere else; anything
-                // coming from off-screen or a 1×1 placeholder just appears.
-                let from = current_rect(&webview, scale)
-                    .filter(|r| animate && r.x >= 0.0 && r.w > 2.0 && r.h > 2.0 && *r != to);
-                match from {
-                    Some(from) => moves.push((webview.clone(), from, to)),
-                    None => set_rect(&webview, to)?,
-                }
+                set_rect(&webview, to)?;
                 webview.show()?;
             }
             Placement::Park(r) => {
@@ -638,37 +641,7 @@ fn run_layout(app: &AppHandle, animate: bool) -> tauri::Result<()> {
             }
         }
     }
-    if !moves.is_empty() {
-        std::thread::spawn(move || animate_moves(moves, generation));
-    }
     Ok(())
-}
-
-/// Moves webviews from `from` to `to` with an ease-out curve; stops early (leaving the newer
-/// layout in charge) if another layout starts meanwhile.
-fn animate_moves(moves: Vec<(tauri::Webview, Rect, Rect)>, generation: u64) {
-    let lerp = |a: f64, b: f64, t: f64| a + (b - a) * t;
-    let start = std::time::Instant::now();
-    loop {
-        if LAYOUT_GEN.load(Ordering::SeqCst) != generation {
-            return;
-        }
-        let p = (start.elapsed().as_millis() as f64 / ANIMATION_MS as f64).min(1.0);
-        let t = 1.0 - (1.0 - p).powi(3);
-        for (webview, from, to) in &moves {
-            let r = Rect {
-                x: lerp(from.x, to.x, t),
-                y: lerp(from.y, to.y, t),
-                w: lerp(from.w, to.w, t),
-                h: lerp(from.h, to.h, t),
-            };
-            let _ = set_rect(webview, r);
-        }
-        if p >= 1.0 {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(FRAME_MS));
-    }
 }
 
 /// A webview in slot `slot_id`'s browser session. The game and its Twitch/Kick panel both
@@ -1204,7 +1177,12 @@ fn create_page(
                     // "Twitch x: Twitch visit: chest claimed" reads better as "Twitch x: chest claimed".
                     let message = message.split_once("visit: ").map_or(message, |(_, rest)| rest);
                     let state = title_app.state::<Mutex<AppState>>();
-                    log_event(&mut state.lock().unwrap(), id, format!("{channel}{message}"));
+                    let mut state = state.lock().unwrap();
+                    log_event(&mut state, id, format!("{channel}{message}"));
+                    // Goals mode waits for the game's new time before buying again.
+                    if message.contains("redeemed ") {
+                        state.redeemed.insert((id, platform), std::time::Instant::now());
+                    }
                 }
             } else if let Some(json) = title.strip_prefix("[multiview-points] ") {
                 points_reported(&title_app, id, json);
@@ -1244,6 +1222,18 @@ fn create_page(
 /// done with the state unlocked: the manager calls this from its own thread, and holding the
 /// lock there while the UI thread waits for it in a command froze the app.
 fn remember_panels(app: &AppHandle) {
+    remember_panels_with(app, true);
+}
+
+/// Like `remember_panels`, for the stream manager's frequent saves: a page on a known channel
+/// is saved as that channel without asking the page (each question waits for the UI thread);
+/// only pages off a channel (login, home) are asked. Channels switched inside a page are
+/// caught by the full save when the window closes.
+fn remember_panels_known(app: &AppHandle) {
+    remember_panels_with(app, false);
+}
+
+fn remember_panels_with(app: &AppHandle, ask_pages: bool) {
     let running = app.state::<Mutex<AppState>>().lock().unwrap().panels.clone();
     let saved: HashMap<u8, Vec<SavedPanel>> = running
         .iter()
@@ -1252,8 +1242,9 @@ fn remember_panels(app: &AppHandle) {
                 .pages
                 .iter()
                 .map(|page| {
-                    let url = app
-                        .get_webview(&page.label)
+                    let url = (ask_pages || page.login.is_none())
+                        .then(|| app.get_webview(&page.label))
+                        .flatten()
                         .and_then(|w| w.url().ok())
                         // Not loaded yet (about:blank): fall back to what we know below.
                         .filter(|u| u.scheme() == "https")
@@ -1384,7 +1375,7 @@ fn stop_pages_inner(app: &AppHandle, id: u8, labels: Option<&[String]>) -> tauri
             }
         }
     }
-    remember_panels(app);
+    remember_panels_known(app);
     apply_layout(app)
 }
 
@@ -1409,7 +1400,7 @@ async fn add_slot(app: AppHandle) -> Result<u8, String> {
     };
     create_slot_webview(&app, &slot).map_err(|e| e.to_string())?;
     create_slot_header(&app, slot.id).map_err(|e| e.to_string())?;
-    apply_layout_smooth(&app).map_err(|e| e.to_string())?;
+    apply_layout(&app).map_err(|e| e.to_string())?;
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
     Ok(slot.id)
@@ -1438,7 +1429,7 @@ async fn close_slot(app: AppHandle, id: u8) -> Result<(), String> {
     if let Some(vote) = app.get_window(&vote_window_label(id)) {
         let _ = vote.close();
     }
-    apply_layout_smooth(&app).map_err(|e| e.to_string())?;
+    apply_layout(&app).map_err(|e| e.to_string())?;
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
     Ok(())
@@ -1531,7 +1522,7 @@ fn toggle_focus(app: &AppHandle, id: Option<u8>) {
         let exists = id.is_some_and(|id| state.config.slots.iter().any(|s| s.id == id));
         state.config.focus = if !exists || state.config.focus == id { None } else { id };
     }
-    if let Err(e) = apply_layout_smooth(app) {
+    if let Err(e) = apply_layout(app) {
         eprintln!("[layout] {e}");
     }
     let state = app.state::<Mutex<AppState>>();
@@ -1598,7 +1589,7 @@ fn drag_split_end(app: AppHandle) {
 #[tauri::command]
 fn set_toolbar_hidden(app: AppHandle, hidden: bool) {
     app.state::<Mutex<AppState>>().lock().unwrap().config.toolbar_hidden = hidden;
-    if let Err(e) = apply_layout_smooth(&app) {
+    if let Err(e) = apply_layout(&app) {
         eprintln!("[layout] {e}");
     }
     let state = app.state::<Mutex<AppState>>();
@@ -1615,7 +1606,7 @@ fn reset_layout(app: AppHandle) {
         state.config.focus = None;
         state.config.grid_split = config::default_grid_split();
     }
-    if let Err(e) = apply_layout_smooth(&app) {
+    if let Err(e) = apply_layout(&app) {
         eprintln!("[layout] {e}");
     }
     let state = app.state::<Mutex<AppState>>();
@@ -1630,7 +1621,6 @@ struct Settings {
     minimize_to_tray: bool,
     keep_awake: bool,
     auto_reload_minutes: u32,
-    smooth_transitions: bool,
     light_kick_background: bool,
     kick_daily: bool,
 }
@@ -1643,7 +1633,6 @@ fn get_settings(state: tauri::State<'_, Mutex<AppState>>) -> Settings {
         minimize_to_tray: config.minimize_to_tray,
         keep_awake: config.keep_awake,
         auto_reload_minutes: config.auto_reload_minutes,
-        smooth_transitions: config.smooth_transitions,
         light_kick_background: config.light_kick_background,
         kick_daily: config.kick_daily,
     }
@@ -1659,7 +1648,6 @@ fn set_settings(app: AppHandle, settings: Settings) {
         state.config.minimize_to_tray = settings.minimize_to_tray;
         state.config.keep_awake = settings.keep_awake;
         state.config.auto_reload_minutes = settings.auto_reload_minutes;
-        state.config.smooth_transitions = settings.smooth_transitions;
         state.config.light_kick_background = settings.light_kick_background;
         state.config.kick_daily = settings.kick_daily;
         state.config = state.config.clone().normalized();
@@ -1715,9 +1703,8 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         return existing.set_focus().map_err(|e| e.to_string());
     }
     let main = app.get_window("main").ok_or("No window")?;
-    // Wide: general · Kick · Twitch · bonus per account side by side, each column scrolling on
-    // its own (the page falls back to two columns if the window is made narrower).
-    let (w, h) = (1480.0, 860.0);
+    // Tabs (General · Channels · Accounts · About): room for two account cards side by side.
+    let (w, h) = (1180.0, 820.0);
     let lang = app.state::<Mutex<AppState>>().lock().unwrap().config.language;
     let builder =
         tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
@@ -1770,7 +1757,6 @@ fn start_stream_manager(app: AppHandle) {
             let _ = app.emit_to("settings", "automation", automation_view(&app));
             redeem_kick_bonuses(&app);
             request_kick_points(&app);
-            check_stream_health(&app);
             claim_kick_daily(&app);
             check_vote(&app);
             start_twitch_visits(&app);
@@ -1810,8 +1796,11 @@ fn manage_platform(app: &AppHandle, platform: Platform) {
     // left as they are this time rather than closing streams on a network hiccup.
     let mut live = HashMap::new();
     let mut unknown = false;
-    for channel in &priority {
-        match is_live(platform, channel) {
+    // Side by side over one shared client (see net.rs): ~1-2 s for the whole list instead of
+    // one channel after another.
+    let checks = net::check_all(&priority, |channel| is_live(platform, channel));
+    for (channel, result) in priority.iter().zip(checks) {
+        match result {
             Ok(is_live) => {
                 live.insert(channel.clone(), is_live);
             }
@@ -2204,7 +2193,12 @@ struct HealthTrack {
     logged_out: Option<String>,
     /// Checks in a row where the page said its channel is offline.
     offline_reports: u8,
+    /// The page was reloaded once because it had no player while the platform said live.
+    offline_reloaded: bool,
 }
+
+/// What stream-health.js says when Twitch's player shows its "offline" screen.
+const TWITCH_OFFLINE_SCREEN: &str = "The Twitch player says the channel is offline";
 
 /// After this many "offline" checks in a row, the page is believed over the platform's
 /// live status (which can lag for minutes) and its channel is swapped.
@@ -2215,18 +2209,58 @@ const PAGE_OFFLINE_FOR: std::time::Duration = std::time::Duration::from_secs(15 
 
 /// Asks every background stream page whether it is playing (scripts/stream-health.js); the
 /// answers come to `health_reported`. Pages in the middle of a Twitch visit are skipped.
+/// How often every background stream is asked whether it's playing (stream-health.js).
+const HEALTH_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+/// After a page says "offline", it's asked again this soon, to confirm and swap it quickly.
+const OFFLINE_RECHECK: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Health checks on their own clock, more often than the manager's 2-minute pass: an ended
+/// stream is noticed within ~30 s instead of minutes.
+fn start_health_checks(app: AppHandle) {
+    std::thread::spawn(move || {
+        while !RESTORED.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        loop {
+            std::thread::sleep(HEALTH_EVERY);
+            check_stream_health(&app);
+        }
+    });
+}
+
 fn check_stream_health(app: &AppHandle) {
-    let script = format!("{}\n{STREAM_HEALTH}", kick::REPORT);
     let visiting = app.state::<Mutex<AppState>>().lock().unwrap().visiting.clone();
     for platform in PLATFORMS {
         for (_, label, _, _) in background_channel_pages(app, platform, true) {
-            if visiting.contains(&label) {
-                continue;
-            }
-            if let Some(page) = app.get_webview(&label) {
-                let _ = page.eval(&script);
+            if !visiting.contains(&label) {
+                check_page_health(app, &label);
             }
         }
+    }
+}
+
+/// Starts every background stream whose video is paused (muted, so the browser allows it).
+pub(crate) fn resume_paused_streams(app: &AppHandle) {
+    // Kick's stream is #video-player (its first <video> is a decoration); Twitch's player has one.
+    const PLAY: &str = "(() => { const v = document.getElementById('video-player') || document.querySelector('video'); if (v && v.paused) v.play().catch(() => {}); })();";
+    let pages: Vec<String> = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .unwrap()
+        .panels
+        .values()
+        .flat_map(|p| p.pages.iter().map(|pg| pg.label.clone()))
+        .collect();
+    for label in pages {
+        if let Some(page) = app.get_webview(&label) {
+            let _ = page.eval(PLAY);
+        }
+    }
+}
+
+fn check_page_health(app: &AppHandle, label: &str) {
+    if let Some(page) = app.get_webview(label) {
+        let _ = page.eval(format!("{}\n{STREAM_HEALTH}", kick::REPORT));
     }
 }
 
@@ -2258,6 +2292,7 @@ fn next_health(
             track.stalled = None;
             track.offline = None;
             track.offline_reports = 0;
+            track.offline_reloaded = false;
         }
         "logged-in" => track.logged_out = None,
         "logged-out" => track.logged_out = Some(format!("Logged out: {detail}")),
@@ -2291,7 +2326,7 @@ fn next_health(
 
 fn health_reported(app: &AppHandle, label: &str, json: &str) {
     let Ok(report) = serde_json::from_str::<HealthReport>(json) else { return };
-    let (reload, changed, wake) = {
+    let (reload, changed, wake, offline_count) = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
         let track = state.health.entry(label.to_string()).or_default();
@@ -2301,6 +2336,8 @@ fn health_reported(app: &AppHandle, label: &str, json: &str) {
             return;
         };
         let offline_reports = track.offline_reports;
+        let offline_reloaded = track.offline_reloaded;
+        let mut reload = reload;
         // Which account and channel this page is.
         let owner = state.panels.iter().find_map(|(id, p)| {
             let page = p.page(label)?;
@@ -2322,9 +2359,26 @@ fn health_reported(app: &AppHandle, label: &str, json: &str) {
             let key = (id, platform, login);
             match report.state.as_str() {
                 "offline" => {
-                    wake = true;
+                    // Only the first reports wake the manager (and get the quick recheck): a
+                    // page that stays offline is handled by then, and mustn't wake it forever.
+                    wake = offline_reports <= OFFLINE_REPORTS_TO_SWAP;
                     if offline_reports >= OFFLINE_REPORTS_TO_SWAP {
-                        state.page_offline.entry(key).or_insert_with(std::time::Instant::now);
+                        // The player's own "offline" screen is a sure sign. A page that just
+                        // has no player while the platform still says live may be stuck
+                        // instead (a Kick page that loaded in the hidden window never mounts
+                        // it): it's reloaded once first, and believed if it's still empty.
+                        let sure = report.detail == TWITCH_OFFLINE_SCREEN;
+                        let platform_live = state.live.get(&key.1).and_then(|m| m.get(&key.2)) == Some(&true);
+                        if !sure && platform_live && !offline_reloaded {
+                            println!("[health] {label}: no player but {} says {} is live; reloading it once", key.1.name(), key.2);
+                            if let Some(track) = state.health.get_mut(label) {
+                                track.offline_reloaded = true;
+                                track.offline_reports = 0;
+                            }
+                            reload = true;
+                        } else {
+                            state.page_offline.entry(key).or_insert_with(std::time::Instant::now);
+                        }
                     }
                 }
                 "ok" => {
@@ -2345,7 +2399,8 @@ fn health_reported(app: &AppHandle, label: &str, json: &str) {
         if let Some((id, platform, login)) = who {
             let channel = format!("{} {login}", platform.name());
             if reload {
-                log_event(&mut state, id, format!("{channel}: stalled, reloaded"));
+                let why = if report.state == "offline" { "no player, reloaded" } else { "stalled, reloaded" };
+                log_event(&mut state, id, format!("{channel}: {why}"));
             }
             if changed {
                 let text = match &warning {
@@ -2355,11 +2410,21 @@ fn health_reported(app: &AppHandle, label: &str, json: &str) {
                 log_event(&mut state, id, text);
             }
         }
-        (reload, changed, wake)
+        (reload, changed, wake, offline_reports)
     };
     if wake {
         println!("[health] {label}: offline ({}); checking the priority lists now", report.detail);
         AUTO_WAKE.store(true, Ordering::SeqCst);
+        // After the first "offline", asked again shortly: a second one swaps the channel even if
+        // the platform still says live, without waiting for the next round of checks.
+        if offline_count < OFFLINE_REPORTS_TO_SWAP {
+            let app = app.clone();
+            let label = label.to_string();
+            std::thread::spawn(move || {
+                std::thread::sleep(OFFLINE_RECHECK);
+                check_page_health(&app, &label);
+            });
+        }
     }
     if reload {
         println!("[health] {label}: {} ({}); reloading", report.state, report.detail);
@@ -2487,7 +2552,7 @@ fn manage_slot_streams(app: &AppHandle, id: u8, platform: Platform, wanted: &[St
         }
         create_page(app, id, platform, &channel.url_for(false), true)?;
     }
-    remember_panels(app);
+    remember_panels_known(app);
     apply_layout(app)
 }
 
@@ -2498,27 +2563,75 @@ fn background_channel_pages(app: &AppHandle, platform: Platform, all: bool) -> V
     let state = state.lock().unwrap();
     let mut out = Vec::new();
     for slot in &state.config.slots {
-        if !all && slot.bonus.is_none() {
+        if !all && slot.bonus.is_none() && slot.goals.is_none() {
             continue;
         }
+        let bonus = bonus_now(&state, slot, platform);
         let Some(panels) = state.panels.get(&slot.id) else { continue };
         for page in &panels.pages {
             let Some(login) = &page.login else { continue };
             if page.platform == platform && panels.front.as_deref() != Some(page.label.as_str()) {
-                out.push((slot.id, page.label.clone(), login.clone(), slot.bonus));
+                out.push((slot.id, page.label.clone(), login.clone(), bonus));
             }
         }
     }
     out
 }
 
-/// Asks each live Kick page of an account with a bonus chosen to redeem it if the points are
+/// After a redeem, goals mode waits this long at most for the game to report the new time.
+const REDEEM_SETTLE: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// The bonus an account's points buy now on `platform`: its fixed bonus, or in goals mode
+/// the first goal not met there (None = nothing to buy: every goal met and points saved, the
+/// game hasn't reported the times yet, or a redeem is still being counted).
+fn bonus_now(state: &AppState, slot: &SlotConfig, platform: Platform) -> Option<KickBonus> {
+    let Some(goals) = &slot.goals else { return slot.bonus };
+    let ends = state.bonus_ends.get(&(slot.id, platform))?;
+    if state.redeemed.get(&(slot.id, platform)).is_some_and(|at| at.elapsed() < REDEEM_SETTLE) {
+        return None;
+    }
+    let now = now_ms();
+    goals::pick(goals, |bonus| {
+        let end = match bonus {
+            KickBonus::Xp => ends.xp,
+            KickBonus::Capture => ends.capture,
+            KickBonus::Lure => ends.lure,
+        };
+        goals::hours_left(end, now)
+    })
+}
+
+/// Asks the live Kick pages of accounts that redeem to buy their bonus if the points are
 /// enough (scripts/kick-redeem.js does nothing otherwise; Kick pages show their points even in
-/// the background).
+/// the background). In goals mode only the account's channel with the most points tries, so
+/// one pass buys one package and the next decision sees the new time.
 fn redeem_kick_bonuses(app: &AppHandle) {
-    for (_, label, _, bonus) in background_channel_pages(app, Platform::Kick, false) {
-        let (Some(page), Some(bonus)) = (app.get_webview(&label), bonus) else { continue };
-        if let Err(e) = page.eval(kick::redeem_script(bonus)) {
+    let pages = background_channel_pages(app, Platform::Kick, false);
+    let (goal_slots, balances): (Vec<u8>, HashMap<String, u64>) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        (
+            state.config.slots.iter().filter(|s| s.goals.is_some()).map(|s| s.id).collect(),
+            state.config.balances.clone(),
+        )
+    };
+    let points = |id: u8, login: &str| balances.get(&config::balance_key(id, Platform::Kick, login)).copied().unwrap_or(0);
+    let mut chosen: Vec<&(u8, String, String, Option<KickBonus>)> = Vec::new();
+    for page in &pages {
+        let (id, _, login, _) = page;
+        if !goal_slots.contains(id) {
+            chosen.push(page);
+            continue;
+        }
+        match chosen.iter().position(|p| p.0 == *id) {
+            Some(i) if points(*id, login) > points(*id, &chosen[i].2) => chosen[i] = page,
+            Some(_) => {}
+            None => chosen.push(page),
+        }
+    }
+    for (_, label, _, bonus) in chosen {
+        let (Some(page), Some(bonus)) = (app.get_webview(label), bonus) else { continue };
+        if let Err(e) = page.eval(kick::redeem_script(*bonus)) {
             eprintln!("[auto] {label}: could not run the redeem script: {e}");
         }
     }
@@ -2598,7 +2711,8 @@ fn twitch_visit_loaded(app: &AppHandle, webview: &tauri::Webview, url: &Url) {
             return;
         }
         let slot = state.panels.iter().find(|(_, p)| p.page(webview.label()).is_some()).map(|(id, _)| *id);
-        slot.and_then(|id| state.config.slots.iter().find(|s| s.id == id)).and_then(|s| s.bonus)
+        slot.and_then(|id| state.config.slots.iter().find(|s| s.id == id))
+            .and_then(|s| bonus_now(&state, s, Platform::Twitch))
     };
     let on_full_page = url.host_str().is_some_and(|h| h.ends_with("twitch.tv") && h != "player.twitch.tv")
         && channels::channel_from_url(url).is_some();
@@ -2614,6 +2728,9 @@ struct BonusSlotView {
     id: u8,
     name: String,
     bonus: Option<KickBonus>,
+    goals: Option<config::Goals>,
+    /// What the next redeem buys on each platform (None = nothing now).
+    next: NextRedeem,
     /// Whether the account has Kick / Twitch linked in the game (None = not reported yet).
     kick_linked: Option<bool>,
     twitch_linked: Option<bool>,
@@ -2621,6 +2738,16 @@ struct BonusSlotView {
     points: Vec<(Platform, String, u64)>,
     /// The account's running bonuses per platform.
     running: SlotBonuses,
+}
+
+#[derive(Serialize, Clone, Copy, Default, Debug)]
+struct NextRedeem {
+    kick: Option<KickBonus>,
+    twitch: Option<KickBonus>,
+}
+
+fn next_redeem(state: &AppState, slot: &SlotConfig) -> NextRedeem {
+    NextRedeem { kick: bonus_now(state, slot, Platform::Kick), twitch: bonus_now(state, slot, Platform::Twitch) }
 }
 
 /// Slot `id`'s last seen balances, most first.
@@ -2731,6 +2858,8 @@ fn automation_view(app: &AppHandle) -> AutomationView {
                 id: s.id,
                 name: s.name.clone().unwrap_or_else(|| format!("Slot {}", s.id)),
                 bonus: s.bonus,
+                goals: s.goals.clone(),
+                next: next_redeem(&state, s),
                 kick_linked: state.linked.get(&(s.id, Platform::Kick)).copied(),
                 twitch_linked: state.linked.get(&(s.id, Platform::Twitch)).copied(),
                 points: slot_points(&state.config, s.id),
@@ -2889,6 +3018,10 @@ fn game_reported(app: &AppHandle, id: u8, json: &str) {
         }
         let ends = report.bonus.to_local(report.now, now_ms());
         let bonus_changed = state.bonus_ends.insert((id, report.platform), ends) != Some(ends);
+        // The game counted a redeem: goals mode can decide again with the new time.
+        if bonus_changed {
+            state.redeemed.remove(&(id, report.platform));
+        }
         let added = if sync_on(&state.config, report.platform) && !report.channels.is_empty() {
             merge_partners(&mut state.config, report.platform, &report.channels)
         } else {
@@ -2955,6 +3088,38 @@ fn set_bonus(app: AppHandle, id: u8, bonus: Option<KickBonus>) -> AutomationView
     automation_changed(&app, |state| {
         if let Some(slot) = state.config.slots.iter_mut().find(|s| s.id == id) {
             slot.bonus = bonus;
+        }
+    })
+}
+
+/// At most this many goals per account.
+const MAX_GOALS: usize = 6;
+
+/// An account's redeem goals (None = back to its fixed bonus). Hours stay within 1–999.
+#[tauri::command]
+fn set_goals(app: AppHandle, id: u8, goals: Option<config::Goals>) -> AutomationView {
+    let goals = goals.map(|mut g| {
+        g.list.truncate(MAX_GOALS);
+        for goal in &mut g.list {
+            goal.hours = goal.hours.clamp(1, 999);
+        }
+        g
+    });
+    automation_changed(&app, |state| {
+        if let Some(slot) = state.config.slots.iter_mut().find(|s| s.id == id) {
+            slot.goals = goals;
+        }
+    })
+}
+
+/// "Copy to all accounts": every account gets this one's way of redeeming (goals or fixed).
+#[tauri::command]
+fn copy_redeem_to_all(app: AppHandle, id: u8) -> AutomationView {
+    automation_changed(&app, |state| {
+        let Some(from) = state.config.slots.iter().find(|s| s.id == id).cloned() else { return };
+        for slot in &mut state.config.slots {
+            slot.bonus = from.bonus;
+            slot.goals = from.goals.clone();
         }
     })
 }
@@ -3055,6 +3220,7 @@ fn main() {
                 vote: HashMap::new(),
                 log: HashMap::new(),
                 game_stats: HashMap::new(),
+                redeemed: HashMap::new(),
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is
@@ -3112,6 +3278,7 @@ fn main() {
             }
             start_auto_reload(handle.clone());
             start_stream_manager(handle.clone());
+            start_health_checks(handle.clone());
 
             let event_handle = handle.clone();
             let event_window = window.clone();
@@ -3165,6 +3332,8 @@ fn main() {
             set_priority,
             set_twitch_lives,
             set_bonus,
+            set_goals,
+            copy_redeem_to_all,
             set_sync,
             set_vote_slot,
             open_vote,

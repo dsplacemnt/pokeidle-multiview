@@ -36,6 +36,33 @@ pub enum KickBonus {
     Lure,
 }
 
+/// One redeem goal: keep at least `hours` of this bonus running.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Goal {
+    pub bonus: KickBonus,
+    pub hours: u16,
+}
+
+/// What an account does with its points once every goal is met.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WhenMet {
+    /// Keep the points for when a goal runs low again.
+    #[default]
+    Save,
+    /// Keep buying the last goal's bonus.
+    KeepLast,
+}
+
+/// An account's redeem goals, in order: the first one not met is what gets bought.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct Goals {
+    #[serde(default)]
+    pub list: Vec<Goal>,
+    #[serde(default)]
+    pub when_met: WhenMet,
+}
+
 /// At most this many channels in the Kick priority list.
 pub const MAX_KICK_PRIORITY: usize = 30;
 
@@ -58,6 +85,9 @@ pub struct SlotConfig {
     /// Twitch; None = off. ("kick_bonus" is the name it had while it was Kick only.)
     #[serde(default, alias = "kick_bonus", skip_serializing_if = "Option::is_none")]
     pub bonus: Option<KickBonus>,
+    /// Redeem goals instead of the fixed `bonus` (Some = goals mode); see goals.rs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goals: Option<Goals>,
 }
 
 fn full_zoom() -> f64 {
@@ -66,7 +96,7 @@ fn full_zoom() -> f64 {
 
 impl SlotConfig {
     pub fn new(id: u8) -> SlotConfig {
-        SlotConfig { id, zoom: 1.0, name: None, muted: false, panels: Vec::new(), bonus: None }
+        SlotConfig { id, zoom: 1.0, name: None, muted: false, panels: Vec::new(), bonus: None, goals: None }
     }
 }
 
@@ -183,10 +213,6 @@ pub struct Config {
     /// header brings it back.
     #[serde(default)]
     pub toolbar_hidden: bool,
-    /// Slots slide into place when the layout changes (fullscreen, grid reset, toolbar...).
-    /// Off by default.
-    #[serde(default)]
-    pub smooth_transitions: bool,
     /// Kick pages running in the background are trimmed (no chat or sidebars, lowest quality,
     /// small size), like Twitch's light player. Can be turned off if a channel stops counting.
     #[serde(default = "enabled")]
@@ -309,7 +335,6 @@ impl Default for Config {
             close_to_tray: true,
             minimize_to_tray: false,
             toolbar_hidden: false,
-            smooth_transitions: false,
             light_kick_background: true,
             kick_priority: Vec::new(),
             twitch_priority: Vec::new(),
@@ -495,7 +520,7 @@ mod comfort_tests {
     fn old_files_get_comfort_defaults() {
         let cfg: Config = serde_json::from_str(r#"{"slots":[{"id":1,"zoom":1.0}]}"#).unwrap();
         assert!(cfg.keep_awake);
-        assert!(!cfg.smooth_transitions && !cfg.toolbar_hidden);
+        assert!(!cfg.toolbar_hidden);
         assert!(cfg.light_kick_background);
         assert_eq!(cfg.auto_reload_minutes, 0);
         assert_eq!(cfg.slots[0].name, None);
