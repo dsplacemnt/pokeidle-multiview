@@ -117,8 +117,15 @@ under 10 MB.
 - **Running bonuses at a glance.** Each slot's header shows the account's PokeIdle bonuses that
   are running and the time left (e.g. `XP 6h12`, `Cap 1h40`; Kick's and Twitch's times on
   hover), read from the game's own state. The same appears in ⚙ → Bonus per account.
+- **Streams keep playing when nobody watches.** Minimizing or sending the app to the tray moves
+  the window off-screen instead (the taskbar button or the tray icon brings it back where it
+  was), and behind other windows or with the screen off the pages still count as visible. A
+  really minimized window stops rendering, and a Twitch player that restarts then never plays
+  again: that spent whole nights paused and reloading.
 - **Stream health.** Every 30 seconds each background stream checks that its video is moving.
-  A stalled stream is reloaded once quietly; if it still doesn't play, its pill gets a ⚠ and it
+  A player that paused itself gets play pressed (no reload, no lost watch time); only one that
+  stays paused or frozen counts as stalled. A stalled stream is reloaded once quietly; if it
+  still doesn't play, its pill gets a ⚠ and it
   is reloaded again every 10 minutes. Logged-out accounts and offline channels get a ⚠ too (a
   page that is still loading isn't flagged). The settings window shows how many streams need
   attention. A live that ends is caught right away (the player's "offline" screen over a frozen

@@ -36,6 +36,9 @@ pub fn settings(app: &AppHandle) -> (ToTray, bool) {
 /// Shows the main window again, from the tray or from a second copy of the app.
 pub fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_window("main") {
+        if crate::away::bring_back(&window) {
+            return;
+        }
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();

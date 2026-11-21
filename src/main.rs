@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod away;
 mod channels;
 mod config;
 mod external;
@@ -42,6 +43,7 @@ const GAME_URL: &str = "https://pokeidle.io/";
 const WEBAUTHN_BLOCK: &str = include_str!("../scripts/webauthn-block.js");
 const DESKTOP_LAYOUT: &str = include_str!("../scripts/desktop-layout.js");
 const LOWEST_QUALITY: &str = include_str!("../scripts/lowest-quality.js");
+const ALWAYS_VISIBLE: &str = include_str!("../scripts/always-visible.js");
 const KICK_LIGHT: &str = include_str!("../scripts/kick-light.js");
 const GAME_WATCH: &str = include_str!("../scripts/game-watch.js");
 /// A Kick page running in the background is parked at this size (logical px) instead of its
@@ -676,18 +678,33 @@ fn slot_session_builder(
     if std::env::var_os("MULTIVIEW_ALLOW_WEBAUTHN").is_none() {
         builder = builder.initialization_script_for_all_frames(WEBAUTHN_BLOCK);
     }
+    // The streams must keep playing when Windows thinks nobody sees them: the window minimized
+    // or in the tray, covered, or the screen off or locked. By default the browser then marks
+    // the pages hidden and slows them down, and Twitch's player pauses itself (whole nights of
+    // paused streams and reloads). The browser also pauses muted videos in a hidden page on its
+    // own (Twitch's player is muted, Kick's isn't, so only Twitch stopped);
+    // --disable-background-media-suspend turns that off. Setting browser args replaces wry's
+    // defaults, so those are repeated here.
+    #[allow(unused_mut)]
+    let mut args = String::from(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion,\
+         BackgroundVideoPauseOptimization,BackgroundVideoTrackOptimization \
+         --disable-background-media-suspend \
+         --autoplay-policy=no-user-gesture-required \
+         --disable-background-timer-throttling \
+         --disable-renderer-backgrounding \
+         --disable-backgrounding-occluded-windows",
+    );
     // Debug builds only: MULTIVIEW_DEVTOOLS=1 exposes slot N to Chrome DevTools Protocol on
-    // 127.0.0.1:930N (open edge://inspect or http://127.0.0.1:930N/json). Setting browser args
-    // replaces wry's defaults, so they are repeated here.
+    // 127.0.0.1:930N (open edge://inspect or http://127.0.0.1:930N/json).
     #[cfg(debug_assertions)]
     if std::env::var_os("MULTIVIEW_DEVTOOLS").is_some() {
-        builder = builder.additional_browser_args(&format!(
-            "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
-             --autoplay-policy=no-user-gesture-required \
-             --remote-debugging-address=127.0.0.1 --remote-debugging-port={}",
+        args.push_str(&format!(
+            " --remote-debugging-address=127.0.0.1 --remote-debugging-port={}",
             9300 + u16::from(slot_id)
         ));
     }
+    builder = builder.additional_browser_args(&args);
     if let Some(dir) = hunt_dir {
         builder = builder.browser_extensions_enabled(true).extensions_path(dir);
     }
@@ -1156,6 +1173,8 @@ fn create_page(
     let label = format!("slot-{id}-{}-{}", platform.key(), NEXT_PAGE.fetch_add(1, Ordering::SeqCst));
     let (load_app, title_app) = (app.clone(), app.clone());
     let builder = slot_session_builder(app, id, label.clone(), url)
+        // Keeps playing when the app is minimized or in the tray (scripts/always-visible.js).
+        .initialization_script_for_all_frames(ALWAYS_VISIBLE)
         .on_page_load(move |webview, payload| {
             lower_player_quality(&webview, &payload);
             if payload.event() == PageLoadEvent::Finished {
@@ -1265,9 +1284,11 @@ fn remember_panels_with(app: &AppHandle, ask_pages: bool) {
     // The main window's size and maximized state, for the next start (it opens centered).
     // A maximized or minimized window's size isn't the one to come back to.
     let window = app.get_window("main").map(|window| {
-        let maximized = window.is_maximized().unwrap_or(false);
+        // Away (off-screen, see away.rs): the state it had before, and its size is kept as saved.
+        let away = away::saved_maximized();
+        let maximized = away.unwrap_or_else(|| window.is_maximized().unwrap_or(false));
         let minimized = window.is_minimized().unwrap_or(false);
-        let size = (!maximized && !minimized && window.is_visible().unwrap_or(false))
+        let size = (away.is_none() && !maximized && !minimized && window.is_visible().unwrap_or(false))
             .then(|| Some(window.inner_size().ok()?.to_logical::<f64>(window.scale_factor().ok()?)))
             .flatten()
             .filter(|s| s.width >= 640.0 && s.height >= 400.0);
@@ -1683,7 +1704,7 @@ fn set_settings(app: AppHandle, settings: Settings) {
 /// main window is minimized, hidden or can't be read (then the screen's center is used).
 fn centered_over(main: &tauri::Window, w: f64, h: f64) -> Option<(f64, f64)> {
     (|| -> tauri::Result<Option<(f64, f64)>> {
-        if main.is_minimized()? || !main.is_visible()? {
+        if away::is_away() || main.is_minimized()? || !main.is_visible()? {
             return Ok(None);
         }
         let scale = main.scale_factor()?;
@@ -3282,14 +3303,31 @@ fn main() {
 
             let event_handle = handle.clone();
             let event_window = window.clone();
+            // Minimizing or hiding to the tray sends the window away (off-screen) instead, so the
+            // streams keep playing: see away.rs.
             window.on_window_event(move |event| match event {
                 WindowEvent::Resized(_) => {
-                    let (to_tray, quitting) = tray::settings(&event_handle);
-                    if to_tray.minimize && !quitting && event_window.is_minimized().unwrap_or(false) {
-                        let _ = event_window.hide();
-                        return;
+                    let minimized = event_window.is_minimized().unwrap_or(false);
+                    if minimized && !away::moving() {
+                        let (to_tray, quitting) = tray::settings(&event_handle);
+                        if !quitting {
+                            if away::is_away() && !away::in_tray() {
+                                // Its taskbar button was clicked while it was the active window
+                                // (Windows then minimizes it): it comes back.
+                                away::bring_back(&event_window);
+                            } else {
+                                away::send(&event_window, to_tray.minimize || away::in_tray());
+                            }
+                            return;
+                        }
                     }
-                    let _ = apply_layout(&event_handle);
+                    if !minimized {
+                        let _ = apply_layout(&event_handle);
+                    }
+                }
+                // Its taskbar button clicked, or picked with Alt+Tab, while away.
+                WindowEvent::Focused(true) if away::is_away() && !away::moving() => {
+                    away::bring_back(&event_window);
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
                     let _ = apply_layout(&event_handle);
@@ -3300,7 +3338,7 @@ fn main() {
                     let (to_tray, quitting) = tray::settings(&event_handle);
                     if to_tray.close && !quitting {
                         api.prevent_close();
-                        let _ = event_window.hide();
+                        away::send(&event_window, true);
                     }
                 }
                 _ => {}
