@@ -67,6 +67,7 @@
     .item .right { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .item.shown .name { color: var(--accent); font-weight: 600; }
     .item.warn .name { color: var(--bad); }
+    .item .follow-tip { flex: none; color: var(--muted); font-size: 12px; cursor: help; }
     .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
     .item.warn .dot { background: var(--bad); }
     .why { font-size: 11.5px; color: var(--bad); margin: -2px 0 2px 23px; }
@@ -216,6 +217,15 @@
       return c;
     }
 
+    // A tip, not a problem: this account doesn't follow the channel (the app never follows).
+    function followTip(s) {
+      const tip = el('span', 'follow-tip', '♡');
+      tip.title = s.platform === 'twitch'
+        ? t("Tip: this account doesn't follow {name} on Twitch. Following gives +300 channel points once — show the stream and follow it there.", { name: s.login })
+        : t("Tip: this account doesn't follow {name} on Kick. Show the stream and follow it there.", { name: s.login });
+      return tip;
+    }
+
     function streamsCard(v) {
       const c = card(t('Streams'), v.streams.length ? t('{n} open', { n: v.streams.length }) : '');
       const list = el('div', 'list');
@@ -224,6 +234,7 @@
         for (const s of v.streams.filter((x) => x.platform === platform)) {
           const item = el('div', 'item' + (s.shown ? ' shown' : '') + (s.warning ? ' warn' : ''));
           item.append(mark(platform), el('span', 'name', s.login || t('{platform} (no channel)', { platform: PLATFORMS[platform].name })),
+            ...(s.not_following ? [followTip(s)] : []),
             s.shown ? el('span', 'right', t('on screen')) : el('span', 'dot'));
           list.append(item);
           if (s.warning) list.append(el('div', 'why', I18N.text(s.warning)));

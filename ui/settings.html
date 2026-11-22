@@ -84,6 +84,9 @@
       font-size: 11.5px; font-weight: 600; color: #1a1408; background: var(--accent); }
     .klist .tag:empty { display: none; }
     .klist .tag svg { width: 11px; height: 11px; }
+    /* Accounts that don't follow the channel (♡), or haven't opened it yet (?): details on hover. */
+    .klist .follow { flex: none; font-size: 12px; color: #ff9ec0; cursor: help; }
+    .klist .follow.unseen { color: var(--muted); }
     .klist .actions { display: flex; gap: 4px; flex: none; }
     .klist button { width: 26px; height: 24px; padding: 0; font-size: 13px; border-radius: 7px; }
     .kadd { display: flex; gap: 8px; }
@@ -405,6 +408,20 @@
       return b;
     }
 
+    // ♡ = some account doesn't follow this channel; ? = some account hasn't opened it yet, so
+    // it's not known. Read from the channel pages only: the app never follows anyone.
+    function followMark(view, channel) {
+      const not = (view.not_following && view.not_following[channel]) || [];
+      const unseen = (view.unseen && view.unseen[channel]) || [];
+      if (!not.length && !unseen.length) return [];
+      const lines = [];
+      if (not.length) lines.push(t("Doesn't follow: {names}", { names: not.join(', ') }));
+      if (unseen.length) lines.push(t('Not seen yet (never opened there): {names}', { names: unseen.join(', ') }));
+      const mark = Object.assign(document.createElement('span'), {
+        className: 'follow' + (not.length ? '' : ' unseen'), textContent: not.length ? '♡' : '?', title: lines.join(String.fromCharCode(10)) });
+      return [mark];
+    }
+
     function renderList(platform, view) {
       const list = document.getElementById(`list-${platform}`);
       // How many accounts have each channel open now (each picks by its own points).
@@ -433,7 +450,7 @@
           smallButton('↑', t('Higher priority'), () => move(i, i - 1), i === 0),
           smallButton('↓', t('Lower priority'), () => move(i, i + 1), i === view.priority.length - 1),
           smallButton('×', t('Remove'), () => setPriority(platform, view.priority.filter((c) => c !== channel))));
-        li.append(rank, dot, name, tag, actions);
+        li.append(rank, dot, name, ...followMark(view, channel), tag, actions);
         return li;
       }));
       if (!view.priority.length) {

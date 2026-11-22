@@ -106,7 +106,10 @@ under 10 MB.
   steps past it, and waits for the confirm button, which Twitch keeps disabled for a moment.
 - **Follow tips.** A stream whose channel the account doesn't follow gets a ♡ on its pill, with a
   tip on hover (on Twitch a follow gives +300 points once). Read only: the app never follows by
-  itself. Kick is checked with the stream health, Twitch on each visit.
+  itself. Every Twitch and Kick channel page watches it, so the tip goes away within seconds.
+  The ⚙ priority lists show it per channel too: ♡ when some account doesn't follow it, ? when
+  some account hasn't opened it yet (the app only learns it from an open channel page), with
+  the accounts on hover. It is saved, so it survives restarts.
 - **Redeem goals.** Instead of one fixed bonus, an account can switch to **Goals**: an ordered
   list such as XP ≥ 10h, Capture ≥ 5h, Lure ≥ 3h. Its points buy the first goal not met yet,
   each platform judged by its own clock (Kick points buy Kick bonuses); once every goal is met

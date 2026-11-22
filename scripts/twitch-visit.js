@@ -96,15 +96,6 @@
     window.__multiviewReport(`[multiview-points] ${JSON.stringify({ platform: 'twitch', channel, points })}`);
   }
 
-  // Whether this account follows the channel (only read, never changed): the app shows a tip
-  // on the stream's pill when it doesn't.
-  function reportFollow() {
-    const follow = document.querySelector('[data-a-target="follow-button"]');
-    const unfollow = document.querySelector('[data-a-target="unfollow-button"]');
-    if (!follow && !unfollow) return;
-    window.__multiviewReport(`[multiview-follow] ${JSON.stringify({ following: !follow })}`);
-  }
-
   async function visit(kind) {
     const done = [];
     try {
@@ -116,7 +107,6 @@
         return 'no channel points here (offline or logged out?)';
       }
       window.__multiviewReport(`[multiview-health] ${JSON.stringify({ state: 'logged-in', detail: '' })}`);
-      reportFollow();
 
       // 1. The bonus chest.
       const chest = [...points.querySelectorAll('button')].find((b) =>

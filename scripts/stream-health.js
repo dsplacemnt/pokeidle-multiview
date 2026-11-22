@@ -29,13 +29,6 @@
       return report('logged-out', 'Kick shows no channel points here: is this account logged in?');
     }
     report('logged-in', '');
-    // Whether this account follows the channel (only read): the app shows a tip on the pill
-    // when it doesn't. Kick's follow button says "Follow"/"Seguir" only while not following.
-    const follow = [...document.querySelectorAll('[data-testid="follow-button"]')];
-    if (follow.length) {
-      const notFollowing = follow.some((b) => /^(follow|seguir)$/i.test((b.textContent || '').trim()));
-      window.__multiviewReport(`[multiview-follow] ${JSON.stringify({ following: !notFollowing })}`);
-    }
   } else if (host === 'player.twitch.tv') {
     offlineDetail = 'The Twitch player says the channel is offline';
     video = document.querySelector('video');

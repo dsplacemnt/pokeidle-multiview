@@ -86,8 +86,6 @@ struct AppState {
     /// A redeem just went through for this account and platform: in goals mode it waits for
     /// the game to report the new time before buying again (see `bonus_now`).
     redeemed: HashMap<(u8, Platform), std::time::Instant>,
-    /// Channels each account doesn't follow, as their pages last showed (see `follow_reported`).
-    not_following: std::collections::HashSet<(u8, Platform, String)>,
 }
 
 /// Events kept per account in the automation log.
@@ -324,6 +322,8 @@ struct FocusStream {
     login: Option<String>,
     warning: Option<String>,
     shown: bool,
+    /// The account doesn't follow this channel (the ♡ tip).
+    not_following: bool,
 }
 
 /// Everything the single-focus stats panel shows about the fullscreen account.
@@ -367,6 +367,7 @@ fn focus_view(state: &AppState) -> Option<FocusView> {
                     login: pg.login.clone(),
                     warning: pg.warning.clone(),
                     shown: p.front.as_deref() == Some(pg.label.as_str()),
+                    not_following: pg.not_following,
                 })
                 .collect()
         })
@@ -1140,8 +1141,17 @@ fn page_loaded(app: &AppHandle, webview: &tauri::Webview, url: &Url) {
     if in_background {
         set_kick_light(webview, true);
     }
+    // Whether the account follows the channel, now and whenever it changes (the ♡ tip).
+    if channels::channel_from_url(url).is_some() {
+        if let Err(e) = webview.eval(format!("{}\n{FOLLOW_WATCH}", kick::REPORT)) {
+            eprintln!("[panel] could not start the follow watch: {e}");
+        }
+    }
     twitch_visit_loaded(app, webview, url);
 }
+
+/// Reports whether the account follows the page's channel (see `follow_reported`).
+const FOLLOW_WATCH: &str = include_str!("../scripts/follow-watch.js");
 
 /// Turns the light Kick page (scripts/kick-light.js) on or off in `webview`. Does nothing on
 /// pages that aren't a Kick channel (Twitch has its own light player, login pages stay as
@@ -1237,7 +1247,8 @@ fn create_page(
     let login = url.parse::<Url>().ok().and_then(|u| channels::channel_from_url(&u)).map(|c| c.login);
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
-    let not_following = login.as_ref().is_some_and(|l| state.not_following.contains(&(id, platform, l.clone())));
+    let not_following =
+        login.as_ref().is_some_and(|l| state.config.follows.get(&config::balance_key(id, platform, l)) == Some(&false));
     state.panels.entry(id).or_default().pages.push(Page { label: label.clone(), platform, login, warning: None, not_following });
     Ok(label)
 }
@@ -1922,32 +1933,38 @@ struct FollowReport {
     following: bool,
 }
 
-/// A Kick page (health check) or a Twitch visit told whether this account follows the page's
-/// channel: remembered per account and channel, and every pill of it updated.
+/// A Twitch or Kick channel page (scripts/follow-watch.js) told whether this account follows
+/// its channel: remembered (and saved) per account and channel, every pill of it updated, and
+/// the settings lists too.
 fn follow_reported(app: &AppHandle, id: u8, label: &str, json: &str) {
     let Ok(report) = serde_json::from_str::<FollowReport>(json) else { return };
-    let state = app.state::<Mutex<AppState>>();
-    let mut state = state.lock().unwrap();
-    let Some((platform, login)) = state
-        .panels
-        .get(&id)
-        .and_then(|p| p.page(label))
-        .and_then(|p| Some((p.platform, p.login.clone()?)))
-    else {
-        return;
-    };
-    let key = (id, platform, login.clone());
-    let changed =
-        if report.following { state.not_following.remove(&key) } else { state.not_following.insert(key) };
-    if !changed {
-        return;
-    }
-    if let Some(panel) = state.panels.get_mut(&id) {
-        for page in panel.pages.iter_mut().filter(|p| p.platform == platform && p.login.as_deref() == Some(&login)) {
-            page.not_following = !report.following;
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        let Some((platform, login)) = state
+            .panels
+            .get(&id)
+            .and_then(|p| p.page(label))
+            .and_then(|p| Some((p.platform, p.login.clone()?)))
+        else {
+            return;
+        };
+        let key = config::balance_key(id, platform, &login);
+        if state.config.follows.insert(key, report.following) == Some(report.following) {
+            return;
         }
+        if let Err(e) = state.config.save(&state.config_path) {
+            eprintln!("[config] could not save: {e}");
+        }
+        if let Some(panel) = state.panels.get_mut(&id) {
+            for page in panel.pages.iter_mut().filter(|p| p.platform == platform && p.login.as_deref() == Some(&login)) {
+                page.not_following = !report.following;
+            }
+        }
+        publish(app, &state);
     }
-    publish(app, &state);
+    // automation_view locks the state itself, so after the block above.
+    let _ = app.emit_to("settings", "automation", automation_view(app));
 }
 
 /// Asks every live Kick page (all accounts) for its channel points; they answer through
@@ -2845,6 +2862,10 @@ struct PriorityView {
     partners: usize,
     /// How many accounts have each channel open right now.
     watching: HashMap<String, usize>,
+    /// Per channel, the accounts known not to follow it.
+    not_following: HashMap<String, Vec<String>>,
+    /// Per channel, the accounts that haven't opened it yet (whether they follow is unknown).
+    unseen: HashMap<String, Vec<String>>,
 }
 
 /// What the settings window shows in its Kick, Twitch and bonus sections.
@@ -2881,6 +2902,23 @@ fn automation_view(app: &AppHandle) -> AutomationView {
     let slot_name = |id: u8| {
         state.config.slots.iter().find(|s| s.id == id).and_then(|s| s.name.clone()).unwrap_or_else(|| format!("Slot {id}"))
     };
+    // Who doesn't follow (or hasn't opened yet) each channel of a priority list.
+    let follows = |p: Platform, list: &[String]| {
+        let mut not: HashMap<String, Vec<String>> = HashMap::new();
+        let mut unseen: HashMap<String, Vec<String>> = HashMap::new();
+        for channel in list {
+            for slot in &state.config.slots {
+                match state.config.follows.get(&config::balance_key(slot.id, p, &channel.to_ascii_lowercase())) {
+                    Some(true) => {}
+                    Some(false) => not.entry(channel.clone()).or_default().push(slot_name(slot.id)),
+                    None => unseen.entry(channel.clone()).or_default().push(slot_name(slot.id)),
+                }
+            }
+        }
+        (not, unseen)
+    };
+    let (kick_not, kick_unseen) = follows(Platform::Kick, &state.config.kick_priority);
+    let (twitch_not, twitch_unseen) = follows(Platform::Twitch, &state.config.twitch_priority);
     let mut problems: Vec<(String, String, String)> = state
         .panels
         .iter()
@@ -2904,6 +2942,8 @@ fn automation_view(app: &AppHandle) -> AutomationView {
             sync: state.config.kick_sync,
             partners: partners(Platform::Kick),
             watching: watching(Platform::Kick),
+            not_following: kick_not,
+            unseen: kick_unseen,
         },
         twitch: PriorityView {
             priority: state.config.twitch_priority.clone(),
@@ -2912,6 +2952,8 @@ fn automation_view(app: &AppHandle) -> AutomationView {
             sync: state.config.twitch_sync,
             partners: partners(Platform::Twitch),
             watching: watching(Platform::Twitch),
+            not_following: twitch_not,
+            unseen: twitch_unseen,
         },
         slots: state
             .config
@@ -3284,7 +3326,6 @@ fn main() {
                 log: HashMap::new(),
                 game_stats: HashMap::new(),
                 redeemed: HashMap::new(),
-                not_following: std::collections::HashSet::new(),
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is

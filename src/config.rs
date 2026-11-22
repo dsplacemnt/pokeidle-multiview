@@ -240,6 +240,10 @@ pub struct Config {
     /// channels of the priority lists, the ones where it has the most points.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub balances: std::collections::HashMap<String, u64>,
+    /// Whether each account follows each channel, as its pages last showed (same keys as
+    /// `balances`). Only read from the pages: the app never follows anyone.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub follows: std::collections::HashMap<String, bool>,
     /// Claim Kick's Daily Reward once a day on every account (off by default).
     #[serde(default)]
     pub kick_daily: bool,
@@ -342,6 +346,7 @@ impl Default for Config {
             kick_sync: false,
             twitch_sync: false,
             balances: std::collections::HashMap::new(),
+            follows: std::collections::HashMap::new(),
             kick_daily: false,
             kick_daily_done: std::collections::HashMap::new(),
             vote_slots: Vec::new(),
@@ -412,6 +417,7 @@ impl Config {
         // Balances of slots that no longer exist are dropped.
         let slots: Vec<String> = self.slots.iter().map(|s| format!("{}:", s.id)).collect();
         self.balances.retain(|key, _| slots.iter().any(|s| key.starts_with(s.as_str())));
+        self.follows.retain(|key, _| slots.iter().any(|s| key.starts_with(s.as_str())));
         if !self.focus.is_some_and(|f| self.slots.iter().any(|s| s.id == f)) {
             self.focus = None;
         }
