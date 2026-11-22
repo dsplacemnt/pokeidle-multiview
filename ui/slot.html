@@ -114,6 +114,7 @@
     /* ⚠: a stream the app couldn't fix by itself (details on hover). */
     .pill.warn { background: rgba(255, 138, 128, .14); box-shadow: inset 0 0 0 1px rgba(255, 138, 128, .55); }
     .pill .warn-icon { color: #ff8a80; font-size: 12px; margin-left: 1px; }
+    .pill .follow-tip { color: var(--muted); font-size: 11px; margin-left: 1px; }
     .pill button { height: 22px; border-radius: 11px; }
     .pill .show { display: inline-flex; align-items: center; gap: 5px; padding: 0 3px 0 7px; max-width: 160px; }
     .pill .show span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -330,13 +331,21 @@
         show.append(Object.assign(document.createElement('span'), { className: 'warn-icon', textContent: '⚠' }));
         show.title = `${I18N.text(page.warning)}\n\n${show.title}`;
       }
+      // A tip, not a problem: this account doesn't follow the channel (the app never follows).
+      if (page.not_following) {
+        show.append(Object.assign(document.createElement('span'), { className: 'follow-tip', textContent: '♡' }));
+        const tip = page.platform === 'twitch'
+          ? t("Tip: this account doesn't follow {name} on Twitch. Following gives +300 channel points once — show the stream and follow it there.", { name: pageName(page) })
+          : t("Tip: this account doesn't follow {name} on Kick. Show the stream and follow it there.", { name: pageName(page) });
+        show.title = `${tip}\n\n${show.title}`;
+      }
       el.append(show, button('×', t('Stop {name}', { name: pageName(page) }), () => call('stop_page', { label: page.label }), 'stop'));
       return el;
     }
 
     // --- Running PokeIdle bonuses (from the game's own state), e.g. "XP 6h12" -------------
     const bonusBox = Object.assign(document.createElement('span'), { className: 'bonuses' });
-    const BONUSES = [['xp', 'XP', '+15% XP'], ['capture', 'Cap', '+15% Capture Boost'], ['lure', 'Lure', '+15% Secret Lure']];
+    const BONUSES = [['xp', 'XP', '+15% XP'], ['capture', 'CAP', '+15% Capture Boost'], ['lure', 'LURE', '+15% Secret Lure']];
     function left(ms) {
       if (ms < 60000) return '<1m';
       const m = Math.floor(ms / 60000);

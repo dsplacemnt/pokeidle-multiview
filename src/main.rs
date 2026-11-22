@@ -86,6 +86,8 @@ struct AppState {
     /// A redeem just went through for this account and platform: in goals mode it waits for
     /// the game to report the new time before buying again (see `bonus_now`).
     redeemed: HashMap<(u8, Platform), std::time::Instant>,
+    /// Channels each account doesn't follow, as their pages last showed (see `follow_reported`).
+    not_following: std::collections::HashSet<(u8, Platform, String)>,
 }
 
 /// Events kept per account in the automation log.
@@ -892,6 +894,10 @@ struct Page {
     /// page's pill): stalled, logged out, offline.
     #[serde(skip_serializing_if = "Option::is_none")]
     warning: Option<String>,
+    /// The account doesn't follow this channel (as the page last showed it): the pill gets a
+    /// tip that following is possible. The app never follows by itself.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    not_following: bool,
 }
 
 /// Per slot: its Twitch/Kick pages, in the order they were opened, and the one (if any) shown
@@ -1205,6 +1211,8 @@ fn create_page(
                 }
             } else if let Some(json) = title.strip_prefix("[multiview-points] ") {
                 points_reported(&title_app, id, json);
+            } else if let Some(json) = title.strip_prefix("[multiview-follow] ") {
+                follow_reported(&title_app, id, webview.label(), json);
             } else if let Some(json) = title.strip_prefix("[multiview-health] ") {
                 health_reported(&title_app, webview.label(), json);
             } else if let Some(json) = title.strip_prefix("[multiview-daily] ") {
@@ -1229,7 +1237,8 @@ fn create_page(
     let login = url.parse::<Url>().ok().and_then(|u| channels::channel_from_url(&u)).map(|c| c.login);
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
-    state.panels.entry(id).or_default().pages.push(Page { label: label.clone(), platform, login, warning: None });
+    let not_following = login.as_ref().is_some_and(|l| state.not_following.contains(&(id, platform, l.clone())));
+    state.panels.entry(id).or_default().pages.push(Page { label: label.clone(), platform, login, warning: None, not_following });
     Ok(label)
 }
 
@@ -1906,6 +1915,39 @@ fn points_reported(app: &AppHandle, id: u8, json: &str) {
             eprintln!("[config] could not save: {e}");
         }
     }
+}
+
+#[derive(serde::Deserialize)]
+struct FollowReport {
+    following: bool,
+}
+
+/// A Kick page (health check) or a Twitch visit told whether this account follows the page's
+/// channel: remembered per account and channel, and every pill of it updated.
+fn follow_reported(app: &AppHandle, id: u8, label: &str, json: &str) {
+    let Ok(report) = serde_json::from_str::<FollowReport>(json) else { return };
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    let Some((platform, login)) = state
+        .panels
+        .get(&id)
+        .and_then(|p| p.page(label))
+        .and_then(|p| Some((p.platform, p.login.clone()?)))
+    else {
+        return;
+    };
+    let key = (id, platform, login.clone());
+    let changed =
+        if report.following { state.not_following.remove(&key) } else { state.not_following.insert(key) };
+    if !changed {
+        return;
+    }
+    if let Some(panel) = state.panels.get_mut(&id) {
+        for page in panel.pages.iter_mut().filter(|p| p.platform == platform && p.login.as_deref() == Some(&login)) {
+            page.not_following = !report.following;
+        }
+    }
+    publish(app, &state);
 }
 
 /// Asks every live Kick page (all accounts) for its channel points; they answer through
@@ -3242,6 +3284,7 @@ fn main() {
                 log: HashMap::new(),
                 game_stats: HashMap::new(),
                 redeemed: HashMap::new(),
+                not_following: std::collections::HashSet::new(),
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is

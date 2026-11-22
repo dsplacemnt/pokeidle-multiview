@@ -7,9 +7,6 @@ Built with **Rust + [Tauri v2](https://v2.tauri.app)**. Instead of shipping its 
 it uses the WebView2 (Edge) runtime that comes with Windows, so the release executable is
 under 10 MB.
 
-> **Status: early (0.1).** The core works: slots, logins, layouts, the /hunt extension and
-> background streams. More is planned; see the [roadmap](#roadmap).
-
 ## Features
 
 - **Up to 4 slots.** Each slot has its own WebView2 data folder, so cookies, storage and logins
@@ -105,7 +102,11 @@ under 10 MB.
   stream is **visited** every ~15 minutes: its full page loads for ~30 s, the **bonus chest**
   (+50) is claimed and the bonus redeemed, then it goes back to the light player. Each account
   shows whether the game has its Kick and Twitch linked; without that, the points are given
-  back.
+  back. A channel new to the account may open its points on a welcome screen first; the visit
+  steps past it, and waits for the confirm button, which Twitch keeps disabled for a moment.
+- **Follow tips.** A stream whose channel the account doesn't follow gets a ♡ on its pill, with a
+  tip on hover (on Twitch a follow gives +300 points once). Read only: the app never follows by
+  itself. Kick is checked with the stream health, Twitch on each visit.
 - **Redeem goals.** Instead of one fixed bonus, an account can switch to **Goals**: an ordered
   list such as XP ≥ 10h, Capture ≥ 5h, Lure ≥ 3h. Its points buy the first goal not met yet,
   each platform judged by its own clock (Kick points buy Kick bonuses); once every goal is met
@@ -115,7 +116,7 @@ under 10 MB.
   outlined while being bought); the stats panel marks the goals on its bars. "Copy to all
   accounts" applies one account's setup to the others.
 - **Running bonuses at a glance.** Each slot's header shows the account's PokeIdle bonuses that
-  are running and the time left (e.g. `XP 6h12`, `Cap 1h40`; Kick's and Twitch's times on
+  are running and the time left (e.g. `XP 6h12`, `CAP 1h40`, `LURE 3h00`; Kick's and Twitch's times on
   hover), read from the game's own state. The same appears in ⚙ → Bonus per account.
 - **Streams keep playing when nobody watches.** Minimizing or sending the app to the tray moves
   the window off-screen instead (the taskbar button or the tray icon brings it back where it
@@ -283,12 +284,6 @@ Some details that are easy to miss:
   you open.
 - Known limitation: popup windows opened from inside a page are not covered by the navigation
   guard.
-
-## Roadmap
-
-Planned, roughly in priority order:
-
-- [ ] Light mode: Kick via its HLS feed and Twitch via authenticated chat, without video players.
 
 ## Apoie o projeto ♥
 

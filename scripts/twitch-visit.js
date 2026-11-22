@@ -96,6 +96,15 @@
     window.__multiviewReport(`[multiview-points] ${JSON.stringify({ platform: 'twitch', channel, points })}`);
   }
 
+  // Whether this account follows the channel (only read, never changed): the app shows a tip
+  // on the stream's pill when it doesn't.
+  function reportFollow() {
+    const follow = document.querySelector('[data-a-target="follow-button"]');
+    const unfollow = document.querySelector('[data-a-target="unfollow-button"]');
+    if (!follow && !unfollow) return;
+    window.__multiviewReport(`[multiview-follow] ${JSON.stringify({ following: !follow })}`);
+  }
+
   async function visit(kind) {
     const done = [];
     try {
@@ -107,6 +116,7 @@
         return 'no channel points here (offline or logged out?)';
       }
       window.__multiviewReport(`[multiview-health] ${JSON.stringify({ state: 'logged-in', detail: '' })}`);
+      reportFollow();
 
       // 1. The bonus chest.
       const chest = [...points.querySelectorAll('button')].find((b) =>
@@ -129,7 +139,16 @@
       const pattern = KINDS[kind];
       if (!pattern) return done.join(', ') || 'nothing to do';
       balanceButton.click();
-      const tiles = await waitFor(() => { const t = rewardTiles(pattern); return t.length ? t : null; }, 5000);
+      // A viewer new to the channel first gets a welcome screen ("Comece agora mesmo!" /
+      // "Get started") instead of the list; its button, inside the panel, opens the list.
+      const tiles = await waitFor(() => {
+        const t = rewardTiles(pattern);
+        if (t.length) return t;
+        const start = [...(panel()?.querySelectorAll('button') || [])].find((b) =>
+          shown(b) && /comece agora|get started|empieza ahora|comienza ahora/i.test(text(b)));
+        start?.click();
+        return null;
+      }, 12000);
       if (!tiles) {
         await closePanel();
         done.push('no such reward on this channel');
@@ -142,20 +161,35 @@
         return done.join(', ');
       }
       cheapest.button.click();
-      await sleep(1200);
-      // The reward's detail view: its confirm button shows the cost (or says "Resgatar").
-      const root = panel();
-      const confirm = root && [...root.querySelectorAll('button')].find((b) => {
+      // The reward's detail view: its confirm button shows the cost (or says "Resgatar"), and
+      // the panel shows that reward's title (only confirm in its own view). It may take a moment.
+      const isConfirm = (b) => {
         const t = text(b);
-        return shown(b) && !b.disabled && (/^(resgatar|redeem|canjear)\b/i.test(t) || amount(t) === cheapest.cost);
-      });
-      // Only confirm in that reward's own view: the panel must now be showing its title.
-      const titleShown = !!root && text(root).includes(cheapest.title);
-      if (!confirm || !titleShown) {
+        return shown(b) && (/^(resgatar|redeem|canjear)/i.test(t) || amount(t) === cheapest.cost);
+      };
+      // Twitch may show the confirm button disabled for a moment: wait for it to turn on.
+      let found = null;
+      await waitFor(() => {
+        const root = panel();
+        // Still the list (its tile on screen): not the detail view yet.
+        if (!root || !text(root).includes(cheapest.title) || (cheapest.button.isConnected && shown(cheapest.button))) return null;
+        found = [...root.querySelectorAll('button')].find(isConfirm) || null;
+        return found && !found.disabled ? found : null;
+      }, 8000);
+      if (!found || found.disabled) {
+        // What the view shows instead, so the log tells why (a limit per stream, a cooldown…):
+        // Twitch explains it below the reward's description, at the end of the panel.
+        const root = panel();
+        const all = root ? text(root) : '';
+        const seen = root
+          ? `…${all.slice(-220)} | buttons: ${[...root.querySelectorAll('button')].filter(shown)
+            .map((b) => text(b) + (b.disabled ? ' (disabled)' : '')).filter(Boolean).join(' / ')}`
+          : 'panel closed';
         await closePanel();
-        done.push(`no redeem button for ${cheapest.title}`);
+        done.push(`${found ? 'redeem button disabled for' : 'no redeem button for'} ${cheapest.title} [${seen}]`);
         return done.join(', ');
       }
+      const confirm = found;
       confirm.click();
       await sleep(2000);
       await closePanel();
