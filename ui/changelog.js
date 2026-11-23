@@ -3,6 +3,21 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.17.1',
+    date: '2026-11-23',
+    notes: {
+      pt: [
+        'Menos memória: as lives do mesmo site em cada conta agora dividem um processo do navegador. No teste com 4 contas e 40 lives, o app caiu de ~12,2 GB para ~7,2 GB de RAM, com a CPU igual.',
+      ],
+      en: [
+        'Less memory: each account\'s streams from the same site now share one browser process. In a test with 4 accounts and 40 streams, the app went from ~12.2 GB to ~7.2 GB of RAM, with the same CPU.',
+      ],
+      es: [
+        'Menos memoria: los streams del mismo sitio de cada cuenta ahora comparten un proceso del navegador. En una prueba con 4 cuentas y 40 streams, la app bajó de ~12,2 GB a ~7,2 GB de RAM, con la misma CPU.',
+      ],
+    },
+  },
+  {
     version: '0.17.0',
     date: '2026-11-23',
     notes: {
