@@ -3,6 +3,30 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.21.0',
+    date: '2026-11-23',
+    notes: {
+      pt: [
+        'Modo economia mais leve: ao esconder as contas, o app também liga o Battery Saver do próprio jogo em cada uma (e desliga quando você sai). Se você já usava o Battery Saver em alguma conta, ela continua como estava.',
+        'Páginas que incham em sessões longas recarregam sozinhas: quando uma live ou o jogo passa do dobro da memória normal, a página recarrega (nunca a live na tela nem o jogo em tela cheia).',
+        'Prey do dia: botão "Hoje não" para esconder o aviso até as 18:00 quando nenhum dos 9 vale a pena.',
+        'Cada release agora traz o arquivo SHA256SUMS.txt para conferir os downloads, e o repositório ganhou o SECURITY.md, que explica o que o app faz com as suas contas.',
+      ],
+      en: [
+        'Lighter economy mode: while it hides the accounts, the app also turns on the game\'s own Battery Saver in each one (and turns it off when you leave). An account where you already used the Battery Saver stays as it was.',
+        'Pages that swell over long sessions reload by themselves: when a stream or the game passes twice its normal memory, the page reloads (never the stream on screen or the fullscreen game).',
+        'Daily Prey: a "Not today" button hides the reminder until 18:00 when none of the 9 is worth it.',
+        'Every release now has a SHA256SUMS.txt to check the downloads, and the repository has a SECURITY.md that explains what the app does with your accounts.',
+      ],
+      es: [
+        'Modo ahorro más ligero: al ocultar las cuentas, la app también activa el Battery Saver del propio juego en cada una (y lo desactiva al salir). Si ya usabas el Battery Saver en alguna cuenta, sigue como estaba.',
+        'Las páginas que se inflan en sesiones largas se recargan solas: cuando un stream o el juego pasa del doble de su memoria normal, la página se recarga (nunca el stream en pantalla ni el juego en pantalla completa).',
+        'Prey del día: botón "Hoy no" para ocultar el aviso hasta las 18:00 cuando ninguno de los 9 vale la pena.',
+        'Cada versión ahora trae el archivo SHA256SUMS.txt para comprobar las descargas, y el repositorio tiene un SECURITY.md que explica qué hace la app con tus cuentas.',
+      ],
+    },
+  },
+  {
     version: '0.20.0',
     date: '2026-11-23',
     notes: {
