@@ -1,5 +1,5 @@
 //! Updates: checks GitHub for a newer release (its latest.json) a little after startup and
-//! every 6 hours. The top bar then shows "⬆ <version>"; one click downloads the installer,
+//! every 30 minutes (the app stays open for days, so a new release must show up on its own). The top bar then shows "⬆ <version>"; one click downloads the installer,
 //! checks its signature against the public key in tauri.conf.json, installs it and reopens the
 //! app. Copies that weren't installed (the portable exe, debug builds) can't replace
 //! themselves: they only show that a new version is out and open its release page.
@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 const FIRST_CHECK: Duration = Duration::from_secs(20);
-const EVERY: Duration = Duration::from_secs(6 * 3600);
+const EVERY: Duration = Duration::from_secs(30 * 60);
 const RELEASES: &str = "https://github.com/dsplacemnt/pokeidle-multiview/releases/latest";
 
 #[derive(Serialize, Clone, Default)]
@@ -55,8 +55,12 @@ fn change(app: &AppHandle, f: impl FnOnce(&mut UpdateView)) {
         f(&mut v);
         v.clone()
     };
+    // The slot headers too: with the top bar hidden, the top-left one shows the button.
     for page in ["toolbar", "settings"] {
         let _ = app.emit_to(page, "update", snapshot.clone());
+    }
+    for id in 1..=crate::config::MAX_SLOTS {
+        let _ = app.emit_to(format!("head-{id}").as_str(), "update", snapshot.clone());
     }
 }
 

@@ -55,6 +55,10 @@
     .name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       font-weight: 600; background: var(--chip); }
     body.focused .name { background: var(--chip-active); box-shadow: inset 0 0 0 1px var(--accent); }
+    /* A new version (only here while the top bar is hidden). */
+    button.update { background: var(--accent); color: #1a1408; font-weight: 600; margin-right: 4px; }
+    button.update:hover { background: #ffd76b; }
+    button.update.armed { background: #3ddc84; }
     .showbar { width: 26px; padding: 0; margin-right: 4px; background: var(--chip); color: var(--accent);
       font-size: 14px; }
     .sep { width: 1px; height: 16px; background: var(--chip-active); margin: 0 4px; }
@@ -214,6 +218,8 @@
     // While the player types (renaming, adding a channel), state updates don't redraw the row.
     let editing = false;
     let latest = null;
+    // The app's update status (see updater.rs), for the button shown while the top bar is hidden.
+    let update = null;
     const redraw = () => { editing = false; if (latest) render(latest); };
 
     // Click = show the slot fullscreen (again = grid). Double-click = rename it in place
@@ -446,6 +452,19 @@
         ? [button('▾', t('Show the top bar (+ SLOT, GRID, settings…)'),
             () => invoke('set_toolbar_hidden', { hidden: false }).catch(showError), 'showbar')]
         : [];
+      // A new version is out and the top bar (where its button lives) is hidden: the same
+      // button here, so an update never goes unseen.
+      if (state.toolbar_hidden && state.corner === id && update?.available) {
+        const v = update.available;
+        const title = update.can_install
+          ? t('Version {v} is out: click to update (the app closes, installs it and opens again)', { v })
+          : t('Version {v} is out: click to open its download page', { v });
+        showBar.push(update.progress != null
+          ? Object.assign(button(t('Downloading {pct}%', { pct: update.progress }), title, () => {}, 'update'), { disabled: true })
+          : update.can_install
+            ? confirmButton(`⬆ ${v}`, t('Update now?'), title, 'update', () => invoke('install_update').catch(showError))
+            : button(`⬆ ${v}`, title, () => invoke('install_update').catch(showError), 'update'));
+      }
       // The account's game dropped out (logged in elsewhere, disconnected, no session): a red
       // chip that reloads the game.
       const issue = state.game_issues?.[id];
@@ -603,6 +622,9 @@
     Shortcuts.onChange(() => { if (latest && !editing) render(latest); });
 
     listen('state', (e) => render(e.payload));
+    const updateChanged = (u) => { update = u; if (latest && !editing) render(latest); };
+    listen('update', (e) => updateChanged(e.payload));
+    invoke('get_update').then(updateChanged).catch(() => {});
     listen('error', (e) => showError(e.payload));
     I18N.onChange(() => { if (latest && !editing) render(latest); });
     invoke('get_state').then(render);
