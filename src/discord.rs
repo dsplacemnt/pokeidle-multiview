@@ -37,6 +37,9 @@ pub struct DiscordConfig {
     /// An IdleHub vote is ready (reminded accounts only).
     #[serde(default = "on")]
     pub vote: bool,
+    /// Today's free Prey roll (or the pick) is still to do.
+    #[serde(default = "on")]
+    pub prey: bool,
     /// The daily report's local hour (None = no report).
     #[serde(default)]
     pub report_hour: Option<u8>,
@@ -47,7 +50,7 @@ pub struct DiscordConfig {
 
 impl Default for DiscordConfig {
     fn default() -> Self {
-        DiscordConfig { webhook: String::new(), shinies: true, game: true, streams: true, vote: true, report_hour: None, utc_offset_min: 0 }
+        DiscordConfig { webhook: String::new(), shinies: true, game: true, streams: true, vote: true, prey: true, report_hour: None, utc_offset_min: 0 }
     }
 }
 
@@ -69,6 +72,10 @@ pub struct Sent {
     issues: HashMap<u8, String>,
     /// The vote time each account was last reported ready for.
     votes: HashMap<u8, i64>,
+    /// The game day each account was last reminded of its Prey.
+    prey: HashMap<u8, String>,
+    /// The game day the app last saw (the Prey turns at 18:00 Brasília).
+    day: String,
     /// The last local day a report went out.
     report_day: i64,
 }
@@ -79,6 +86,7 @@ pub enum Kind {
     Game,
     Stream,
     Vote,
+    Prey,
     Report,
 }
 
@@ -115,6 +123,7 @@ fn post(state: &crate::AppState, kind: Kind, title: String, text: String, color:
         Kind::Game => d.game,
         Kind::Stream => d.streams,
         Kind::Vote => d.vote,
+        Kind::Prey => d.prey,
         Kind::Report => d.report_hour.is_some(),
     };
     if !wanted || !valid_webhook(&d.webhook) {
@@ -245,7 +254,38 @@ pub fn start(app: AppHandle) {
         let state = app.state::<Mutex<crate::AppState>>();
         let mut state = state.lock().unwrap();
         tick(&mut state);
+        // At 18:00 Brasília every account's Prey becomes due again: the pages show it now.
+        let day = crate::prey::game_day(crate::now_ms());
+        if state.discord_sent.day != day {
+            let first = state.discord_sent.day.is_empty();
+            state.discord_sent.day = day;
+            if !first {
+                check_prey(&mut state);
+                crate::publish(&app, &state);
+            }
+        }
     });
+}
+
+/// Each account whose Prey is due (free roll or pick) is told once per game day.
+pub fn check_prey(state: &mut crate::AppState) {
+    let lang = state.config.language;
+    let day = crate::prey::game_day(crate::now_ms());
+    let due: Vec<(u8, String)> = crate::prey::pendings(state).into_iter().collect();
+    for (id, what) in due {
+        if state.discord_sent.prey.get(&id) == Some(&day) {
+            continue;
+        }
+        state.discord_sent.prey.insert(id, day.clone());
+        let who = account(state, id);
+        let title = tr(lang, "🎯 Daily Prey", "🎯 Prey do dia", "🎯 Prey del día");
+        let text = if what == "pick" {
+            tr(lang, "rolled, but no Pokémon picked yet", "roletou, mas ainda não escolheu o Pokémon", "ya giró, pero aún no eligió el Pokémon")
+        } else {
+            tr(lang, "today's free roll is ready", "a roletada grátis de hoje está liberada", "la tirada gratis de hoy está disponible")
+        };
+        post(state, Kind::Prey, title, format!("**{who}**: {text}"), COLOR_INFO);
+    }
 }
 
 fn tick(state: &mut crate::AppState) {
@@ -370,6 +410,7 @@ pub struct DiscordView {
     game: bool,
     streams: bool,
     vote: bool,
+    prey: bool,
     report_hour: Option<u8>,
 }
 
@@ -385,6 +426,7 @@ fn view(d: &DiscordConfig) -> DiscordView {
         game: d.game,
         streams: d.streams,
         vote: d.vote,
+        prey: d.prey,
         report_hour: d.report_hour,
     }
 }
@@ -402,6 +444,8 @@ pub struct DiscordChange {
     game: bool,
     streams: bool,
     vote: bool,
+    #[serde(default = "on")]
+    prey: bool,
     report_hour: Option<u8>,
     utc_offset_min: i32,
 }
@@ -423,6 +467,7 @@ pub fn set_discord(app: AppHandle, change: DiscordChange) -> Result<DiscordView,
     d.game = change.game;
     d.streams = change.streams;
     d.vote = change.vote;
+    d.prey = change.prey;
     d.report_hour = change.report_hour.filter(|h| *h < 24);
     d.utc_offset_min = change.utc_offset_min.clamp(-14 * 60, 14 * 60);
     let out = view(&state.config.discord);

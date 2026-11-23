@@ -191,6 +191,12 @@
             t('Its {platform} streams wait for a login (they would earn nothing)', { platform: PLATFORM[platform] }),
             t('Log in'), () => invoke('open_login', { id: slot.id, platform })));
         }
+        const prey = state.prey_pending?.[slot.id];
+        if (prey) {
+          rows.push(notice('prey', '🎯', prey === 'pick' ? t('{name}: pick the Prey Pokémon', { name: names[slot.id] }) : t('{name}: daily Prey ready', { name: names[slot.id] }),
+            prey === 'pick' ? t('Rolled, but none of the 9 is picked: the bonus does nothing yet') : t('The free roll renews every day at 18:00 (Brasília)'),
+            t('Show'), () => invoke('focus_slot', { id: slot.id })));
+        }
         const vote = state.vote?.[slot.id];
         if (vote && vote.readyAt && vote.readyAt <= now) {
           rows.push(notice('vote', '★', t('IdleHub vote ready'), t('{name} can vote now (+1 toward a diamond)', { name: names[slot.id] }),

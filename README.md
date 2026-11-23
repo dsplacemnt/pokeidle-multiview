@@ -56,6 +56,10 @@ under 10 MB. An **experimental Linux** build (WebKitGTK) comes with every releas
   their warnings, last seen channel points, and an activity log of what the app did for it
   (swaps, redeems, chests, reloads, claims). **▤** in the slot's header hides or shows it; the
   choice is remembered.
+- **Daily Prey.** When an account's free Prey roll is ready (it renews at 18:00 Brasília) or
+  it rolled without picking the Pokémon, its header shows **🎯 Prey** (also in economy mode, the
+  stats panel's Daily chores and, if wanted, Discord). The stats panel shows each card's picked
+  Pokémon, bonus and stars, and whether the account is hunting it now. The app only reads it.
 - **Discord alerts.** ⚙ → Discord: paste a webhook of a channel in your server and the app
   posts there when a shiny shows up (seen, caught or fled), an account's game drops out, a
   stream needs you, an IdleHub vote is ready, and once a day a short report. Each kind can be
@@ -322,6 +326,7 @@ src/hunt.rs      finds the installed /hunt extension and copies it for WebView2
 src/channels.rs  recognizes Twitch/Kick channel links
 src/game.rs      game connection warnings and the Pokémon sprites for the stats panel
 src/discord.rs   Discord alerts (webhook, what to send, daily report)
+src/prey.rs      the game's daily Prey: what's left to do today, for the reminders
 ui/              toolbar, splitter strips and settings window (the only pages that can call Rust)
 scripts/         scripts injected into the game pages
 tests/fixtures/  a tiny extension used to test extension loading

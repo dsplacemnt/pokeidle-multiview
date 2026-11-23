@@ -77,6 +77,10 @@
     .vote.ready { color: #1a1408; background: var(--accent); animation: votepulse 2s ease-in-out infinite; }
     .vote.ready:hover { background: #ffd76b; }
     @keyframes votepulse { 50% { box-shadow: 0 0 0 3px rgba(242, 193, 78, .25); } }
+    /* Daily Prey still to do (free roll or pick): violet like the Lure bonus. */
+    button.prey { height: 20px; padding: 0 9px; margin-left: 6px; border-radius: 10px; font-size: 11.5px; font-weight: 600;
+      color: #e3c4ff; background: rgba(180, 120, 255, .16); box-shadow: inset 0 0 0 1px rgba(180, 120, 255, .5); }
+    button.prey:hover { background: rgba(180, 120, 255, .28); }
     .bonus { height: 20px; padding: 0 7px; border-radius: 10px; display: inline-flex; align-items: center;
       font-size: 11.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: default; }
     .bonus.xp { color: #ffd76b; background: rgba(242, 193, 78, .14); }
@@ -411,6 +415,19 @@
 
     // --- IdleHub vote reminder (accounts ticked in ⚙) --------------------------------------
     const voteBox = Object.assign(document.createElement('span'), { className: 'votebox' });
+    // The game's daily Prey is due: today's free roll, or the pick of one of the 9 Pokémon.
+    // Click = show this account fullscreen (the Prey is in the game's bag).
+    function preyChip(state, focused) {
+      const what = state.prey_pending?.[id];
+      if (!what) return [];
+      const title = what === 'pick'
+        ? t('Prey rolled, but no Pokémon picked: its bonus does nothing yet. In the game: Bag → Prey, pick one of the 9.')
+        : t("Today's free Prey roll is ready (it renews at 18:00 Brasília). In the game: Bag → Prey → Roll.");
+      return [button(`🎯 ${t(what === 'pick' ? 'Pick Prey' : 'Prey')}`, title, () => {
+        if (!focused) call('focus_slot');
+      }, 'prey')];
+    }
+
     function renderVote() {
       const s = latest?.vote?.[id];
       if (!s || s.error) {
@@ -482,6 +499,7 @@
         ...stopButton(panels),
         bonusBox,
         voteBox,
+        ...preyChip(state, focused),
         error,
         Object.assign(document.createElement('span'), { className: 'spacer' }),
         // Fullscreen: shows or hides the stats panel on the right.

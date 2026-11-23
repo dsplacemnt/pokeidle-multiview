@@ -30,6 +30,7 @@ mod power;
 mod power;
 mod splash;
 mod logins;
+mod prey;
 mod resources;
 mod shortcuts;
 mod support;
@@ -120,6 +121,8 @@ struct AppState {
     sprites: HashMap<u32, serde_json::Value>,
     /// What the Discord alerts already sent (see discord.rs).
     discord_sent: discord::Sent,
+    /// Each account's daily Prey cards, as its game page reported them (see prey.rs).
+    prey: HashMap<u8, (prey::Report, serde_json::Value)>,
 }
 
 /// Events kept per account in the automation log.
@@ -158,6 +161,8 @@ struct StateView {
     logins: HashMap<u8, HashMap<Platform, bool>>,
     /// Accounts whose game dropped out (logged in elsewhere, disconnected, no session): slot → text.
     game_issues: HashMap<u8, String>,
+    /// Accounts whose daily Prey is due: slot → "roll" (free roll ready) or "pick".
+    prey_pending: HashMap<u8, String>,
 }
 
 fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
@@ -321,6 +326,7 @@ fn state_view(state: &AppState) -> StateView {
         economy: state.config.economy,
         logins: logins::view(state),
         game_issues: game::issues(state),
+        prey_pending: prey::pendings(state),
     }
 }
 
@@ -411,6 +417,9 @@ struct FocusView {
     game_issue: Option<String>,
     /// Pokémon sprites by look, for the hunt analysis.
     sprites: HashMap<u32, serde_json::Value>,
+    /// The account's daily Prey as its page reported it, and what's left to do today.
+    prey: Option<serde_json::Value>,
+    prey_pending: Option<String>,
 }
 
 fn focus_view(state: &AppState) -> Option<FocusView> {
@@ -458,6 +467,8 @@ fn focus_view(state: &AppState) -> Option<FocusView> {
         game: state.game_stats.get(&id).cloned(),
         game_issue: state.game_conn.get(&id).and_then(|c| game::issue(c, now_ms())).map(str::to_string),
         sprites: state.sprites.clone(),
+        prey: state.prey.get(&id).map(|(_, v)| v.clone()),
+        prey_pending: state.prey.get(&id).and_then(|(r, _)| prey::pending(r, now_ms())).map(str::to_string),
     })
 }
 
@@ -925,6 +936,8 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
                 game::conn_reported(&title_app, id, json);
             } else if let Some(json) = title.strip_prefix("[multiview-sprite] ") {
                 game::sprite_reported(&title_app, json);
+            } else if let Some(json) = title.strip_prefix("[multiview-prey] ") {
+                prey::reported(&title_app, id, json);
             }
         })
         .on_navigation(move |url| {
@@ -3603,6 +3616,7 @@ fn main() {
                 game_conn: HashMap::new(),
                 sprites: HashMap::new(),
                 discord_sent: discord::Sent::default(),
+                prey: HashMap::new(),
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is

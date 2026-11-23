@@ -158,6 +158,8 @@
       // A new hunt: its own numbers.
       if (game.hunt !== null) run = newRun();
       game.hunt = state.huntSlug;
+      // Whether the Prey Pokémon is in this hunt changes with it.
+      if (huntSpecies.size) reportPrey();
     }
     if (!run) run = newRun();
     if (state.balls && typeof state.balls === 'object') {
@@ -320,14 +322,110 @@
   }
   setInterval(sendStats, 30000);
 
+  // The daily Prey (renews at 18:00 Brasília): the account's cards, as the game keeps them in
+  // its automation ({dia, cartelas:[{lista, pk, bonus, est}]}, sent when the page connects) and
+  // as "preyRoletou"/"preyEscolheu" change them. Reported with the chosen Pokémon's name, sprite
+  // and whether the account is hunting it: "[multiview-prey] {…}".
+  const prey = { dia: null, cards: [null, null], unlocked2: false };
+  let huntSpecies = new Map(); // hunt slug → Set of pokeIds
+  let speciesHunt = new Map(); // pokeId → { name, hunt, level } (its lowest-level hunt)
+  let looks = null; // pokeId → looktype (from the game's species lists, loaded once)
+  let preySent = '';
+  let serverOffset = 0; // server clock − PC clock
+  const preyDay = () => new Date(Date.now() + serverOffset + 3 * 3600000).toISOString().slice(0, 10);
+  function loadLooks() {
+    if (looks) return Promise.resolve(looks);
+    const files = ['/assets/creatures.json', '/assets/creatures-novos.json', '/assets/creatures-outland-novos.json'];
+    return Promise.all(files.map((f) => fetch(f).then((r) => (r.ok ? r.json() : null)).catch(() => null))).then((all) => {
+      looks = new Map();
+      for (const j of all) {
+        const list = Array.isArray(j) ? j : j && (j.creatures || Object.values(j)[0]);
+        for (const c of Array.isArray(list) ? list : []) if (c && c.pokeId != null && c.looktype) looks.set(Number(c.pokeId), Number(c.looktype));
+      }
+      return looks;
+    });
+  }
+  function onHunts(hunts) {
+    huntSpecies = new Map();
+    speciesHunt = new Map();
+    for (const h of hunts) {
+      if (!h || !h.slug) continue;
+      const ids = new Set();
+      for (const e of h.especies || []) {
+        const id = Number(e.pokeId);
+        ids.add(id);
+        const best = speciesHunt.get(id);
+        if (!best || h.nivel < best.level) speciesHunt.set(id, { name: e.nome, hunt: h.nome, level: Number(h.nivel) || 0 });
+      }
+      huntSpecies.set(h.slug, ids);
+    }
+    reportPrey();
+  }
+  function onPrey(p, cartela2) {
+    if (cartela2 !== undefined) prey.unlocked2 = Number(cartela2) > 0;
+    if (!p || typeof p !== 'object') return reportPrey();
+    prey.dia = typeof p.dia === 'string' ? p.dia : null;
+    const cards = Array.isArray(p.cartelas) ? p.cartelas : [];
+    prey.cards = [0, 1].map((i) => cards[i] || null);
+    reportPrey();
+  }
+  function onPreyCard(i, c) {
+    i = Number(i);
+    if (!(i >= 0 && i < 2) || !c) return;
+    // A roll or a pick is always about today.
+    if (prey.dia !== preyDay()) prey.cards = [null, null];
+    prey.dia = preyDay();
+    prey.cards[i] = c;
+    reportPrey();
+  }
+  async function reportPrey() {
+    await loadLooks();
+    const cards = prey.cards.map((c, i) => {
+      if (i === 1 && !prey.unlocked2) return null;
+      if (!c) return { rolled: false };
+      const pk = c.pk == null ? null : Number(c.pk);
+      const info = pk == null ? null : speciesHunt.get(pk);
+      const look = pk == null ? null : looks.get(pk) || null;
+      if (look) sprite(look);
+      return {
+        rolled: Array.isArray(c.lista) && c.lista.length > 0,
+        pk,
+        name: info?.name || (pk == null ? null : `#${pk}`),
+        look,
+        bonus: c.bonus || null,
+        stars: Number(c.est) || null,
+        // Hunting it right now (it spawns in the account's current hunt).
+        hunting: pk == null || !game.hunt || !huntSpecies.size ? null : !!huntSpecies.get(game.hunt)?.has(pk),
+        hunt: info?.hunt || null,
+        huntLevel: info?.level ?? null,
+      };
+    });
+    const out = { day: prey.dia, today: preyDay(), cards };
+    const text = JSON.stringify(out);
+    if (text === preySent) return;
+    preySent = text;
+    queue.push(`[multiview-prey] ${text}`);
+    if (!busy) next();
+  }
+
   function inspect(data) {
     if (typeof data !== 'string') return;
     const battle = data.includes('"batalha"');
     const catalog = data.includes('"catalogoBolas"');
-    if (!battle && !catalog && !data.includes('"estado"')) return;
+    const preyMsg = data.includes('"prey');
+    if (!battle && !catalog && !preyMsg && !data.includes('"estado"')) return;
     let message;
     try { message = JSON.parse(data); } catch { return; }
     if (!message) return;
+    if (Array.isArray(message.hunts)) onHunts(message.hunts);
+    if (message.t === 'preyRoletou' || message.t === 'preyEscolheu') onPreyCard(message.cartela, message.c);
+    if (message.t === 'preyDesbloqueou') { prey.unlocked2 = true; reportPrey(); }
+    if (message.estado && Number(message.estado.servidorAgora)) serverOffset = Number(message.estado.servidorAgora) - Date.now();
+    // The welcome always counts (no "prey" there = nothing rolled yet); the full snapshots sent
+    // later leave it out, so only a message that has it changes it.
+    if (message.estado && message.estado.automation && (message.t === 'welcome' || 'prey' in message.estado.automation || 'preyCartela2' in message.estado.automation)) {
+      onPrey(message.estado.automation.prey, message.estado.automation.preyCartela2);
+    }
     if (Array.isArray(message.itensNossos)) ownItems(message.itensNossos);
     if (catalog && Array.isArray(message.catalogoBolas)) {
       ballCatalog = new Map(message.catalogoBolas.map((x) => [Number(x.id), { name: x.nome || x.name, price: Number(x.priceGold) || 0 }]));

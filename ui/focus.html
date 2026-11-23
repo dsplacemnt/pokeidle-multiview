@@ -151,6 +151,25 @@
     .tag.caught { color: var(--ok); background: rgba(61, 220, 132, .12); }
     .tag.fled { color: var(--bad); background: rgba(255, 138, 128, .12); }
     .tag.seen { color: #ffd76b; background: rgba(242, 193, 78, .12); }
+    /* Daily Prey. */
+    .prey-list { display: grid; gap: 8px; }
+    .prey-row { display: grid; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--chip); }
+    .prey-head { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .prey-n { font-weight: 700; color: var(--muted); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+    .prey-head .tag, .prey-bonus { margin-left: auto; }
+    .prey-bonus { font-weight: 700; font-size: 12px; white-space: nowrap; color: var(--text); }
+    .prey-bonus.dano { color: #ff9f80; } .prey-bonus.defesa { color: #8fd3ff; }
+    .prey-bonus.captura { color: #3ddc84; } .prey-bonus.spawn { color: #d8a8ff; }
+    .prey-stars { letter-spacing: 1px; }
+    .prey-stars:first-of-type { margin-left: 3px; }
+    .prey-stars.off { color: var(--chip-active); }
+    .prey-mon { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .prey-text { flex: 1 1 auto; min-width: 0; display: grid; }
+    .prey-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prey-effect { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prey-hint { font-size: 11.5px; color: var(--muted); }
+    .prey-hint.warn { color: #ffb74d; }
+    .tag.warn { color: #ffb74d; background: rgba(255, 183, 77, .12); }
     /* The account's game dropped out. */
     .card.issue { box-shadow: inset 0 0 0 1px rgba(255, 138, 128, .55); background: rgba(255, 138, 128, .08); }
     .card.issue h2 { color: var(--bad); }
@@ -351,6 +370,15 @@
       }
       daily.append(dName, dTag);
       c.append(vote, daily);
+      // Daily Prey (only once the game page reported it).
+      if (v.prey) {
+        const prey = el('div', 'chore');
+        const pName = el('span', 'name', t('Daily Prey'));
+        const due = v.prey_pending;
+        pName.append(el('small', '', due === 'roll' ? t('Free roll ready (renews at 18:00 Brasília)') : due === 'pick' ? t('Rolled: pick one of the 9 Pokémon') : t('Rolled and picked today')));
+        prey.append(pName, el('span', 'tag' + (due ? ' warn' : ' ok'), due === 'roll' ? t('roll') : due === 'pick' ? t('pick') : t('done')));
+        c.append(prey);
+      }
       return c;
     }
 
@@ -530,6 +558,69 @@
       return c;
     }
 
+    // The game's daily Prey: the picked Pokémon of each card, its bonus and stars, and whether
+    // this account is hunting it right now (the bonus only works in a hunt where it spawns).
+    const PREY_VALUE = { dano: [10, 20, 30, 40, 50], defesa: [10, 20, 30, 40, 50], captura: [2, 4, 6, 8, 10], spawn: [1, 2, 3, 4, 5] };
+    const PREY_BONUS = { dano: 'Damage', defesa: 'Defense', captura: 'Capture Boost', spawn: 'Spawn' };
+    const PREY_EFFECT = {
+      dano: '+{v}% damage against it', defesa: 'it deals {v}% less damage', captura: '+{v}% chance to catch it', spawn: '+{v} of it in each wave',
+    };
+    // Next turn of the game day: 18:00 Brasília = 21:00 UTC.
+    const nextPreyTurn = () => { const d = new Date(); d.setUTCHours(21, 0, 0, 0); if (d <= new Date()) d.setUTCDate(d.getUTCDate() + 1); return d.getTime(); };
+    function preyCard(v) {
+      const p = v.prey;
+      if (!p) return null;
+      const c = card(t('Daily Prey'), t('renews in {time}', { time: left(nextPreyTurn() - Date.now()) }));
+      const list = el('div', 'prey-list');
+      const stale = p.day !== p.today && v.prey_pending === 'roll';
+      (p.cards || []).forEach((k, i) => {
+        if (!k) return; // card 2 locked
+        const row = el('div', 'prey-row');
+        const head = el('div', 'prey-head');
+        head.append(el('span', 'prey-n', t('Card {n}', { n: i + 1 })));
+        if (stale || !k.rolled) {
+          head.append(el('span', 'tag warn', t('free roll ready')));
+          row.append(head, el('div', 'prey-hint', t('In the game: Bag → Prey → Roll (free once a day).')));
+          list.append(row);
+          return;
+        }
+        // Stars: the filled ones in the bonus color, the rest faint.
+        const bonus = el('span', `prey-bonus ${k.bonus || ''}`, `${t(PREY_BONUS[k.bonus] || '?')} `);
+        if (k.stars) {
+          bonus.append(el('span', 'prey-stars', '★'.repeat(k.stars)), el('span', 'prey-stars off', '★'.repeat(5 - k.stars)));
+          bonus.title = t(k.stars === 1 ? '{n} star' : '{n} stars', { n: k.stars });
+        }
+        head.append(bonus);
+        row.append(head);
+        if (k.pk == null) {
+          row.append(el('div', 'prey-hint warn', t('No Pokémon picked yet: the bonus does nothing. In the game: Bag → Prey, pick one of the 9.')));
+          list.append(row);
+          return;
+        }
+        const mon = el('div', 'prey-mon');
+        const name = el('span', 'prey-name', k.name || `#${k.pk}`);
+        const value = PREY_VALUE[k.bonus]?.[(k.stars || 1) - 1];
+        const effect = el('span', 'prey-effect', value != null ? t(PREY_EFFECT[k.bonus], { v: value }) : '');
+        const text = el('div', 'prey-text');
+        text.append(name, effect);
+        mon.append(spriteEl(k.look, 36), text);
+        const status = k.hunting === true
+          ? el('span', 'tag ok', t('in this hunt'))
+          : k.hunting === false
+            ? el('span', 'tag warn', t('not in this hunt'))
+            : el('span', 'tag', '—');
+        status.title = k.hunting === false && k.hunt
+          ? t('{name} spawns in {hunt} (Lv {level}): the bonus only works while hunting it.', { name: k.name, hunt: k.hunt, level: k.huntLevel })
+          : '';
+        mon.append(status);
+        row.append(mon);
+        if (k.hunting === false && k.hunt) row.append(el('div', 'prey-hint', t('Found in {hunt} · Lv {level}', { hunt: k.hunt, level: k.huntLevel })));
+        list.append(row);
+      });
+      c.append(list);
+      return c;
+    }
+
     function logCard(v) {
       const c = card(t('Activity'), v.log.length ? t('last {n}', { n: v.log.length }) : '');
       const list = el('div', 'list log');
@@ -550,7 +641,7 @@
       title.textContent = v.name;
       title.append(el('span', 'sub', `#${v.slot}`));
       const scroll = document.scrollingElement.scrollTop;
-      cards.replaceChildren(...[issueCard(v), huntCard(v), bonusesCard(v), choresCard(v), streamsCard(v), pointsCard(v), logCard(v)].filter(Boolean));
+      cards.replaceChildren(...[issueCard(v), huntCard(v), preyCard(v), bonusesCard(v), choresCard(v), streamsCard(v), pointsCard(v), logCard(v)].filter(Boolean));
       document.scrollingElement.scrollTop = scroll;
     }
 

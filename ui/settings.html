@@ -380,6 +380,8 @@
         <span><span data-i18n>Streams the app couldn't fix</span><span class="hint" data-i18n>A stream stuck or offline after the app tried to fix it.</span></span></label>
       <label class="row"><input type="checkbox" id="d_vote">
         <span><span data-i18n>IdleHub vote ready</span><span class="hint" data-i18n>For the accounts with the vote reminder on (Accounts tab).</span></span></label>
+      <label class="row"><input type="checkbox" id="d_prey">
+        <span><span data-i18n>Daily Prey</span><span class="hint" data-i18n>When an account still has today's free Prey roll (or the pick) to do, once a day after 18:00 Brasília.</span></span></label>
       <label class="row stack" for="d_report">
         <span><span data-i18n>Daily report</span><span class="hint" data-i18n>Once a day: each account's level, XP and gold per hour, bonuses running and shinies.</span></span>
         <select id="d_report"></select>
@@ -429,7 +431,7 @@
     // ⚙ → Discord. The webhook is never shown back: only whether one is set and its end.
     const hook = document.getElementById('hook');
     const hookState = document.getElementById('hook-state');
-    const dBoxes = ['shinies', 'game', 'streams', 'vote'];
+    const dBoxes = ['shinies', 'game', 'streams', 'vote', 'prey'];
     const dReport = document.getElementById('d_report');
     let discord = null;
     function fillReportHours() {
@@ -456,6 +458,7 @@
           game: document.getElementById('d_game').checked,
           streams: document.getElementById('d_streams').checked,
           vote: document.getElementById('d_vote').checked,
+          prey: document.getElementById('d_prey').checked,
           report_hour: dReport.value === '' ? null : Number(dReport.value),
           // Minutes east of UTC, for the report's hour.
           utc_offset_min: -new Date().getTimezoneOffset(),
