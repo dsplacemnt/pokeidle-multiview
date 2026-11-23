@@ -3,6 +3,30 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.18.0',
+    date: '2026-11-23',
+    notes: {
+      pt: [
+        'Aviso quando o jogo de uma conta cai: logada em outro lugar, sem conexão por mais de 1 minuto ou sem login no jogo. Aparece como ⚠ Jogo no cabeçalho do slot, no modo economia e no painel, com botão para recarregar.',
+        'Análise da hunt com as sprites do próprio jogo: seu Pokémon contra o selvagem.',
+        'Barras de experiência do Treinador e do Pokémon, com o % do nível e o tempo até o próximo.',
+        'Shinies da sessão: cada shiny visto, capturado ou que fugiu, com sprite e horário.',
+      ],
+      en: [
+        'A warning when an account\'s game drops out: logged in somewhere else, disconnected for over a minute, or not logged in to the game. It shows as ⚠ Game on the slot header, in economy mode and in the panel, with a button to reload.',
+        'Hunt analysis with the game\'s own sprites: your Pokémon vs the wild one.',
+        'Experience bars for the Trainer and the Pokémon, with the % of the level and the time to the next one.',
+        'Shinies this session: each shiny seen, caught or fled, with its sprite and time.',
+      ],
+      es: [
+        'Aviso cuando el juego de una cuenta se cae: sesión iniciada en otro lugar, sin conexión por más de 1 minuto o sin sesión en el juego. Aparece como ⚠ Juego en la cabecera del slot, en el modo ahorro y en el panel, con un botón para recargar.',
+        'Análisis de la hunt con los sprites del propio juego: tu Pokémon contra el salvaje.',
+        'Barras de experiencia del Entrenador y del Pokémon, con el % del nivel y el tiempo hasta el siguiente.',
+        'Shinies de la sesión: cada shiny visto, capturado o que huyó, con su sprite y hora.',
+      ],
+    },
+  },
+  {
     version: '0.17.1',
     date: '2026-11-23',
     notes: {
