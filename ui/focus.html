@@ -112,6 +112,44 @@
     .stat .v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .stat .k { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Pokémon sprites, cut from the game's own sprite sheets (see game.rs). */
+    .spr { position: relative; flex: none; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; }
+    .spr i { position: absolute; left: 50%; top: 50%; image-rendering: pixelated; background-repeat: no-repeat; }
+    .spr.none::after { content: ''; width: 40%; height: 40%; border-radius: 50%; background: var(--chip-active); }
+    /* The fight: your Pokémon vs the wild one. */
+    .fight { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; margin-bottom: 12px; }
+    .fighter { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding: 6px 4px 7px;
+      border-radius: 8px; background: var(--chip); }
+    .fighter .fname { font-size: 12.5px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fighter .flv { font-size: 11px; color: var(--muted); }
+    .fighter.shiny { box-shadow: inset 0 0 0 1px #ffd76b; }
+    .fighter.shiny .fname::after { content: ' ✨'; }
+    .vs { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .06em; }
+    /* XP meters. */
+    .hunt-sec + .hunt-sec { margin-top: 12px; }
+    .xprow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; align-items: center; font-size: 12.5px;
+      font-variant-numeric: tabular-nums; }
+    .xprow + .xprow { margin-top: 6px; }
+    .xprow .xname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .xprow .xname small { color: var(--muted); font-weight: 500; margin-left: 4px; }
+    .xprow .xin { text-align: right; font-weight: 700; white-space: nowrap; }
+    .xprow .xin small { color: var(--muted); font-weight: 500; }
+    .xprow .bar { grid-column: 1 / -1; height: 7px; }
+    .xprow .bar i { background: linear-gradient(90deg, #5aaaff, #8fd3ff); }
+    .xprow.trainer .bar i { background: linear-gradient(90deg, #f2c14e, #ffd76b); }
+    /* Shinies met while the game is open. */
+    .shiny-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 2px 6px 2px 2px; border-radius: 6px; background: var(--chip); }
+    .shiny-row .sname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .shiny-row .sname small { color: var(--muted); font-weight: 500; margin-left: 4px; }
+    .shiny-row .when { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+    .tag.caught { color: var(--ok); background: rgba(61, 220, 132, .12); }
+    .tag.fled { color: var(--bad); background: rgba(255, 138, 128, .12); }
+    .tag.seen { color: #ffd76b; background: rgba(242, 193, 78, .12); }
+    /* The account's game dropped out. */
+    .card.issue { box-shadow: inset 0 0 0 1px rgba(255, 138, 128, .55); background: rgba(255, 138, 128, .08); }
+    .card.issue h2 { color: var(--bad); }
+    .issue-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+    .issue-row span { flex: 1 1 auto; }
     .log .item { align-items: baseline; font-size: 12px; }
     .log .when { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; width: 38px; }
     .log .name { white-space: normal; overflow: visible; }
@@ -324,12 +362,59 @@
       return d ? `${d}d ${hh}h` : hh ? `${hh}h${String(mm).padStart(2, '0')}` : `${mm}m`;
     };
     const huntName = (slug) => (slug || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+    // A Pokémon's sprite in a size×size box: its first frame, cut from the game's sheet and
+    // scaled in whole steps (pixel art stays sharp). A gray dot until the game sent it.
+    function spriteEl(look, size) {
+      const box = el('span', 'spr');
+      box.style.width = box.style.height = `${size}px`;
+      const s = look ? view?.sprites?.[look] : null;
+      if (!s) { box.classList.add('none'); return box; }
+      const img = el('i');
+      const scale = Math.max(0.5, Math.min(size / s.w, size / s.h));
+      Object.assign(img.style, {
+        width: `${s.w}px`, height: `${s.h}px`,
+        backgroundImage: `url("${s.src}")`, backgroundPosition: `-${s.x}px -${s.y}px`,
+        transform: `translate(-50%, -50%) scale(${scale})`,
+      });
+      box.append(img);
+      return box;
+    }
+    const RESULTS = { seen: 'seen', caught: 'caught', fled: 'fled' };
+
+    // The account's game dropped out: first thing in the panel, with the fix.
+    function issueCard(v) {
+      if (!v.game_issue) return null;
+      const c = card(t('The game needs you'));
+      c.classList.add('issue');
+      const row = el('div', 'issue-row');
+      const b = el('button', '', t('Reload'));
+      b.title = t('Click to reload the game');
+      b.addEventListener('click', () => invoke('reload_slot', { id: v.slot }).catch(() => {}));
+      row.append(el('span', '', I18N.text(v.game_issue)), b);
+      c.append(row);
+      return c;
+    }
     const KINDS = { ball: 'Balls', potion: 'Potions', revive: 'Revives' };
 
     function huntCard(v) {
       const h = v.game;
       if (!h || h.v !== 2) return null;
       const c = card(t('Hunt analysis'), [huntName(h.hunt), hoursText(h.minutes / 60)].filter(Boolean).join(' · '));
+
+      // The fight right now: the active Pokémon vs the wild one.
+      if (h.pokemon || h.foe) {
+        const fight = el('div', 'fight');
+        const fighter = (p, who) => {
+          const f = el('div', 'fighter' + (p?.shiny ? ' shiny' : ''));
+          if (!p) { f.append(el('span', 'flv', '—')); return f; }
+          f.append(spriteEl(p.look, 56), el('span', 'fname', p.name), el('span', 'flv', `Lv ${p.level ?? '?'}`));
+          f.title = who;
+          return f;
+        };
+        fight.append(fighter(h.pokemon, t('Your Pokémon')), el('span', 'vs', 'VS'), fighter(h.foe, t('Wild Pokémon')));
+        c.append(fight);
+      }
 
       // Supplies: what's left, used per hour, and how long it lasts at this pace.
       const sup = el('div', 'hunt-sec');
@@ -371,23 +456,49 @@
       const rate = h.throws ? Math.round((h.catches / h.throws) * 1000) / 10 : null;
       tile(h.throws ? `${h.catches}/${h.throws}` : '—', rate !== null ? t('Catches ({rate}%)', { rate }) : t('Catches'));
 
-      // Next levels.
+      // XP: how far into the level, and when the next one comes at this pace.
       const lv = el('div', 'hunt-sec');
-      lv.append(el('div', 'sub', t('Next level')));
-      const level = (who, from, hoursLeft) => {
-        const r = el('div', 'lvrow');
-        r.append(el('span', 'lvname', who), el('span', 'lvfrom', `Lv ${from} → ${from + 1}`), el('span', 'lvin', hoursLeft !== null ? t('in {time}', { time: hoursText(hoursLeft) }) : '—'));
+      lv.append(el('div', 'sub', t('Experience')));
+      const level = (who, cls, p) => {
+        const r = el('div', `xprow ${cls}`);
+        const name = el('span', 'xname', who);
+        name.append(el('small', '', `Lv ${p.level} → ${p.level + 1}`));
+        const bar = el('div', 'bar');
+        const fill = el('i');
+        fill.style.width = `${p.pct ?? 0}%`;
+        bar.append(fill);
+        r.append(name, el('span', 'xin', p.pct !== null && p.pct !== undefined ? `${p.pct}%` : '—'), bar);
+        r.title = (p.pct !== null && p.pct !== undefined ? t('{pct}% of the level', { pct: p.pct }) : '')
+          + (p.hoursLeft !== null && p.hoursLeft !== undefined ? ` · ${t('next level in {time}', { time: hoursText(p.hoursLeft) })}` : '');
+        if (p.hoursLeft !== null && p.hoursLeft !== undefined) {
+          r.querySelector('.xin').append(el('small', '', ` · ${t('in {time}', { time: hoursText(p.hoursLeft) })}`));
+        }
         lv.append(r);
       };
-      if (h.trainer) level(t('Trainer'), h.trainer.level, h.trainer.hoursLeft);
-      if (h.pokemon) level(h.pokemon.name, h.pokemon.level, h.pokemon.hoursLeft);
+      if (h.trainer) level(t('Trainer'), 'trainer', h.trainer);
+      if (h.pokemon) level(h.pokemon.name, 'pokemon', h.pokemon);
+
+      // Shinies met while this game is open.
+      const sh = el('div', 'hunt-sec');
+      const list = h.shinyList || [];
+      if (list.length) {
+        sh.append(el('div', 'sub', t('Shinies this session')));
+        for (const s of list) {
+          const row = el('div', 'shiny-row');
+          const name = el('span', 'sname', s.name);
+          if (s.level !== null && s.level !== undefined) name.append(el('small', '', `Lv ${s.level}`));
+          row.append(spriteEl(s.look, 30), name, el('span', 'when', clock(s.at)), el('span', `tag ${RESULTS[s.result] || 'seen'}`, t(RESULTS[s.result] || 'seen')));
+          sh.append(row);
+        }
+      }
 
       const foot = [];
       if (h.killsPerHour === null) foot.push(t('Rates show after 5 minutes of hunting.'));
-      if (h.shinies) foot.push(t('{n} shiny seen', { n: h.shinies }));
-      if (h.wild) foot.push(t('Fighting {wild}', { wild: h.wild }));
+      if (h.shinies && !list.length) foot.push(t('{n} shiny seen', { n: h.shinies }));
+      if (h.wild && !h.foe) foot.push(t('Fighting {wild}', { wild: h.wild }));
       c.append(sup, grid);
       if (h.trainer || h.pokemon) c.append(lv);
+      if (list.length) c.append(sh);
       if (foot.length) c.append(el('div', 'hunt-foot', foot.join(' · ')));
       return c;
     }
@@ -412,7 +523,7 @@
       title.textContent = v.name;
       title.append(el('span', 'sub', `#${v.slot}`));
       const scroll = document.scrollingElement.scrollTop;
-      cards.replaceChildren(...[huntCard(v), bonusesCard(v), choresCard(v), streamsCard(v), pointsCard(v), logCard(v)].filter(Boolean));
+      cards.replaceChildren(...[issueCard(v), huntCard(v), bonusesCard(v), choresCard(v), streamsCard(v), pointsCard(v), logCard(v)].filter(Boolean));
       document.scrollingElement.scrollTop = scroll;
     }
 

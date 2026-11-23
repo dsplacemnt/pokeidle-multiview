@@ -50,7 +50,48 @@
     .then((j) => { for (const i of j.items || j || []) names.set(i.id, { name: i.name, price: Number(i.npcPrice) || 0 }); })
     .catch(() => {});
 
-  const game = { balls: {}, items: null, itemsAt: 0, xp: null, xpNext: null, level: null, pokemon: null, hunt: null, wild: null, gold: null };
+  const game = { balls: {}, items: null, itemsAt: 0, xp: null, xpStart: null, xpNext: null, level: null, pokemon: null, hunt: null, wild: null, wildInfo: null, gold: null };
+
+  // Sprites for the panel, cut from the game's own sprite sheets: the game's sprites.mjs module
+  // (already loaded by the page, so this costs no download) knows where each Pokémon's frames
+  // are. Each looktype is reported once: "[multiview-sprite] {"look":60006,"src":…,"x":…}".
+  const spriteSent = new Set();
+  let spriteModule = null;
+  function sprite(look) {
+    look = Number(look);
+    if (!Number.isFinite(look) || look <= 1 || spriteSent.has(look)) return;
+    spriteSent.add(look);
+    (spriteModule ??= import('/sprites.mjs'))
+      .then((m) => m.carregarOutfit(look))
+      .then((s) => {
+        if (!s) return;
+        const frames = (s.byDir && (s.byDir[3] || Object.values(s.byDir)[0])) || [];
+        const f = frames[0];
+        const img = f && s.imagens && s.imagens[f.pagina];
+        if (!img || !img.src) return;
+        queue.push(`[multiview-sprite] ${JSON.stringify({ look, src: img.src, x: f.x, y: f.y, w: f.w, h: f.h })}`);
+        if (!busy) next();
+      })
+      .catch(() => {});
+  }
+
+  // Shinies met while this page is open (newest first): seen, caught or fled. Kept across hunt
+  // changes; reported with the hunt analysis, right away when something happens.
+  const shinies = [];
+  const SHINY_KEEP = 10;
+  function shinyEvent(battle, info, result) {
+    let s = shinies.find((x) => x.battle === battle && battle !== undefined);
+    if (!s) {
+      if (result !== 'seen' && !info) return;
+      s = { battle, name: info?.name || '?', level: info?.level ?? null, look: info?.look ?? null, result: 'seen', at: Date.now() };
+      shinies.unshift(s);
+      shinies.length = Math.min(shinies.length, SHINY_KEEP);
+    }
+    if (result !== 'seen') s.result = result;
+    if (s.look) sprite(s.look);
+    statsAt = 0; // send now
+    setTimeout(sendStats, 500);
+  }
   let run = null;
   const newRun = () => ({
     start: Date.now(), kills: 0, xp: 0, gold: 0, throws: 0, catches: 0, shinies: 0,
@@ -78,11 +119,23 @@
     }
     if (Number.isFinite(Number(state.xp))) game.xp = Number(state.xp);
     if (Number.isFinite(Number(state.xpProximo))) game.xpNext = Number(state.xpProximo);
+    if (Number.isFinite(Number(state.xpNivel))) game.xpStart = Number(state.xpNivel);
     if (Number.isFinite(Number(state.level))) game.level = Number(state.level);
     if (Number.isFinite(Number(state.gold))) game.gold = Number(state.gold);
     const pk = Array.isArray(state.pkMud) ? state.pkMud.find((p) => p && p.slot === 0) || state.pkMud[0] : null;
-    if (pk && pk.nome) game.pokemon = { name: pk.nome, level: pk.level, xp: Number(pk.xp), next: Number(pk.xpProximo) };
-    if (state.selvagem && state.selvagem.nome) game.wild = `${state.selvagem.nome} Lv ${state.selvagem.level ?? '?'}`;
+    if (pk && pk.nome) {
+      // A shiny shows with its own look when it has one.
+      const look = Number(pk.shiny && pk.lookShiny ? pk.lookShiny : pk.looktype) || null;
+      game.pokemon = { name: pk.nome, level: pk.level, xp: Number(pk.xp), start: Number(pk.xpNivel), next: Number(pk.xpProximo), look, shiny: !!pk.shiny };
+      sprite(look);
+    }
+    const w = state.selvagem;
+    if (w && w.nome) {
+      game.wild = `${w.nome} Lv ${w.level ?? '?'}`;
+      game.wildInfo = { name: w.nome, level: w.level ?? null, look: Number(w.looktype) || null, shiny: !!w.shiny, battle: w.slot };
+      sprite(game.wildInfo.look);
+      if (w.shiny) shinyEvent(w.slot, game.wildInfo, 'seen');
+    }
   }
 
   function onBattle(events) {
@@ -96,13 +149,29 @@
           run.xp += Number(e.xpTreinador ?? e.xp) || 0;
           run.gold += Number(e.ouro) || 0;
           break;
+        case 'spawn':
+          if (e.shiny) shinyEvent(e.slot, { name: e.nome, level: e.level, look: Number(e.looktype) || null }, 'seen');
+          break;
         case 'bola':
           run.throws++;
-          if (e.shiny) run.shinies++;
+          if (e.shiny) {
+            run.shinies++;
+            const w = game.wildInfo && game.wildInfo.battle === e.slot ? game.wildInfo : null;
+            shinyEvent(e.slot, w, 'seen');
+          }
           add(run.used.ball, e.ballId);
           break;
-        case 'capturado':
+        case 'capturado': {
           run.catches++;
+          // Which battle: the event's own, or the wild Pokémon being fought.
+          const battle = e.slot ?? game.wildInfo?.battle;
+          if (e.shiny || (battle !== undefined && shinies.some((s) => s.battle === battle))) {
+            shinyEvent(battle, e.nome ? { name: e.nome, level: e.level, look: Number(e.looktype) || null } : game.wildInfo, 'caught');
+          }
+          break;
+        }
+        case 'fugiu':
+          if (e.shiny) shinyEvent(e.slot ?? game.wildInfo?.battle, { name: e.nome, level: e.level, look: game.wildInfo?.look ?? null }, 'fled');
           break;
         case 'cura':
           add(run.used.potion, e.itemId);
@@ -164,6 +233,9 @@
     const xpPerHour = per(run.xp);
     const eta = (xp, next, rate) => (rate && Number.isFinite(xp) && Number.isFinite(next) && next > xp ? (next - xp) / rate : null);
     const pkRate = hours && game.pokemon ? per(run.xp) : null; // the active Pokémon gets the same XP per kill
+    // How far into the current level (0–100), from the level's start and end XP.
+    const pct = (xp, start, next) => (Number.isFinite(xp) && Number.isFinite(start) && Number.isFinite(next) && next > start
+      ? Math.max(0, Math.min(100, Math.floor(((xp - start) / (next - start)) * 1000) / 10)) : null);
     const stats = {
       v: 2,
       hunt: game.hunt,
@@ -177,9 +249,14 @@
       throws: run.throws,
       catches: run.catches,
       shinies: run.shinies,
-      trainer: game.level !== null ? { level: game.level, hoursLeft: eta(game.xp, game.xpNext, xpPerHour) } : null,
-      pokemon: game.pokemon ? { name: game.pokemon.name, level: game.pokemon.level, hoursLeft: eta(game.pokemon.xp, game.pokemon.next, pkRate) } : null,
+      trainer: game.level !== null ? { level: game.level, pct: pct(game.xp, game.xpStart, game.xpNext), hoursLeft: eta(game.xp, game.xpNext, xpPerHour) } : null,
+      pokemon: game.pokemon ? {
+        name: game.pokemon.name, level: game.pokemon.level, look: game.pokemon.look, shiny: game.pokemon.shiny,
+        pct: pct(game.pokemon.xp, game.pokemon.start, game.pokemon.next), hoursLeft: eta(game.pokemon.xp, game.pokemon.next, pkRate),
+      } : null,
       wild: game.wild,
+      foe: game.wildInfo ? { name: game.wildInfo.name, level: game.wildInfo.level, look: game.wildInfo.look, shiny: game.wildInfo.shiny } : null,
+      shinyList: shinies.map(({ battle, ...s }) => s),
       supplies: list.map(({ cost, ...s }) => s),
     };
     const text = JSON.stringify(stats);
@@ -230,11 +307,57 @@
     }
   }
 
+  // The game's connection and session, for the "this account was dropped" warning:
+  // "[multiview-conn] {"open":false,"code":4001,"session":true}". open = the game's socket is
+  // connected (null until it first tries), code = how it last closed (4001: the account logged
+  // in somewhere else), session = the page holds a game session at all (only whether the
+  // "sessao" entry exists; its value is never read out). Sent when one of them changes.
+  const conn = { open: null, code: null, session: null };
+  let connSent = '';
+  let current = null; // the newest game socket; older ones closing don't count
+  function reportConn() {
+    const text = JSON.stringify(conn);
+    if (text === connSent) return;
+    connSent = text;
+    queue.push(`[multiview-conn] ${text}`);
+    if (!busy) next();
+  }
+  function checkSession() {
+    let has = null;
+    try { has = !!localStorage.getItem('sessao'); } catch {}
+    if (has !== conn.session) {
+      conn.session = has;
+      reportConn();
+    }
+  }
+  setTimeout(checkSession, 8000);
+  setInterval(checkSession, 15000);
+  // A page that never got connected after a minute counts as disconnected.
+  setTimeout(() => {
+    if (conn.open === null) {
+      conn.open = false;
+      reportConn();
+    }
+  }, 60000);
+
   class WatchedWebSocket extends Native {
     constructor(...args) {
       super(...args);
+      current = this;
       this.addEventListener('message', (event) => {
         try { inspect(event.data); } catch {}
+      });
+      this.addEventListener('open', () => {
+        if (current !== this) return;
+        conn.open = true;
+        conn.code = null;
+        reportConn();
+      });
+      this.addEventListener('close', (event) => {
+        if (current !== this) return;
+        conn.open = false;
+        conn.code = Number(event.code) || null;
+        reportConn();
       });
     }
   }

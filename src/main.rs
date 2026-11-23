@@ -10,6 +10,7 @@ mod compat;
 mod channels;
 mod config;
 mod external;
+mod game;
 mod goals;
 mod hunt;
 mod kick;
@@ -112,6 +113,10 @@ struct AppState {
     logins: HashMap<(u8, Platform), bool>,
     /// Pages opened by a "Log in" button (see logins.rs): they close once the account is in.
     login_pages: std::collections::HashSet<String>,
+    /// Each account's game connection and session, as its page last reported (see game.rs).
+    game_conn: HashMap<u8, game::GameConn>,
+    /// Where each Pokémon look's first frame is on the game's sprite sheets (see game.rs).
+    sprites: HashMap<u32, serde_json::Value>,
 }
 
 /// Events kept per account in the automation log.
@@ -148,6 +153,8 @@ struct StateView {
     economy: bool,
     /// Which accounts are logged in on Twitch and Kick: slot → platform → logged in.
     logins: HashMap<u8, HashMap<Platform, bool>>,
+    /// Accounts whose game dropped out (logged in elsewhere, disconnected, no session): slot → text.
+    game_issues: HashMap<u8, String>,
 }
 
 fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
@@ -310,6 +317,7 @@ fn state_view(state: &AppState) -> StateView {
         focus_panel: state.config.focus_panel,
         economy: state.config.economy,
         logins: logins::view(state),
+        game_issues: game::issues(state),
     }
 }
 
@@ -396,6 +404,10 @@ struct FocusView {
     log: Vec<(i64, String)>,
     /// The game's session numbers, as its own state reports them (see game-watch.js).
     game: Option<serde_json::Value>,
+    /// What is wrong with this account's game, if anything (see game.rs).
+    game_issue: Option<String>,
+    /// Pokémon sprites by look, for the hunt analysis.
+    sprites: HashMap<u32, serde_json::Value>,
 }
 
 fn focus_view(state: &AppState) -> Option<FocusView> {
@@ -441,6 +453,8 @@ fn focus_view(state: &AppState) -> Option<FocusView> {
         daily_done_today: state.config.kick_daily_done.get(&id) == Some(&utc_day()),
         log: state.log.get(&id).map(|l| l.iter().rev().cloned().collect()).unwrap_or_default(),
         game: state.game_stats.get(&id).cloned(),
+        game_issue: state.game_conn.get(&id).and_then(|c| game::issue(c, now_ms())).map(str::to_string),
+        sprites: state.sprites.clone(),
     })
 }
 
@@ -898,6 +912,10 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
                 vote_reported(&title_app, id, json);
             } else if let Some(json) = title.strip_prefix("[multiview-stats] ") {
                 stats_reported(&title_app, id, json);
+            } else if let Some(json) = title.strip_prefix("[multiview-conn] ") {
+                game::conn_reported(&title_app, id, json);
+            } else if let Some(json) = title.strip_prefix("[multiview-sprite] ") {
+                game::sprite_reported(&title_app, json);
             }
         })
         .on_navigation(move |url| {
@@ -1558,6 +1576,7 @@ async fn close_slot(app: AppHandle, id: u8) -> Result<(), String> {
         if state.config.focus == Some(id) {
             state.config.focus = None;
         }
+        game::forget(&mut state, id);
         state.panels.remove(&id).map(|p| p.pages).unwrap_or_default()
     };
     for label in pages.into_iter().map(|p| p.label).chain([slot_label(id), header_label(id)]) {
@@ -1651,6 +1670,13 @@ async fn stop_all_pages(app: AppHandle, id: u8) -> Result<(), String> {
 #[tauri::command]
 fn reload_slot(app: AppHandle, id: u8) -> Result<(), String> {
     let webview = app.get_webview(&slot_label(id)).ok_or("No such slot")?;
+    // The new page reports its connection again.
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        game::forget(&mut state, id);
+        publish(&app, &state);
+    }
     webview.reload().map_err(|e| e.to_string())
 }
 
@@ -3528,6 +3554,8 @@ fn main() {
                 last_focus: None,
                 logins: HashMap::new(),
                 login_pages: std::collections::HashSet::new(),
+                game_conn: HashMap::new(),
+                sprites: HashMap::new(),
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is
