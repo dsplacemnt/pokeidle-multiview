@@ -764,6 +764,9 @@ fn slot_session_builder(
     // own (Twitch's player is muted, Kick's isn't, so only Twitch stopped);
     // --disable-background-media-suspend turns that off. Setting browser args replaces wry's
     // defaults, so those are repeated here.
+    // --process-per-site: pages of the same site share one renderer process instead of one
+    // each, so a slot's Twitch players run in one process and its Kick pages in another (the
+    // game is another site and keeps its own). Measured with 8 Twitch players: 1129 → 706 MB.
     #[allow(unused_mut)]
     let mut args = String::from(
         "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion,\
@@ -772,7 +775,8 @@ fn slot_session_builder(
          --autoplay-policy=no-user-gesture-required \
          --disable-background-timer-throttling \
          --disable-renderer-backgrounding \
-         --disable-backgrounding-occluded-windows",
+         --disable-backgrounding-occluded-windows \
+         --process-per-site",
     );
     // Debug builds only: MULTIVIEW_DEVTOOLS=1 exposes slot N to Chrome DevTools Protocol on
     // 127.0.0.1:930N (open edge://inspect or http://127.0.0.1:930N/json).
