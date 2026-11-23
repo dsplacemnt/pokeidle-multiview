@@ -1,6 +1,6 @@
 [package]
 name = "pokeidle-multiview"
-version = "0.18.1"
+version = "0.19.0"
 description = "Up to 4 isolated pokeidle.io sessions in a single window"
 edition = "2021"
 license = "MIT"
@@ -31,3 +31,8 @@ windows-core = "0.62"
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
 gtk = "0.18"
+
+# Tauri 2.12 doesn't pass a WebView2 profile name to wry; this copy does, for the "One browser
+# for all accounts" option (see vendor/tauri-runtime-wry/PATCHED.md).
+[patch.crates-io]
+tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }

@@ -80,6 +80,7 @@ pub fn conn_reported(app: &AppHandle, id: u8, json: &str) {
         println!("[game] slot {id}: {text}");
         crate::log_event(&mut state, id, text);
     }
+    crate::discord::check_games(&mut state);
     crate::publish(app, &state);
     if conn.open == Some(false) && conn.code != Some(CLOSED_ELSEWHERE) {
         // Shown once it has been down long enough, unless it reconnects first.
@@ -87,7 +88,8 @@ pub fn conn_reported(app: &AppHandle, id: u8, json: &str) {
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(DOWN_FOR as u64 + 1_000));
             let state = app.state::<Mutex<crate::AppState>>();
-            let state = state.lock().unwrap();
+            let mut state = state.lock().unwrap();
+            crate::discord::check_games(&mut state);
             crate::publish(&app, &state);
         });
     }

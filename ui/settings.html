@@ -192,6 +192,25 @@
     .about .update-row .hint { flex: 1; margin: 0; }
     .about .update-row button { flex: none; padding: 5px 10px; font-size: 12.5px; }
     .about .update-row .hint.new { color: var(--accent); font-weight: 600; }
+    /* Discord alerts. */
+    .hook { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+    .hook input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid #3a3f4b;
+      background: #101216; color: var(--text); font: inherit; font-size: 12.5px; }
+    .hook input:focus { outline: none; border-color: var(--accent); }
+    .hook-state { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+    .hook-state.set { color: #3ddc84; }
+    .hook-state.bad { color: #ff8a80; }
+    .discord-pane label.row + label.row { margin-top: 10px; }
+    /* One browser for all accounts: the warning before switching. */
+    .confirm-box { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: rgba(255, 183, 77, .08);
+      box-shadow: inset 0 0 0 1px rgba(255, 183, 77, .45); font-size: 13px; }
+    .confirm-box b { color: #ffd27a; }
+    .confirm-box ul { margin: 8px 0 10px 18px; padding: 0; }
+    .confirm-box li + li { margin-top: 4px; }
+    .confirm-box .buttons { display: flex; gap: 8px; justify-content: flex-end; }
+    .confirm-box button.go { background: var(--accent); color: #1a1408; border-color: transparent; font-weight: 600; }
+    .shared-state { margin-top: 6px; font-size: 12.5px; color: #3ddc84; }
+    .discord-pane section + section { margin-top: 12px; }
     .account .pt { font-variant-numeric: tabular-nums; }
   </style>
   <script src="i18n.js"></script>
@@ -204,6 +223,7 @@
       <button data-tab="channels" data-i18n>Channels</button>
       <button data-tab="accounts" data-i18n>Accounts</button>
       <button data-tab="keys" data-i18n>Shortcuts</button>
+      <button data-tab="discord">Discord</button>
       <button data-tab="about" data-i18n>About</button>
     </nav>
     <div class="saved" id="saved"></div>
@@ -221,6 +241,21 @@
           <option value="es">Español</option>
         </select>
       </label>
+    </section>
+
+    <section id="memory-section" hidden>
+      <h2 data-i18n>Memory</h2>
+      <label class="row"><input type="checkbox" id="shared_browser">
+        <span><span data-i18n>One browser for all accounts</span><span class="hint" data-i18n>For PCs short on memory: the accounts share one browser instead of one each, about 1 GB less RAM with 4 accounts. Each account stays separate. Off by default.</span></span></label>
+      <div class="shared-state" id="shared-state" hidden></div>
+      <div class="confirm-box" id="shared-confirm" hidden>
+        <b id="shared-confirm-title"></b>
+        <ul id="shared-confirm-list"></ul>
+        <div class="buttons">
+          <button id="shared-cancel" data-i18n>Cancel</button>
+          <button id="shared-go" class="go"></button>
+        </div>
+      </div>
     </section>
 
     <section>
@@ -344,6 +379,34 @@
     </section>
    </div>
 
+   <div class="pane discord-pane" data-pane="discord">
+    <section>
+      <h2 data-i18n>Discord alerts</h2>
+      <span class="hint" data-i18n>The app posts to a channel of your Discord server, so you can follow your accounts from the phone. In Discord: channel ⚙ → Integrations → Webhooks → New Webhook → Copy Webhook URL, then paste it here.</span>
+      <div class="hook">
+        <input id="hook" type="password" autocomplete="off" spellcheck="false" data-i18n-placeholder placeholder="https://discord.com/api/webhooks/…">
+        <button id="hook-save" data-i18n>Save</button>
+        <button id="hook-test" data-i18n>Send a test</button>
+      </div>
+      <div class="hook-state" id="hook-state"></div>
+    </section>
+    <section>
+      <h2 data-i18n>What to send</h2>
+      <label class="row"><input type="checkbox" id="d_shinies">
+        <span><span data-i18n>Shinies</span><span class="hint" data-i18n>When a shiny shows up, is caught or flees.</span></span></label>
+      <label class="row"><input type="checkbox" id="d_game">
+        <span><span data-i18n>An account's game dropped out</span><span class="hint" data-i18n>Logged in somewhere else, disconnected for over a minute, or not logged in to the game (and when it's back).</span></span></label>
+      <label class="row"><input type="checkbox" id="d_streams">
+        <span><span data-i18n>Streams the app couldn't fix</span><span class="hint" data-i18n>A stream stuck or offline after the app tried to fix it.</span></span></label>
+      <label class="row"><input type="checkbox" id="d_vote">
+        <span><span data-i18n>IdleHub vote ready</span><span class="hint" data-i18n>For the accounts with the vote reminder on (Accounts tab).</span></span></label>
+      <label class="row stack" for="d_report">
+        <span><span data-i18n>Daily report</span><span class="hint" data-i18n>Once a day: each account's level, XP and gold per hour, bonuses running and shinies.</span></span>
+        <select id="d_report"></select>
+      </label>
+    </section>
+   </div>
+
    <div class="pane about-pane" data-pane="about">
     <section class="about">
       <h2 data-i18n>About</h2>
@@ -382,6 +445,115 @@
       try { localStorage.setItem('settings-tab', name); } catch {}
     }
     tabs.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+
+    // ⚙ → General → Memory. Switching restarts the app; turning it on means new logins.
+    const sharedBox = document.getElementById('shared_browser');
+    const sharedConfirm = document.getElementById('shared-confirm');
+    const sharedState = document.getElementById('shared-state');
+    let shared = null;
+    function showShared(v) {
+      shared = v;
+      document.getElementById('memory-section').hidden = !v.available;
+      sharedBox.checked = v.on;
+      sharedConfirm.hidden = true;
+      sharedState.hidden = !v.running;
+      sharedState.textContent = v.running ? t('On: the accounts are sharing one browser now.') : '';
+    }
+    function askShared(on) {
+      const list = document.getElementById('shared-confirm-list');
+      const items = on
+        ? [t('Every account starts logged out: you log in again to the game, Twitch and Kick on each one.'),
+           t('Your current logins are kept apart: turning this off brings them back.'),
+           t('The app restarts now (the streams stop for a minute).')]
+        : [t('Each account goes back to its own browser, with the logins it had before this option.'),
+           t('The logins made while it was on are kept for the next time you turn it on.'),
+           t('The app restarts now (the streams stop for a minute).')];
+      document.getElementById('shared-confirm-title').textContent = on ? t('Turn on one browser for all accounts?') : t('Turn off one browser for all accounts?');
+      list.replaceChildren(...items.map((x) => Object.assign(document.createElement('li'), { textContent: x })));
+      document.getElementById('shared-go').textContent = on ? t('Turn on and restart') : t('Turn off and restart');
+      sharedConfirm.hidden = false;
+    }
+    sharedBox.addEventListener('change', () => {
+      const want = sharedBox.checked;
+      sharedBox.checked = shared ? shared.on : !want; // only changes once confirmed
+      askShared(want);
+    });
+    document.getElementById('shared-cancel').addEventListener('click', () => { sharedConfirm.hidden = true; });
+    document.getElementById('shared-go').addEventListener('click', () => {
+      const want = !(shared && shared.on);
+      document.getElementById('shared-go').disabled = true;
+      invoke('set_shared_browser', { on: want }).catch((e) => {
+        document.getElementById('shared-go').disabled = false;
+        sharedState.hidden = false;
+        sharedState.textContent = I18N.text(String(e));
+      });
+    });
+    invoke('get_shared_browser').then(showShared).catch(() => {});
+    I18N.onChange(() => { if (shared && !sharedConfirm.hidden) askShared(!shared.on); });
+
+    // ⚙ → Discord. The webhook is never shown back: only whether one is set and its end.
+    const hook = document.getElementById('hook');
+    const hookState = document.getElementById('hook-state');
+    const dBoxes = ['shinies', 'game', 'streams', 'vote'];
+    const dReport = document.getElementById('d_report');
+    let discord = null;
+    function fillReportHours() {
+      const keep = dReport.value;
+      dReport.replaceChildren(Object.assign(document.createElement('option'), { value: '', textContent: t('Off') }));
+      for (let h = 0; h < 24; h++) {
+        dReport.append(Object.assign(document.createElement('option'), { value: String(h), textContent: t('Every day at {time}', { time: `${String(h).padStart(2, '0')}:00` }) }));
+      }
+      dReport.value = keep;
+    }
+    function showDiscord(v) {
+      discord = v;
+      for (const k of dBoxes) document.getElementById(`d_${k}`).checked = !!v[k];
+      fillReportHours();
+      dReport.value = v.report_hour === null || v.report_hour === undefined ? '' : String(v.report_hour);
+      hookState.className = 'hook-state' + (v.webhook_set ? ' set' : '');
+      hookState.textContent = v.webhook_set ? t('Webhook set ({hint}). Alerts are on.', { hint: v.webhook_hint }) : t('No webhook yet: nothing is sent.');
+    }
+    async function saveDiscord(webhook) {
+      try {
+        const v = await invoke('set_discord', { change: {
+          webhook: webhook === undefined ? null : webhook,
+          shinies: document.getElementById('d_shinies').checked,
+          game: document.getElementById('d_game').checked,
+          streams: document.getElementById('d_streams').checked,
+          vote: document.getElementById('d_vote').checked,
+          report_hour: dReport.value === '' ? null : Number(dReport.value),
+          // Minutes east of UTC, for the report's hour.
+          utc_offset_min: -new Date().getTimezoneOffset(),
+        } });
+        showDiscord(v);
+        flashSaved();
+        return true;
+      } catch (e) {
+        hookState.className = 'hook-state bad';
+        hookState.textContent = I18N.text(String(e));
+        return false;
+      }
+    }
+    for (const k of dBoxes) document.getElementById(`d_${k}`).addEventListener('change', () => saveDiscord());
+    dReport.addEventListener('change', () => saveDiscord());
+    document.getElementById('hook-save').addEventListener('click', async () => {
+      if (await saveDiscord(hook.value.trim())) hook.value = '';
+    });
+    document.getElementById('hook-test').addEventListener('click', async () => {
+      const typed = hook.value.trim();
+      hookState.className = 'hook-state';
+      hookState.textContent = t('Sending…');
+      try {
+        await invoke('test_discord', { webhook: typed || null });
+        hookState.className = 'hook-state set';
+        hookState.textContent = typed ? t('Test sent: check the channel. Click Save to keep this webhook.') : t('Test sent: check the channel.');
+      } catch (e) {
+        hookState.className = 'hook-state bad';
+        hookState.textContent = I18N.text(String(e));
+      }
+    });
+    invoke('get_discord').then(showDiscord).catch(() => {});
+    I18N.onChange(() => discord && showDiscord(discord));
     let savedTab = 'general';
     try { savedTab = localStorage.getItem('settings-tab') || 'general'; } catch {}
     showTab(savedTab);

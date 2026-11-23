@@ -56,7 +56,18 @@ under 10 MB. An **experimental Linux** build (WebKitGTK) comes with every releas
   their warnings, last seen channel points, and an activity log of what the app did for it
   (swaps, redeems, chests, reloads, claims). **▤** in the slot's header hides or shows it; the
   choice is remembered.
-- **Updates in the app.** A little after it starts and every 6 hours the app looks for a newer
+- **Discord alerts.** ⚙ → Discord: paste a webhook of a channel in your server and the app
+  posts there when a shiny shows up (seen, caught or fled), an account's game drops out, a
+  stream needs you, an IdleHub vote is ready, and once a day a short report. Each kind can be
+  turned off; nothing is sent until a webhook is set.
+- **Game drop-out warning.** When an account's game is logged in somewhere else, loses its
+  connection for over a minute, or has no game session, its header shows **⚠ Game** (also in
+  economy mode and the stats panel) with a button to reload it.
+- **One browser for all accounts (optional).** ⚙ → General → Memory, for PCs short on memory:
+  the accounts share one WebView2 browser, each in its own profile (separate logins), about
+  1 GB less RAM with 4 accounts. Off by default; turning it on means logging in again, and the
+  old logins come back when it's turned off. Windows only.
+- **Updates in the app.** A little after it starts and every 30 minutes the app looks for a newer
   release; **⬆ &lt;version&gt;** then shows on the top bar. Click it twice: it downloads the
   installer, checks its signature, installs it and opens again with the same streams. The
   portable exe can't replace itself: its ⬆ opens the release page. ⚙ → About checks on demand.
@@ -291,6 +302,7 @@ These environment variables only apply to **debug** builds, except
 | --- | --- |
 | Settings (slots, focus, streams, lists, bonuses) | `%LOCALAPPDATA%\io.pokeidle-multiview.app\config.json` |
 | Each slot's browser data (cookies, logins, storage) | `%LOCALAPPDATA%\io.pokeidle-multiview.app\slots\slot-N\` |
+| The shared browser, when "One browser for all accounts" is on (one profile per slot) | `%LOCALAPPDATA%\io.pokeidle-multiview.app\slots\shared\` |
 | Copy of the /hunt extension | `%LOCALAPPDATA%\io.pokeidle-multiview.app\extensions\` |
 | Window size and position | `%APPDATA%\io.pokeidle-multiview.app\.window-state.json` |
 
@@ -313,6 +325,10 @@ src/resources.rs CPU/memory meter of the app and its WebView2 processes
 src/power.rs     keeps Windows awake while streams run
 src/hunt.rs      finds the installed /hunt extension and copies it for WebView2
 src/channels.rs  recognizes Twitch/Kick channel links
+src/game.rs      game connection warnings and the Pokémon sprites for the stats panel
+src/discord.rs   Discord alerts (webhook, what to send, daily report)
+src/shared_browser.rs  "One browser for all accounts": one WebView2 environment, a profile per slot
+vendor/          tauri-runtime-wry with a small patch for WebView2 profile names (see PATCHED.md)
 ui/              toolbar, splitter strips and settings window (the only pages that can call Rust)
 scripts/         scripts injected into the game pages
 tests/fixtures/  a tiny extension used to test extension loading
@@ -322,7 +338,8 @@ icons/           app icon; icon.svg is the source (regenerate with `npx @tauri-a
 Some details that are easy to miss:
 
 - **Slots are separate WebView2 environments**, one data folder each. A slot's Twitch/Kick pages
-  live in that same environment, so they share its logins.
+  live in that same environment, so they share its logins. With "One browser for all accounts"
+  they are profiles of one environment instead, still with separate logins.
 - **Background streams are parked outside the window, not hidden.** A page that loads while
   hidden doesn't start its video player, so streams stay "visible" but off-screen. They are
   muted with WebView2's own switch, which the page cannot undo.
@@ -340,8 +357,9 @@ Some details that are easy to miss:
   use password and code instead of the Windows passkey prompt. This only affects pages inside
   the app, not your browsers.
 - The app reads Chromium browser profile folders **only** to find an installed /hunt extension.
-  It has no telemetry and sends nothing anywhere; the only network traffic comes from the pages
-  you open.
+  It has no telemetry. Besides the pages you open, it only contacts GitHub (to look for updates)
+  and, if you set one, your own Discord webhook (the alerts you chose). The webhook address
+  stays in your config file and is never shown back or logged.
 - Known limitation: popup windows opened from inside a page are not covered by the navigation
   guard.
 

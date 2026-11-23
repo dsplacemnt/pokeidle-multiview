@@ -41,13 +41,17 @@
   // the active Pokémon) and, every few minutes, the whole state ("cheio": the bag in "items",
   // the auto-use choices in "automation"); "batalha" events (morte = a kill, bola = a throw,
   // capturado, cura = a potion used, revive); and, when it connects, the ball catalog.
-  const POTIONS = new Set([200, 201, 202, 203, 204, 207]);
+  const POTIONS = new Set([200, 201, 202, 203, 204, 207, 70070]);
   const REVIVES = new Set([205, 206]);
   const names = new Map(); // item/ball id → { name, price }
   let ballCatalog = new Map(); // ball id → { name, price }
   fetch('/assets/items.json')
     .then((r) => r.json())
-    .then((j) => { for (const i of j.items || j || []) names.set(i.id, { name: i.name, price: Number(i.npcPrice) || 0, icon: itemIcon(i.icon) }); })
+    .then((j) => {
+      for (const i of j.items || j || []) {
+        names.set(i.id, { name: i.name, price: Number(i.npcPrice) || 0, icon: FIXED_ITEMS[i.id]?.icon || itemIcon(i.icon) });
+      }
+    })
     .catch(() => {});
   // Icons, as the game itself draws them: items.json paths live under /assets/site/assets/
   // ("/assets/markitems/x.png" → /assets/site/assets/markitems/x.png, a bare name is in
@@ -70,6 +74,32 @@
     5: '/img/ball-beast.png',
   };
   const ballIcon = (id) => BALL_ICONS[id] || BALL_ICONS[1];
+  // Items the game gives a fixed icon (some aren't in items.json at all, like the Golden
+  // Potion); the game's own table.
+  const FIXED_ITEMS = {
+    30: { icon: '/assets/site/assets/items/dark_gem.png' },
+    63: { icon: '/assets/site/assets/items/goggles.png' },
+    47: { icon: '/assets/site/assets/items/farfetchd_stick.png' },
+    5041: { icon: '/assets/site/assets/items/farfetchd_stick.png' },
+    70070: { icon: '/img/itens/golden-potion.png', name: 'Golden Potion' },
+  };
+  for (const [id, f] of Object.entries(FIXED_ITEMS)) names.set(Number(id), { name: f.name || `#${id}`, price: 0, icon: f.icon });
+  // The game's own items, sent when it connects ("itensNossos"): names and icons the public
+  // list doesn't have. The fixed icons above still win, as in the game.
+  function ownItems(list) {
+    for (const i of list) {
+      const id = Number(i && i.id);
+      if (!Number.isFinite(id)) continue;
+      const before = names.get(id) || {};
+      const name = i.nome || i.name;
+      const icon = FIXED_ITEMS[id]?.icon || (i.icon ? (i.icon.startsWith('/') ? i.icon : itemIcon(i.icon)) : before.icon) || null;
+      names.set(id, {
+        name: name || before.name || `#${id}`,
+        price: Number(i.npcPrice) || before.price || 0,
+        icon,
+      });
+    }
+  }
 
   const game = { balls: {}, items: null, itemsAt: 0, xp: null, xpStart: null, xpNext: null, level: null, pokemon: null, hunt: null, wild: null, wildInfo: null, gold: null };
 
@@ -298,6 +328,7 @@
     let message;
     try { message = JSON.parse(data); } catch { return; }
     if (!message) return;
+    if (Array.isArray(message.itensNossos)) ownItems(message.itensNossos);
     if (catalog && Array.isArray(message.catalogoBolas)) {
       ballCatalog = new Map(message.catalogoBolas.map((x) => [Number(x.id), { name: x.nome || x.name, price: Number(x.priceGold) || 0 }]));
     }

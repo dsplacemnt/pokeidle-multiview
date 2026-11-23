@@ -166,7 +166,6 @@
 <body>
   <div class="top">
     <h1 id="title">Stats</h1>
-    <button id="grid" data-i18n-title title="Back to the grid">GRID</button>
     <button id="hide" data-i18n-title title="Hide this panel (▤ in the slot header brings it back)">✕</button>
   </div>
   <div class="cards" id="cards"></div>
@@ -555,7 +554,6 @@
       document.scrollingElement.scrollTop = scroll;
     }
 
-    document.getElementById('grid').addEventListener('click', () => view && invoke('focus_slot', { id: view.slot }).catch(() => {}));
     document.getElementById('hide').addEventListener('click', () => invoke('set_focus_panel', { on: false }).catch(() => {}));
     listen('focus', (e) => render(e.payload));
     I18N.onChange(() => render(view));

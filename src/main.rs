@@ -9,6 +9,7 @@ mod away;
 mod compat;
 mod channels;
 mod config;
+mod discord;
 mod external;
 mod game;
 mod goals;
@@ -30,6 +31,7 @@ mod power;
 mod splash;
 mod logins;
 mod resources;
+mod shared_browser;
 mod shortcuts;
 mod support;
 mod whatsnew;
@@ -117,6 +119,8 @@ struct AppState {
     game_conn: HashMap<u8, game::GameConn>,
     /// Where each Pokémon look's first frame is on the game's sprite sheets (see game.rs).
     sprites: HashMap<u32, serde_json::Value>,
+    /// What the Discord alerts already sent (see discord.rs).
+    discord_sent: discord::Sent,
 }
 
 /// Events kept per account in the automation log.
@@ -559,9 +563,10 @@ const REST_PAGE: &str = "rest";
 fn current_layout(app: &AppHandle) -> tauri::Result<layout::Layout> {
     let mut area = game_area(app)?;
     let config = app.state::<Mutex<AppState>>().lock().unwrap().config.clone();
-    // Single focus: the slot leaves room for the stats panel at the right.
+    // Single focus: the slot leaves room for the stats panel at the right, right next to it
+    // (no gap), so the header's accent line runs straight into the panel's accent border.
     if focus_panel_on(&config) {
-        area.w = (area.w - FOCUS_PANEL_W - layout::GAP).max(0.0);
+        area.w = (area.w - FOCUS_PANEL_W).max(0.0);
     }
     // Economy mode: no tiles at all, so every slot is hidden (and keeps running).
     let ids: Vec<u8> = if config.economy { Vec::new() } else { config.slots.iter().map(|s| s.id).collect() };
@@ -758,7 +763,7 @@ fn slot_session_builder(
     // Each slot gets its own WebView2 user data folder: separate cookies, storage and
     // logins that survive restarts.
     let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url.parse().unwrap()))
-    .data_directory(data_dir)
+    .data_directory(data_dir.clone())
     // Dark until the page paints (no white flash while it loads).
     .background_color(BACKGROUND)
     .zoom_hotkeys_enabled(true)
@@ -771,6 +776,34 @@ fn slot_session_builder(
     if std::env::var_os("MULTIVIEW_ALLOW_WEBAUTHN").is_none() {
         builder = builder.initialization_script_for_all_frames(WEBAUTHN_BLOCK);
     }
+    // "One browser for all accounts": the shared browser (made at startup with the same
+    // arguments) and this slot's own profile in it, instead of the slot's own browser.
+    #[cfg(windows)]
+    if let Some(env) = shared_browser::environment() {
+        let root = data_dir.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+        builder = builder.with_environment(env).data_directory(shared_browser::profile_dir(&root, &slot_label(slot_id)));
+        if let Some(dir) = hunt_dir {
+            builder = builder.browser_extensions_enabled(true).extensions_path(dir);
+        }
+        return builder;
+    }
+    builder = builder.additional_browser_args(&slot_browser_args(slot_id));
+    if let Some(dir) = hunt_dir {
+        builder = builder.browser_extensions_enabled(true).extensions_path(dir);
+    }
+    // Outside Windows (WebKit): the page reports shortcuts itself (no accelerator hook there),
+    // and asks not to be slowed down when it isn't seen.
+    #[cfg(not(windows))]
+    {
+        builder = builder
+            .initialization_script(native::KEYS_SCRIPT)
+            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+    }
+    builder
+}
+
+/// The browser options of a slot's session (and of the shared browser, with slot 1's port).
+fn slot_browser_args(slot_id: u8) -> String {
     // The streams must keep playing when Windows thinks nobody sees them: the window minimized
     // or in the tray, covered, or the screen off or locked. By default the browser then marks
     // the pages hidden and slows them down, and Twitch's player pauses itself (whole nights of
@@ -801,19 +834,7 @@ fn slot_session_builder(
             9300 + u16::from(slot_id)
         ));
     }
-    builder = builder.additional_browser_args(&args);
-    if let Some(dir) = hunt_dir {
-        builder = builder.browser_extensions_enabled(true).extensions_path(dir);
-    }
-    // Outside Windows (WebKit): the page reports shortcuts itself (no accelerator hook there),
-    // and asks not to be slowed down when it isn't seen.
-    #[cfg(not(windows))]
-    {
-        builder = builder
-            .initialization_script(native::KEYS_SCRIPT)
-            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
-    }
-    builder
+    args
 }
 
 /// Light background players drop to their lowest quality once loaded.
@@ -1876,6 +1897,45 @@ struct Settings {
     kick_daily: bool,
 }
 
+/// ⚙ → General → Memory: the "One browser for all accounts" option.
+#[derive(Serialize)]
+struct SharedBrowserView {
+    /// This platform has it (Windows).
+    available: bool,
+    /// Chosen in the config (takes effect at the next start).
+    on: bool,
+    /// What this run of the app actually uses.
+    running: bool,
+}
+
+#[tauri::command]
+fn get_shared_browser(state: tauri::State<'_, Mutex<AppState>>) -> SharedBrowserView {
+    let on = state.lock().unwrap().config.shared_browser;
+    #[cfg(windows)]
+    let running = shared_browser::environment().is_some();
+    #[cfg(not(windows))]
+    let running = false;
+    SharedBrowserView { available: shared_browser::AVAILABLE, on, running }
+}
+
+/// Saves the choice and restarts the app, which then opens the slots the new way.
+#[tauri::command]
+fn set_shared_browser(app: AppHandle, on: bool) -> Result<(), String> {
+    if !shared_browser::AVAILABLE {
+        return Err("Not available on this system".into());
+    }
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        state.config.shared_browser = on;
+        println!("[shared] one browser for all accounts: {} (restarting)", if on { "on" } else { "off" });
+        if let Err(e) = state.config.save(&state.config_path) {
+            return Err(e.to_string());
+        }
+    }
+    app.restart();
+}
+
 #[tauri::command]
 fn get_settings(state: tauri::State<'_, Mutex<AppState>>) -> Settings {
     let config = &state.lock().unwrap().config;
@@ -2264,6 +2324,7 @@ fn stats_reported(app: &AppHandle, id: u8, json: &str) {
     }
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
+    discord::shinies_reported(&mut state, id, &stats);
     state.game_stats.insert(id, stats);
     if state.config.focus == Some(id) {
         let _ = app.emit_to(FOCUS_PANEL, "focus", focus_view(&state));
@@ -2703,6 +2764,9 @@ fn health_reported(app: &AppHandle, label: &str, json: &str) {
                 log_event(&mut state, id, format!("{channel}: {why}"));
             }
             if changed {
+                if let Some(w) = &warning {
+                    discord::stream_warning(&state, id, &channel, w);
+                }
                 let text = match &warning {
                     Some(w) => format!("{channel}: ⚠ {w}"),
                     None => format!("{channel}: playing normally again"),
@@ -3530,6 +3594,16 @@ fn main() {
                     }
                 },
             };
+            // One browser for all accounts: started before any slot opens. If it can't start,
+            // every slot falls back to its own browser (and its old logins).
+            #[cfg(windows)]
+            if config.shared_browser {
+                let dir = shared_browser::data_dir(&base.join("slots"));
+                match shared_browser::start(&dir, &slot_browser_args(1), hunt_dir.is_some()) {
+                    Ok(()) => println!("[shared] one browser for all accounts"),
+                    Err(e) => eprintln!("[shared] could not start the shared browser, using one per slot: {e}"),
+                }
+            }
             let slots = config.slots.clone();
             let geom = config.window.unwrap_or_default();
             app.manage(Mutex::new(AppState {
@@ -3556,6 +3630,7 @@ fn main() {
                 login_pages: std::collections::HashSet::new(),
                 game_conn: HashMap::new(),
                 sprites: HashMap::new(),
+                discord_sent: discord::Sent::default(),
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is
@@ -3622,6 +3697,7 @@ fn main() {
             start_auto_reload(handle.clone());
             resources::start(handle.clone());
             logins::start(handle.clone());
+            discord::start(handle.clone());
             start_stream_manager(handle.clone());
             start_health_checks(handle.clone());
 
@@ -3684,6 +3760,11 @@ fn main() {
             close_window,
             set_economy,
             logins::open_login,
+            discord::get_discord,
+            get_shared_browser,
+            set_shared_browser,
+            discord::set_discord,
+            discord::test_discord,
             toggle_mute,
             rename_slot,
             drag_split,

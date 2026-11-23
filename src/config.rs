@@ -273,6 +273,13 @@ pub struct Config {
     /// The app's language (the flags on the top bar). Portuguese unless changed.
     #[serde(default)]
     pub language: Language,
+    /// Discord alerts (⚙ → Discord); off until a webhook is set.
+    #[serde(default)]
+    pub discord: crate::discord::DiscordConfig,
+    /// One browser for all accounts (see shared_browser.rs): less memory, separate logins.
+    /// Off by default; switching needs a restart and new logins.
+    #[serde(default)]
+    pub shared_browser: bool,
     /// The main window's last size and maximized state (it always opens centered).
     #[serde(default)]
     pub window: Option<WindowGeom>,
@@ -366,6 +373,8 @@ impl Default for Config {
             shortcuts: crate::shortcuts::defaults(),
             seen_version: None,
             language: Language::Pt,
+            discord: Default::default(),
+            shared_browser: false,
             window: None,
         }
     }
