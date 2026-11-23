@@ -3,6 +3,24 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.18.1',
+    date: '2026-11-23',
+    notes: {
+      pt: [
+        'Ícones do próprio jogo na análise da hunt: bolas, poções e revives nos suprimentos, e moeda, XP, poção e bola nos números.',
+        'O botão de atualizar aparece sozinho: o app procura versão nova a cada 30 minutos (antes, a cada 6 horas) e, com a barra de cima escondida, o ⬆ aparece no cabeçalho do canto.',
+      ],
+      en: [
+        'The game\'s own icons in the hunt analysis: balls, potions and revives in the supplies, and coin, XP, potion and ball on the numbers.',
+        'The update button shows up by itself: the app looks for a new version every 30 minutes (it used to be every 6 hours) and, with the top bar hidden, the ⬆ shows on the corner header.',
+      ],
+      es: [
+        'Íconos del propio juego en el análisis de la hunt: balls, pociones y revivir en los suministros, y moneda, XP, poción y ball en los números.',
+        'El botón de actualizar aparece solo: la app busca una versión nueva cada 30 minutos (antes, cada 6 horas) y, con la barra superior oculta, el ⬆ aparece en la cabecera de la esquina.',
+      ],
+    },
+  },
+  {
     version: '0.18.0',
     date: '2026-11-23',
     notes: {
