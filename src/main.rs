@@ -1,6 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(windows)]
 mod away;
+#[cfg(not(windows))]
+#[path = "away_other.rs"]
+mod away;
+#[cfg(not(windows))]
+mod compat;
 mod channels;
 mod config;
 mod external;
@@ -9,8 +15,16 @@ mod hunt;
 mod kick;
 mod twitch;
 mod layout;
+#[cfg(windows)]
+mod native;
+#[cfg(not(windows))]
+#[path = "native_other.rs"]
 mod native;
 mod net;
+#[cfg(windows)]
+mod power;
+#[cfg(not(windows))]
+#[path = "power_other.rs"]
 mod power;
 mod splash;
 mod logins;
@@ -38,6 +52,8 @@ use config::{
     MAX_SLOTS,
 };
 use layout::Rect;
+#[cfg(not(windows))]
+use compat::{HwndCompat, OwnerCompat};
 
 /// The toolbar across the top of the window (app-wide buttons).
 const BAR_HEIGHT: f64 = 40.0;
@@ -206,9 +222,20 @@ fn guard_navigation(url: &Url) -> bool {
     if slot_may_navigate(url) {
         return true;
     }
-    eprintln!("[nav] not in slot: {url}");
-    external::open_in_browser(url);
-    false
+    // WebKitGTK also asks about every frame inside the page (ads, Twitch's anti-bot frame…),
+    // and the callback can't tell them from the page itself: there, other sites load in place
+    // (as frames do on Windows) and only new windows go to the browser (`guard_popup`).
+    #[cfg(not(windows))]
+    {
+        let _ = url;
+        true
+    }
+    #[cfg(windows)]
+    {
+        eprintln!("[nav] not in slot: {url}");
+        external::open_in_browser(url);
+        false
+    }
 }
 
 /// `window.open` / `target=_blank` from a slot page, same rule as `guard_navigation`.
@@ -657,6 +684,9 @@ fn is_stream_label(label: &str) -> bool {
 }
 
 fn set_rect(webview: &tauri::Webview, r: Rect) -> tauri::Result<()> {
+    // Linux: Tauri can't place child webviews there, so they go in our own container.
+    #[cfg(not(windows))]
+    native::place(webview, r);
     webview.set_position(LogicalPosition::new(r.x, r.y))?;
     webview.set_size(LogicalSize::new(r.w, r.h))
 }
@@ -757,6 +787,14 @@ fn slot_session_builder(
     if let Some(dir) = hunt_dir {
         builder = builder.browser_extensions_enabled(true).extensions_path(dir);
     }
+    // Outside Windows (WebKit): the page reports shortcuts itself (no accelerator hook there),
+    // and asks not to be slowed down when it isn't seen.
+    #[cfg(not(windows))]
+    {
+        builder = builder
+            .initialization_script(native::KEYS_SCRIPT)
+            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+    }
     builder
 }
 
@@ -848,7 +886,9 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
         // account's link status; it reports through a brief title change.
         .initialization_script(GAME_WATCH)
         .on_document_title_changed(move |_, title| {
-            if let Some(json) = title.strip_prefix("[multiview-game] ") {
+            if let Some(keys) = title.strip_prefix("[multiview-key] ") {
+                shortcut_from_page(&title_app, keys);
+            } else if let Some(json) = title.strip_prefix("[multiview-game] ") {
                 game_reported(&title_app, id, json);
             } else if let Some(json) = title.strip_prefix("[multiview-vote] ") {
                 vote_reported(&title_app, id, json);
@@ -977,6 +1017,12 @@ impl PanelState {
 }
 
 /// Mutes or unmutes a webview with WebView2's own switch, so the page can't override it.
+#[cfg(not(windows))]
+fn set_muted(webview: &tauri::Webview, muted: bool) {
+    native::set_muted(webview, muted);
+}
+
+#[cfg(windows)]
 fn set_muted(webview: &tauri::Webview, muted: bool) {
     let result = webview.with_webview(move |platform_webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
@@ -1250,7 +1296,9 @@ fn create_page(
         // "[multiview] …" = what they did (logged), "[multiview-points] {…}" = the account's
         // channel points there. Those pages have no other way to talk.
         .on_document_title_changed(move |webview, title| {
-            if let Some(message) = title.strip_prefix("[multiview] ") {
+            if let Some(keys) = title.strip_prefix("[multiview-key] ") {
+                shortcut_from_page(&title_app, keys);
+            } else if let Some(message) = title.strip_prefix("[multiview] ") {
                 println!("[auto] {}: {message}", webview.label());
                 // Into the account's log, leaving out routine "not enough points" answers.
                 let worth = ["redeemed", "chest", "error", "no "].iter().any(|w| message.contains(w));
@@ -1633,6 +1681,20 @@ async fn close_window(window: tauri::Window) -> Result<(), String> {
 #[tauri::command]
 fn focus_slot(app: AppHandle, id: Option<u8>) {
     toggle_focus(&app, id);
+}
+
+/// A game or stream page reported a key combination (outside Windows, from `KEYS_SCRIPT`):
+/// runs the shortcut bound to it, if any.
+fn shortcut_from_page(app: &AppHandle, keys: &str) {
+    let action = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        shortcuts::action_for(&state.config.shortcuts, keys.trim())
+    };
+    if let Some(action) = action {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { shortcuts::run(&app, &action) });
+    }
 }
 
 /// Economy mode on or off (toolbar ECO button, the rest screen's button and the shortcut).

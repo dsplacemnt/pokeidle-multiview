@@ -7,6 +7,9 @@ use std::sync::Mutex;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, WebviewUrl};
 
+#[cfg(not(windows))]
+use crate::compat::{HwndCompat, OwnerCompat};
+
 const WINDOW: &str = "whatsnew";
 
 /// The version shown "since" when the window opens by itself (None = every entry).

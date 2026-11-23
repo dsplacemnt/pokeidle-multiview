@@ -24,7 +24,7 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": ["msi", "nsis"],
-    "icon": ["icons/icon.ico"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png", "icons/icon.ico"],
     "publisher": "PokeIdle Multiview",
     "category": "Game",
     "shortDescription": "Up to 4 isolated pokeidle.io sessions in one window",
@@ -34,6 +34,9 @@
       "webviewInstallMode": { "type": "downloadBootstrapper" },
       "nsis": { "installMode": "currentUser" },
       "wix": { "language": "en-US" }
+    },
+    "linux": {
+      "deb": { "depends": ["gstreamer1.0-plugins-good", "gstreamer1.0-plugins-bad", "gstreamer1.0-libav"] }
     }
   }
 }

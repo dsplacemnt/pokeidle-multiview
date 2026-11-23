@@ -5,7 +5,8 @@ Kick streams running muted in the background for the game's XP bonus.
 
 Built with **Rust + [Tauri v2](https://v2.tauri.app)**. Instead of shipping its own Chromium,
 it uses the WebView2 (Edge) runtime that comes with Windows, so the release executable is
-under 10 MB.
+under 10 MB. An **experimental Linux** build (WebKitGTK) comes with every release too; see
+[Linux (experimental)](#linux-experimental).
 
 ## Features
 
@@ -207,12 +208,40 @@ first time. Choose **More info → Run anyway**.
 Settings and logins live in your user folder (see [Where data is kept](#where-data-is-kept)), so
 updating or reinstalling keeps them.
 
+### Linux (experimental)
+
+| File | What it is |
+| --- | --- |
+| `PokeIdleMultiview_<version>_amd64.deb` | Debian, Ubuntu, Mint…: `sudo apt install ./PokeIdleMultiview_<version>_amd64.deb` |
+| `PokeIdleMultiview_<version>_amd64.AppImage` | Any distribution: make it executable and run it; it updates itself |
+
+On Linux the pages run in WebKitGTK instead of Chromium, so a few things differ:
+
+- **No /hunt.** It is a Chromium extension; WebKit can't load it.
+- **Video needs GStreamer.** Twitch and Kick play through the GStreamer plugins
+  (`gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad`, `gstreamer1.0-libav`); the .deb
+  installs them, with the AppImage install them yourself.
+- **Shortcuts** work in the app's own pages and, inside a game or stream page, are read from
+  the page itself (the page may still act on the keys too).
+- **Minimizing** really minimizes (Windows moves the window off-screen instead, so the streams
+  keep playing); if streams stop while minimized, keep the window open behind others.
+- Keeping the PC awake uses `systemd-inhibit`; the resource meter reads `/proc`.
+
+Tested on Ubuntu 24.04: games, the grid, headers, the Log in buttons, Twitch and Kick pages, and
+a Twitch stream that kept playing in the background. Not tested yet: Wayland desktops, long
+sessions, earning channel points while logged in.
+
 ## Build from source
 
 You need:
 
 - [Rust](https://rustup.rs) with the MSVC toolchain (`stable-x86_64-pc-windows-msvc`).
 - Visual Studio Build Tools with the **Desktop development with C++** workload.
+
+On Linux (Debian/Ubuntu): Rust, plus
+`sudo apt install libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`
+and the GStreamer plugins above; `npx @tauri-apps/cli@2 build --bundles deb,appimage` makes the
+packages.
 
 ```bash
 cargo run                # debug build, opens the app
@@ -265,6 +294,8 @@ These environment variables only apply to **debug** builds, except
 | Copy of the /hunt extension | `%LOCALAPPDATA%\io.pokeidle-multiview.app\extensions\` |
 | Window size and position | `%APPDATA%\io.pokeidle-multiview.app\.window-state.json` |
 
+On Linux the same files are under `~/.local/share/io.pokeidle-multiview.app/`.
+
 To reset a slot's login, close the app and delete its `slot-N` folder.
 
 ## How it works
@@ -275,6 +306,7 @@ src/layout.rs    grid math (pure, unit-tested)
 src/config.rs    saved settings: load, normalize, atomic save
 src/tray.rs      tray icon, close/minimize to tray, quit
 src/native.rs    WebView2 events: permissions, shortcuts inside pages, crash recovery
+src/*_other.rs   Linux versions of native.rs, away.rs and power.rs (WebKitGTK, systemd-inhibit)
 src/shortcuts.rs keyboard shortcuts: defaults, parsing, actions, settings commands
 src/whatsnew.rs  patch notes window after an update
 src/resources.rs CPU/memory meter of the app and its WebView2 processes

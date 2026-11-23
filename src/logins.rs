@@ -96,6 +96,12 @@ fn check(app: &AppHandle) {
             if !on {
                 // Logged out: every channel page shows "Follow", which says nothing.
                 state.config.follows.retain(|key, _| !key.starts_with(&crate::config::balance_key(id, platform, "")));
+                // Pills that already got a ♡ before the login was known lose it too.
+                if let Some(panel) = state.panels.get_mut(&id) {
+                    for page in panel.pages.iter_mut().filter(|p| p.platform == platform) {
+                        page.not_following = false;
+                    }
+                }
             }
         }
         // Pages a "Log in" button opened are done once their account is in (also when it

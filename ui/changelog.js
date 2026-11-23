@@ -3,6 +3,21 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.17.0',
+    date: '2026-11-23',
+    notes: {
+      pt: [
+        'Versão experimental para Linux (.deb e AppImage), com jogos, lives, modo economia, logins e atalhos. No Linux a extensão /hunt não está disponível.',
+      ],
+      en: [
+        'Experimental Linux version (.deb and AppImage), with games, streams, economy mode, logins and shortcuts. The /hunt extension isn\'t available on Linux.',
+      ],
+      es: [
+        'Versión experimental para Linux (.deb y AppImage), con juegos, streams, modo ahorro, inicios de sesión y atajos. En Linux la extensión /hunt no está disponible.',
+      ],
+    },
+  },
+  {
     version: '0.16.0',
     date: '2026-11-22',
     notes: {

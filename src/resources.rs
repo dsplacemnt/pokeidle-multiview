@@ -26,6 +26,7 @@ pub struct Usage {
     pub processes: usize,
 }
 
+#[cfg(windows)]
 #[repr(C)]
 struct ProcessEntry32W {
     size: u32,
@@ -40,6 +41,7 @@ struct ProcessEntry32W {
     exe: [u16; 260],
 }
 
+#[cfg(windows)]
 #[repr(C)]
 #[derive(Default)]
 struct MemoryCounters {
@@ -58,6 +60,7 @@ struct MemoryCounters {
     shared_commit: u64,
 }
 
+#[cfg(windows)]
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 struct FileTime {
@@ -65,16 +68,21 @@ struct FileTime {
     high: u32,
 }
 
+#[cfg(windows)]
 impl FileTime {
     fn ticks(self) -> u64 {
         (u64::from(self.high) << 32) | u64::from(self.low)
     }
 }
 
+#[cfg(windows)]
 const TH32CS_SNAPPROCESS: u32 = 0x2;
+#[cfg(windows)]
 const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+#[cfg(windows)]
 const INVALID_HANDLE: isize = -1;
 
+#[cfg(windows)]
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn CreateToolhelp32Snapshot(flags: u32, pid: u32) -> isize;
@@ -86,6 +94,7 @@ unsafe extern "system" {
     fn K32GetProcessMemoryInfo(process: isize, counters: *mut MemoryCounters, cb: u32) -> i32;
 }
 
+#[cfg(windows)]
 /// Every running process as (pid, parent pid).
 fn process_parents() -> Vec<(u32, u32)> {
     let mut out = Vec::new();
@@ -128,6 +137,7 @@ pub fn tree(root: u32, parents: &[(u32, u32)]) -> Vec<u32> {
     out
 }
 
+#[cfg(windows)]
 /// One process's CPU time so far (100 ns ticks) and memory (bytes), if it can be read.
 fn read_process(pid: u32) -> Option<(u64, u64)> {
     unsafe {
@@ -154,6 +164,60 @@ fn read_process(pid: u32) -> Option<(u64, u64)> {
         CloseHandle(handle);
         times.then(|| (kernel.ticks() + user.ticks(), memory))
     }
+}
+
+// Linux: the same from /proc. CPU times come in clock ticks (USER_HZ, 100 a second on every
+// common kernel) and are turned into 100 ns ticks like Windows'; memory is the private part of
+// each process (Private_Clean + Private_Dirty of smaps_rollup), or its RSS when that's missing.
+#[cfg(target_os = "linux")]
+const TICKS_PER_JIFFY: u64 = 100_000;
+
+/// The fields after the process name in /proc/<pid>/stat (the name may hold spaces).
+#[cfg(target_os = "linux")]
+fn stat_fields(pid: u32) -> Option<Vec<String>> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let rest = &stat[stat.rfind(')')? + 2..];
+    Some(rest.split_whitespace().map(str::to_string).collect())
+}
+
+#[cfg(target_os = "linux")]
+fn process_parents() -> Vec<(u32, u32)> {
+    let Ok(dir) = std::fs::read_dir("/proc") else { return Vec::new() };
+    dir.filter_map(|e| e.ok()?.file_name().to_str()?.parse::<u32>().ok())
+        .filter_map(|pid| {
+            // Field 4 of stat (index 1 after the name) is the parent.
+            let parent = stat_fields(pid)?.get(1)?.parse().ok()?;
+            Some((pid, parent))
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn read_process(pid: u32) -> Option<(u64, u64)> {
+    let fields = stat_fields(pid)?;
+    // utime and stime: fields 14 and 15 (indexes 11 and 12 after the name).
+    let jiffies: u64 = fields.get(11)?.parse::<u64>().ok()? + fields.get(12)?.parse::<u64>().ok()?;
+    let kb = |text: &str, keys: &[&str]| -> u64 {
+        text.lines()
+            .filter(|l| keys.iter().any(|k| l.starts_with(k)))
+            .filter_map(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
+            .sum()
+    };
+    let memory_kb = match std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")) {
+        Ok(text) => kb(&text, &["Private_Clean:", "Private_Dirty:"]),
+        Err(_) => kb(&std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?, &["VmRSS:"]),
+    };
+    Some((jiffies * TICKS_PER_JIFFY, memory_kb * 1024))
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn process_parents() -> Vec<(u32, u32)> {
+    Vec::new()
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn read_process(_pid: u32) -> Option<(u64, u64)> {
+    None
 }
 
 /// Measures the app every couple of seconds and sends it to the top bar ("resources").

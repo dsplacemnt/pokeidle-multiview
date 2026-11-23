@@ -89,6 +89,8 @@ fn key_name(key: &str) -> Option<String> {
 }
 
 /// The shortcut for a Windows virtual key and the modifiers held, as `canonical` writes it.
+// Used by native.rs (WebView2); elsewhere the pages report the combination as text.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn from_virtual_key(vk: u32, ctrl: bool, alt: bool, shift: bool) -> Option<String> {
     let key = match vk {
         0x30..=0x39 | 0x41..=0x5A => char::from_u32(vk)?.to_string(),

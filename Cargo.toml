@@ -15,11 +15,19 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["unstable", "tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-webview2-com = "0.39"
-windows-core = "0.62"
 tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2"
 # Asks Kick's public API which channels are live (for the Kick priority list).
 ureq = "3"
 qrcode = { version = "0.15.0", default-features = false, features = ["svg"] }
 tauri-plugin-updater = "2"
+
+# WebView2 (Windows): permissions, shortcuts inside pages, crash recovery, mute, memory level.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
+
+# WebKitGTK (Linux): the same jobs through WebKit (see native_other.rs).
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0", features = ["v2_40"] }
+gtk = "0.18"

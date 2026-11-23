@@ -5,6 +5,9 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager, WebviewUrl};
 
+#[cfg(not(windows))]
+use crate::compat::{HwndCompat, OwnerCompat};
+
 pub const DISCORD: &str = "dsplacemnt";
 /// The developer's Discord profile (opens Discord's page or app).
 pub const DISCORD_URL: &str = "https://discord.com/users/1191794452147208262";
