@@ -3,6 +3,24 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.20.0',
+    date: '2026-11-23',
+    notes: {
+      pt: [
+        'Prey do dia: o app avisa quando a roletada grátis do Prey está liberada (renova às 18:00 de Brasília) ou quando a conta roletou mas não escolheu o Pokémon. O aviso aparece no cabeçalho do slot, no modo economia, nas Tarefas diárias e, se quiser, no Discord.',
+        'Card "Prey do dia" no painel de estatísticas: o Pokémon escolhido de cada cartela, o bônus com as estrelas e o efeito, e se a conta está caçando ele agora (o bônus só vale na hunt onde ele aparece).',
+      ],
+      en: [
+        'Daily Prey: the app tells you when the free Prey roll is ready (it renews at 18:00 Brasília) or when an account rolled but didn\'t pick the Pokémon. It shows on the slot header, in economy mode, in Daily chores and, if you want, on Discord.',
+        '"Daily Prey" card in the stats panel: each card\'s picked Pokémon, its bonus with the stars and the effect, and whether the account is hunting it right now (the bonus only works in a hunt where it spawns).',
+      ],
+      es: [
+        'Prey del día: la app avisa cuando la tirada gratis del Prey está disponible (se renueva a las 18:00 de Brasilia) o cuando una cuenta giró pero no eligió el Pokémon. El aviso aparece en la cabecera del slot, en el modo ahorro, en Tareas diarias y, si quieres, en Discord.',
+        'Tarjeta "Prey del día" en el panel de estadísticas: el Pokémon elegido de cada cartilla, su bono con las estrellas y el efecto, y si la cuenta lo está cazando ahora (el bono solo sirve en una hunt donde aparece).',
+      ],
+    },
+  },
+  {
     version: '0.19.1',
     date: '2026-11-23',
     notes: {
