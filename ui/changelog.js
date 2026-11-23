@@ -3,6 +3,30 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.19.0',
+    date: '2026-11-23',
+    notes: {
+      pt: [
+        'Alertas no Discord (⚙ → Discord): cole o webhook de um canal e receba shinies, conta que caiu do jogo, live que o app não conseguiu resolver, voto do IdleHub liberado e um relatório diário na hora que quiser.',
+        'Nova opção para PCs com pouca memória (⚙ → Geral → Memória): um navegador para todas as contas, cerca de 1 GB a menos de RAM. Vem desligada; ao ligar, as contas precisam entrar de novo (os logins atuais ficam guardados e voltam se desligar).',
+        'Golden Potion e outros itens do jogo agora aparecem com nome e ícone na análise da hunt.',
+        'O contorno do slot em tela cheia encosta no painel de estatísticas, e o painel não tem mais o botão GRID.',
+      ],
+      en: [
+        'Discord alerts (⚙ → Discord): paste a channel\'s webhook and get shinies, an account dropped from the game, a stream the app couldn\'t fix, IdleHub votes ready and a daily report at the hour you pick.',
+        'New option for PCs short on memory (⚙ → General → Memory): one browser for all accounts, about 1 GB less RAM. Off by default; turning it on means logging in again (the current logins are kept and come back if you turn it off).',
+        'Golden Potion and other game items now show with their name and icon in the hunt analysis.',
+        'The fullscreen slot\'s outline now meets the stats panel, and the panel no longer has the GRID button.',
+      ],
+      es: [
+        'Alertas en Discord (⚙ → Discord): pega el webhook de un canal y recibe shinies, cuentas que se cayeron del juego, streams que la app no pudo arreglar, votos de IdleHub disponibles y un informe diario a la hora que elijas.',
+        'Nueva opción para PCs con poca memoria (⚙ → General → Memoria): un navegador para todas las cuentas, cerca de 1 GB menos de RAM. Viene desactivada; al activarla hay que iniciar sesión de nuevo (las sesiones actuales se guardan y vuelven si la desactivas).',
+        'Golden Potion y otros ítems del juego ahora aparecen con nombre e ícono en el análisis de la hunt.',
+        'El contorno del slot en pantalla completa ahora llega al panel de estadísticas, y el panel ya no tiene el botón GRID.',
+      ],
+    },
+  },
+  {
     version: '0.18.1',
     date: '2026-11-23',
     notes: {
