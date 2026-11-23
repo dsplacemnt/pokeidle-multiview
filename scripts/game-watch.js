@@ -311,6 +311,8 @@
       wild: game.wild,
       foe: game.wildInfo ? { name: game.wildInfo.name, level: game.wildInfo.level, look: game.wildInfo.look, shiny: game.wildInfo.shiny } : null,
       shinyList: shinies.map(({ battle, ...s }) => s),
+      // The page's JavaScript memory in MB (Chromium only), for src/heavy.rs.
+      heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
       supplies: list.map(({ cost, ...s }) => s),
     };
     const text = JSON.stringify(stats);
@@ -321,6 +323,37 @@
     if (!busy) next();
   }
   setInterval(sendStats, 30000);
+
+  // The game's own Battery Saver ("Turn the scene on" to leave it): the scene stops drawing and
+  // the page tells the server. The app's economy mode turns it on in every hidden account and
+  // back off when it ends, through the game's own buttons, and only undoes what it did: a
+  // Battery Saver the player turned on stays (the game remembers it in "cfg-economia"; the
+  // app's own mark is "multiview-eco").
+  window.__multiviewEco = async (on) => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let prefs;
+    try { prefs = await import('/preferencias.mjs'); } catch { return 'no prefs'; }
+    const mine = () => { try { return localStorage.getItem('multiview-eco') === '1'; } catch { return false; } };
+    const mark = (v) => { try { if (v) localStorage.setItem('multiview-eco', '1'); else localStorage.removeItem('multiview-eco'); } catch {} };
+    // The page may still be starting: try for up to a minute.
+    for (let i = 0; i < 30; i++) {
+      const isOn = prefs.economiaLigado();
+      if (on) {
+        if (isOn) return mine() ? 'on (ours)' : 'on (the player\'s)';
+        document.querySelector('#hunt-eco')?.click();
+        await sleep(300);
+        if (prefs.economiaLigado()) { mark(true); return 'turned on'; }
+      } else {
+        if (!mine()) return 'left as is';
+        if (!isOn) { mark(false); return 'already off'; }
+        document.querySelector('#eco-sair')?.click();
+        await sleep(300);
+        if (!prefs.economiaLigado()) { mark(false); return 'turned off'; }
+      }
+      await sleep(2000);
+    }
+    return 'not ready';
+  };
 
   // The daily Prey (renews at 18:00 Brasília): the account's cards, as the game keeps them in
   // its automation ({dia, cartelas:[{lista, pk, bonus, est}]}, sent when the page connects) and

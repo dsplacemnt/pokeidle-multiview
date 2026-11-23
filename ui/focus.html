@@ -170,6 +170,9 @@
     .prey-hint { font-size: 11.5px; color: var(--muted); }
     .prey-hint.warn { color: #ffb74d; }
     .tag.warn { color: #ffb74d; background: rgba(255, 183, 77, .12); }
+    .prey-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+    button.quiet { background: transparent; color: var(--muted); }
+    button.quiet:hover { color: var(--text); background: var(--chip); }
     /* The account's game dropped out. */
     .card.issue { box-shadow: inset 0 0 0 1px rgba(255, 138, 128, .55); background: rgba(255, 138, 128, .08); }
     .card.issue h2 { color: var(--bad); }
@@ -618,6 +621,15 @@
         list.append(row);
       });
       c.append(list);
+      // None of the 9 worth it today: the reminders go quiet until the 18:00 turn.
+      if (v.prey_pending) {
+        const foot = el('div', 'prey-foot');
+        const b = el('button', 'quiet', t('Not today'));
+        b.title = t("Hide this account's Prey reminder until 18:00 (Brasília)");
+        b.addEventListener('click', () => invoke('dismiss_prey', { id: v.slot }).catch(() => {}));
+        foot.append(b);
+        c.append(foot);
+      }
       return c;
     }
 

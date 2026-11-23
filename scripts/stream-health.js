@@ -11,8 +11,11 @@
 // full Twitch pages (visits, or the stream being shown) are left alone.
 (() => {
   const host = location.hostname;
+  // With each answer, the page's JavaScript memory in MB (Chromium only), so the app can reload
+  // a page that swelled over a long session (src/heavy.rs).
+  const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
   const report = (state, detail) =>
-    window.__multiviewReport(`[multiview-health] ${JSON.stringify({ state, detail })}`);
+    window.__multiviewReport(`[multiview-health] ${JSON.stringify({ state, detail, heap })}`);
   // A page that is still loading has no player yet: that's not "offline" (it used to raise a
   // false ⚠ on every stream the manager had just opened).
   const young = performance.now() < 45000;

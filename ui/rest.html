@@ -54,6 +54,8 @@
     button.primary { background: var(--accent); border-color: var(--accent); color: #1a1408; }
     button.primary:hover { background: #ffd76b; border-color: #ffd76b; }
     button.small { height: 26px; padding: 0 10px; font-size: 12.5px; flex: none; }
+    button.small.quiet { background: transparent; color: var(--muted); }
+    button.small.quiet:hover { color: var(--text); background: var(--chip); }
 
     .card { width: 100%; background: var(--card); border-radius: 14px; padding: 14px 16px; display: grid; gap: 10px;
       box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 6px 18px rgba(0, 0, 0, .18); }
@@ -148,11 +150,19 @@
       return `${mm}m`;
     }
 
-    function notice(kind, icon, title, detail, button, action) {
+    // A row of the list: icon, title and detail, a main button and, optionally, a quiet second
+    // one before it (extra: [label, action, title]).
+    function notice(kind, icon, title, detail, button, action, extra) {
       const row = el('div', `notice ${kind}`);
       const text = el('div', 'text');
       text.append(el('b', '', title), el('span', '', detail));
       row.append(el('span', 'icon', icon), text);
+      if (extra) {
+        const x = el('button', 'small quiet', extra[0]);
+        x.title = extra[2] || '';
+        x.addEventListener('click', extra[1]);
+        row.append(x);
+      }
       if (button) {
         const b = el('button', 'small', button);
         b.addEventListener('click', action);
@@ -195,7 +205,8 @@
         if (prey) {
           rows.push(notice('prey', '🎯', prey === 'pick' ? t('{name}: pick the Prey Pokémon', { name: names[slot.id] }) : t('{name}: daily Prey ready', { name: names[slot.id] }),
             prey === 'pick' ? t('Rolled, but none of the 9 is picked: the bonus does nothing yet') : t('The free roll renews every day at 18:00 (Brasília)'),
-            t('Show'), () => invoke('focus_slot', { id: slot.id })));
+            t('Show'), () => invoke('focus_slot', { id: slot.id }),
+            [t('Not today'), () => invoke('dismiss_prey', { id: slot.id }), t("Hide this account's Prey reminder until 18:00 (Brasília)")]));
         }
         const vote = state.vote?.[slot.id];
         if (vote && vote.readyAt && vote.readyAt <= now) {

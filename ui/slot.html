@@ -78,9 +78,13 @@
     .vote.ready:hover { background: #ffd76b; }
     @keyframes votepulse { 50% { box-shadow: 0 0 0 3px rgba(242, 193, 78, .25); } }
     /* Daily Prey still to do (free roll or pick): violet like the Lure bonus. */
-    button.prey { height: 20px; padding: 0 9px; margin-left: 6px; border-radius: 10px; font-size: 11.5px; font-weight: 600;
-      color: #e3c4ff; background: rgba(180, 120, 255, .16); box-shadow: inset 0 0 0 1px rgba(180, 120, 255, .5); }
-    button.prey:hover { background: rgba(180, 120, 255, .28); }
+    .preybox { display: inline-flex; align-items: center; margin-left: 6px; border-radius: 10px;
+      background: rgba(180, 120, 255, .16); box-shadow: inset 0 0 0 1px rgba(180, 120, 255, .5); }
+    .preybox button { height: 20px; background: transparent; font-size: 11.5px; font-weight: 600; color: #e3c4ff; }
+    button.prey { padding: 0 6px 0 9px; border-radius: 10px 0 0 10px; }
+    button.prey-x { padding: 0 8px 0 5px; border-radius: 0 10px 10px 0; color: rgba(227, 196, 255, .6); }
+    .preybox button:hover { background: rgba(180, 120, 255, .28); }
+    button.prey-x:hover { color: #fff; }
     .bonus { height: 20px; padding: 0 7px; border-radius: 10px; display: inline-flex; align-items: center;
       font-size: 11.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: default; }
     .bonus.xp { color: #ffd76b; background: rgba(242, 193, 78, .14); }
@@ -423,9 +427,14 @@
       const title = what === 'pick'
         ? t('Prey rolled, but no Pokémon picked: its bonus does nothing yet. In the game: Bag → Prey, pick one of the 9.')
         : t("Today's free Prey roll is ready (it renews at 18:00 Brasília). In the game: Bag → Prey → Roll.");
-      return [button(`🎯 ${t(what === 'pick' ? 'Pick Prey' : 'Prey')}`, title, () => {
+      const chip = button(`🎯 ${t(what === 'pick' ? 'Pick Prey' : 'Prey')}`, title, () => {
         if (!focused) call('focus_slot');
-      }, 'prey')];
+      }, 'prey');
+      // Not wanted today (none of the 9 is worth it): hidden until the 18:00 turn.
+      const dismiss = button('×', t("Not today: hide this account's Prey reminder until 18:00 (Brasília)"), () => call('dismiss_prey'), 'prey-x');
+      const box = Object.assign(document.createElement('span'), { className: 'preybox' });
+      box.append(chip, dismiss);
+      return [box];
     }
 
     function renderVote() {

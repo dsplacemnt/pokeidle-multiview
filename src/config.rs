@@ -276,6 +276,9 @@ pub struct Config {
     /// Discord alerts (⚙ → Discord); off until a webhook is set.
     #[serde(default)]
     pub discord: crate::discord::DiscordConfig,
+    /// Accounts whose Prey reminder the player dismissed, and for which game day (see prey.rs).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub prey_dismissed: std::collections::BTreeMap<u8, String>,
     /// The main window's last size and maximized state (it always opens centered).
     #[serde(default)]
     pub window: Option<WindowGeom>,
@@ -370,6 +373,7 @@ impl Default for Config {
             seen_version: None,
             language: Language::Pt,
             discord: Default::default(),
+            prey_dismissed: Default::default(),
             window: None,
         }
     }

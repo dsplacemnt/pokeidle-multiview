@@ -29,6 +29,7 @@ mod power;
 #[path = "power_other.rs"]
 mod power;
 mod splash;
+mod heavy;
 mod logins;
 mod prey;
 mod resources;
@@ -468,7 +469,7 @@ fn focus_view(state: &AppState) -> Option<FocusView> {
         game_issue: state.game_conn.get(&id).and_then(|c| game::issue(c, now_ms())).map(str::to_string),
         sprites: state.sprites.clone(),
         prey: state.prey.get(&id).map(|(_, v)| v.clone()),
-        prey_pending: state.prey.get(&id).and_then(|(r, _)| prey::pending(r, now_ms())).map(str::to_string),
+        prey_pending: prey::pending_for(state, id, now_ms()).map(str::to_string),
     })
 }
 
@@ -917,6 +918,12 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
         .on_page_load(move |_, payload| {
             if payload.event() == PageLoadEvent::Finished {
                 splash::game_loaded(&load_app, id);
+                // A game (re)loaded: its Battery Saver as the economy mode wants it (the script
+                // waits until the game is ready).
+                if payload.url().host_str() == Some("pokeidle.io") {
+                    let on = load_app.state::<Mutex<AppState>>().lock().unwrap().config.economy;
+                    sync_game_economy(&load_app, id, on);
+                }
             }
         })
         .initialization_script(DESKTOP_LAYOUT)
@@ -1769,8 +1776,26 @@ fn set_economy_mode(app: &AppHandle, on: bool) {
     if let Err(e) = apply_layout(app) {
         eprintln!("[layout] {e}");
     }
-    let state = app.state::<Mutex<AppState>>();
-    save_and_publish(app, &state.lock().unwrap());
+    let ids: Vec<u8> = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        save_and_publish(app, &state);
+        state.config.slots.iter().map(|s| s.id).collect()
+    };
+    for id in ids {
+        sync_game_economy(app, id, on);
+    }
+}
+
+/// The game's own Battery Saver follows the app's economy mode in every hidden account (see
+/// game-watch.js: it only undoes what the app turned on).
+fn sync_game_economy(app: &AppHandle, id: u8, on: bool) {
+    if let Some(game) = app.get_webview(&slot_label(id)) {
+        let js = format!("window.__multiviewEco && window.__multiviewEco({on})");
+        if let Err(e) = game.eval(&js) {
+            eprintln!("[economy] slot {id}: could not reach the game's battery saver: {e}");
+        }
+    }
 }
 
 fn toggle_economy(app: &AppHandle) {
@@ -2294,9 +2319,15 @@ fn stats_reported(app: &AppHandle, id: u8, json: &str) {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
     discord::shinies_reported(&mut state, id, &stats);
+    let heap = stats.get("heap").and_then(|h| h.as_u64());
     state.game_stats.insert(id, stats);
     if state.config.focus == Some(id) {
         let _ = app.emit_to(FOCUS_PANEL, "focus", focus_view(&state));
+    }
+    // The game page's memory (heavy.rs locks the state itself).
+    drop(state);
+    if let Some(mb) = heap {
+        heavy::reading(app, id, &slot_label(id), mb);
     }
 }
 
@@ -2599,6 +2630,9 @@ struct HealthReport {
     state: String,
     #[serde(default)]
     detail: String,
+    /// The page's JavaScript memory in MB (see heavy.rs).
+    #[serde(default)]
+    heap: Option<u64>,
 }
 
 /// A stream page answered the health check. A video that stopped moving in two checks in a row
@@ -2656,6 +2690,10 @@ fn next_health(
 
 fn health_reported(app: &AppHandle, label: &str, json: &str) {
     let Ok(report) = serde_json::from_str::<HealthReport>(json) else { return };
+    // "slot-3-twitch-12" → slot 3: its memory reading (pages that swell get reloaded).
+    if let (Some(mb), Some(id)) = (report.heap, label.split('-').nth(1).and_then(|n| n.parse::<u8>().ok())) {
+        heavy::reading(app, id, label, mb);
+    }
     let (reload, changed, wake, offline_count) = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
@@ -3753,6 +3791,7 @@ fn main() {
             set_economy,
             logins::open_login,
             discord::get_discord,
+            prey::dismiss_prey,
             discord::set_discord,
             discord::test_discord,
             toggle_mute,

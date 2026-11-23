@@ -70,14 +70,32 @@ pub fn pending(report: &Report, now_ms: i64) -> Option<&'static str> {
     pick.then_some("pick")
 }
 
+/// An account's pending Prey step, unless the player dismissed today's Prey for it (they may
+/// not want any of the 9: picking is free, but another roll costs Coins).
+pub fn pending_for(state: &crate::AppState, id: u8, now_ms: i64) -> Option<&'static str> {
+    if state.config.prey_dismissed.get(&id).is_some_and(|d| *d == game_day(now_ms)) {
+        return None;
+    }
+    state.prey.get(&id).and_then(|(report, _)| pending(report, now_ms))
+}
+
 /// Each account's pending Prey step, for the pages: slot → "roll" / "pick".
 pub fn pendings(state: &crate::AppState) -> HashMap<u8, String> {
     let now = crate::now_ms();
-    state
-        .prey
-        .iter()
-        .filter_map(|(id, (report, _))| pending(report, now).map(|p| (*id, p.to_string())))
-        .collect()
+    state.prey.keys().filter_map(|id| pending_for(state, *id, now).map(|p| (*id, p.to_string()))).collect()
+}
+
+/// "Not today": hides the account's Prey reminder until the game day turns (18:00 Brasília).
+#[tauri::command]
+pub fn dismiss_prey(app: AppHandle, id: u8) {
+    let state = app.state::<Mutex<crate::AppState>>();
+    let mut state = state.lock().unwrap();
+    let day = game_day(crate::now_ms());
+    state.config.prey_dismissed.retain(|_, d| *d == day);
+    state.config.prey_dismissed.insert(id, day);
+    println!("[prey] slot {id}: dismissed for today");
+    crate::log_event(&mut state, id, "Prey: dismissed for today");
+    crate::save_and_publish(&app, &state);
 }
 
 /// "[multiview-prey] {…}" from a game page: kept (as parsed and as sent, for the panel).
