@@ -23,6 +23,9 @@
     main { flex: 1; min-height: 0; padding: 0 24px 20px; }
     .pane { display: none; height: 100%; overflow-y: auto; padding: 2px 4px 2px 2px; }
     .pane.on { display: block; }
+    /* Panes that stack their cards (Shortcuts, Discord, About): a column with the same gap as the
+       grid panes, so cards never touch. */
+    .keys-pane.on, .discord-pane.on, .about-pane.on { display: grid; gap: 18px; align-content: start; }
     /* General: cards in columns, as many as fit. */
     .pane.general.on { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; align-content: start; }
     /* Channels: Twitch and Kick share their rows (description | options | channels | add), so
@@ -57,6 +60,8 @@
     }
     section { background: var(--card); border-radius: 14px; padding: 18px 20px; display: grid; gap: 14px;
       box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 6px 18px rgba(0, 0, 0, .18); }
+    /* A card stretched to its row's height keeps its content at the top (no gaps in between). */
+    .pane.general section { align-content: start; }
     h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
     label.row { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
     label.row > span, div.row > span { flex: 1; min-width: 0; }
@@ -201,16 +206,6 @@
     .hook-state.set { color: #3ddc84; }
     .hook-state.bad { color: #ff8a80; }
     .discord-pane label.row + label.row { margin-top: 10px; }
-    /* One browser for all accounts: the warning before switching. */
-    .confirm-box { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: rgba(255, 183, 77, .08);
-      box-shadow: inset 0 0 0 1px rgba(255, 183, 77, .45); font-size: 13px; }
-    .confirm-box b { color: #ffd27a; }
-    .confirm-box ul { margin: 8px 0 10px 18px; padding: 0; }
-    .confirm-box li + li { margin-top: 4px; }
-    .confirm-box .buttons { display: flex; gap: 8px; justify-content: flex-end; }
-    .confirm-box button.go { background: var(--accent); color: #1a1408; border-color: transparent; font-weight: 600; }
-    .shared-state { margin-top: 6px; font-size: 12.5px; color: #3ddc84; }
-    .discord-pane section + section { margin-top: 12px; }
     .account .pt { font-variant-numeric: tabular-nums; }
   </style>
   <script src="i18n.js"></script>
@@ -241,21 +236,6 @@
           <option value="es">Español</option>
         </select>
       </label>
-    </section>
-
-    <section id="memory-section" hidden>
-      <h2 data-i18n>Memory</h2>
-      <label class="row"><input type="checkbox" id="shared_browser">
-        <span><span data-i18n>One browser for all accounts</span><span class="hint" data-i18n>For PCs short on memory: the accounts share one browser instead of one each, about 1 GB less RAM with 4 accounts. Each account stays separate. Off by default.</span></span></label>
-      <div class="shared-state" id="shared-state" hidden></div>
-      <div class="confirm-box" id="shared-confirm" hidden>
-        <b id="shared-confirm-title"></b>
-        <ul id="shared-confirm-list"></ul>
-        <div class="buttons">
-          <button id="shared-cancel" data-i18n>Cancel</button>
-          <button id="shared-go" class="go"></button>
-        </div>
-      </div>
     </section>
 
     <section>
@@ -445,51 +425,6 @@
       try { localStorage.setItem('settings-tab', name); } catch {}
     }
     tabs.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
-
-    // ⚙ → General → Memory. Switching restarts the app; turning it on means new logins.
-    const sharedBox = document.getElementById('shared_browser');
-    const sharedConfirm = document.getElementById('shared-confirm');
-    const sharedState = document.getElementById('shared-state');
-    let shared = null;
-    function showShared(v) {
-      shared = v;
-      document.getElementById('memory-section').hidden = !v.available;
-      sharedBox.checked = v.on;
-      sharedConfirm.hidden = true;
-      sharedState.hidden = !v.running;
-      sharedState.textContent = v.running ? t('On: the accounts are sharing one browser now.') : '';
-    }
-    function askShared(on) {
-      const list = document.getElementById('shared-confirm-list');
-      const items = on
-        ? [t('Every account starts logged out: you log in again to the game, Twitch and Kick on each one.'),
-           t('Your current logins are kept apart: turning this off brings them back.'),
-           t('The app restarts now (the streams stop for a minute).')]
-        : [t('Each account goes back to its own browser, with the logins it had before this option.'),
-           t('The logins made while it was on are kept for the next time you turn it on.'),
-           t('The app restarts now (the streams stop for a minute).')];
-      document.getElementById('shared-confirm-title').textContent = on ? t('Turn on one browser for all accounts?') : t('Turn off one browser for all accounts?');
-      list.replaceChildren(...items.map((x) => Object.assign(document.createElement('li'), { textContent: x })));
-      document.getElementById('shared-go').textContent = on ? t('Turn on and restart') : t('Turn off and restart');
-      sharedConfirm.hidden = false;
-    }
-    sharedBox.addEventListener('change', () => {
-      const want = sharedBox.checked;
-      sharedBox.checked = shared ? shared.on : !want; // only changes once confirmed
-      askShared(want);
-    });
-    document.getElementById('shared-cancel').addEventListener('click', () => { sharedConfirm.hidden = true; });
-    document.getElementById('shared-go').addEventListener('click', () => {
-      const want = !(shared && shared.on);
-      document.getElementById('shared-go').disabled = true;
-      invoke('set_shared_browser', { on: want }).catch((e) => {
-        document.getElementById('shared-go').disabled = false;
-        sharedState.hidden = false;
-        sharedState.textContent = I18N.text(String(e));
-      });
-    });
-    invoke('get_shared_browser').then(showShared).catch(() => {});
-    I18N.onChange(() => { if (shared && !sharedConfirm.hidden) askShared(!shared.on); });
 
     // ⚙ → Discord. The webhook is never shown back: only whether one is set and its end.
     const hook = document.getElementById('hook');

@@ -276,10 +276,6 @@ pub struct Config {
     /// Discord alerts (⚙ → Discord); off until a webhook is set.
     #[serde(default)]
     pub discord: crate::discord::DiscordConfig,
-    /// One browser for all accounts (see shared_browser.rs): less memory, separate logins.
-    /// Off by default; switching needs a restart and new logins.
-    #[serde(default)]
-    pub shared_browser: bool,
     /// The main window's last size and maximized state (it always opens centered).
     #[serde(default)]
     pub window: Option<WindowGeom>,
@@ -374,7 +370,6 @@ impl Default for Config {
             seen_version: None,
             language: Language::Pt,
             discord: Default::default(),
-            shared_browser: false,
             window: None,
         }
     }

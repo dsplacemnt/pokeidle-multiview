@@ -3,6 +3,27 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.19.1',
+    date: '2026-11-23',
+    notes: {
+      pt: [
+        'O app não volta mais sozinho para a tela quando está minimizado ou na bandeja: as lives que ele abre ou troca em segundo plano não tiram mais a janela de lá.',
+        'Removida a opção "Um navegador para todas as contas": com as lives abertas, ela economizava só cerca de 250 MB (não 1 GB, como dizia a 0.19.0). Quem ligou volta para um navegador por conta, com os logins de antes de ligar, e a pasta que ela usava é apagada.',
+        'Settings: os cards de Atalhos, Discord e Sobre não encostam mais um no outro, e os da aba Geral ficam alinhados no topo.',
+      ],
+      en: [
+        'The app no longer comes back on screen by itself while minimized or in the tray: streams it opens or swaps in the background don\'t pull the window back anymore.',
+        'Removed the "One browser for all accounts" option: with the streams open it only saved about 250 MB (not 1 GB, as 0.19.0 said). If you turned it on, each account goes back to its own browser with the logins it had before, and the folder the option used is deleted.',
+        'Settings: the Shortcuts, Discord and About cards no longer touch each other, and the General cards keep their content at the top.',
+      ],
+      es: [
+        'La app ya no vuelve sola a la pantalla cuando está minimizada o en la bandeja: los streams que abre o cambia en segundo plano ya no traen la ventana de vuelta.',
+        'Se quitó la opción "Un navegador para todas las cuentas": con los streams abiertos solo ahorraba cerca de 250 MB (no 1 GB, como decía la 0.19.0). Si la activaste, cada cuenta vuelve a su propio navegador con las sesiones que tenía antes, y se borra la carpeta que usaba.',
+        'Ajustes: las tarjetas de Atajos, Discord y Acerca de ya no se tocan, y las de General mantienen su contenido arriba.',
+      ],
+    },
+  },
+  {
     version: '0.19.0',
     date: '2026-11-23',
     notes: {

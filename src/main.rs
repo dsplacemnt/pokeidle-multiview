@@ -31,7 +31,6 @@ mod power;
 mod splash;
 mod logins;
 mod resources;
-mod shared_browser;
 mod shortcuts;
 mod support;
 mod whatsnew;
@@ -776,17 +775,6 @@ fn slot_session_builder(
     if std::env::var_os("MULTIVIEW_ALLOW_WEBAUTHN").is_none() {
         builder = builder.initialization_script_for_all_frames(WEBAUTHN_BLOCK);
     }
-    // "One browser for all accounts": the shared browser (made at startup with the same
-    // arguments) and this slot's own profile in it, instead of the slot's own browser.
-    #[cfg(windows)]
-    if let Some(env) = shared_browser::environment() {
-        let root = data_dir.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
-        builder = builder.with_environment(env).data_directory(shared_browser::profile_dir(&root, &slot_label(slot_id)));
-        if let Some(dir) = hunt_dir {
-            builder = builder.browser_extensions_enabled(true).extensions_path(dir);
-        }
-        return builder;
-    }
     builder = builder.additional_browser_args(&slot_browser_args(slot_id));
     if let Some(dir) = hunt_dir {
         builder = builder.browser_extensions_enabled(true).extensions_path(dir);
@@ -1171,6 +1159,7 @@ fn switch_page(panel: &tauri::Webview, shown: bool) {
         return;
     }
     let target = channel.url_for(shown);
+    page_activity();
     if let Err(e) = panel.navigate(target.parse().unwrap()) {
         eprintln!("[panel] could not switch to {target}: {e}");
     }
@@ -1227,6 +1216,7 @@ fn route_channel(app: &AppHandle, id: u8, channel: &channels::Channel) -> Result
     if let Some(page) = reuse {
         let shown = front.as_deref() == Some(page.label.as_str());
         if let Some(webview) = app.get_webview(&page.label) {
+            page_activity();
             webview.navigate(channel.url_for(shown).parse().unwrap()).map_err(|e| e.to_string())?;
         }
         set_page_login(app, &page.label, Some(channel.login.clone()));
@@ -1378,6 +1368,10 @@ fn create_page(
         // Born off-screen (not hidden) so the player autoplays; see apply_layout.
         r = parked(r);
     }
+    // A page the app opens by itself (a background stream) doesn't take the focus: that would
+    // bring a minimized or tray window back on screen.
+    let builder = builder.focused(!background);
+    page_activity();
     let page =
         window.add_child(builder, LogicalPosition::new(r.x, r.y), LogicalSize::new(r.w, r.h))?;
     if background {
@@ -1801,6 +1795,7 @@ fn reload_all_games(app: &AppHandle) {
     println!("[reload] reloading {} game page(s) (shortcut)", ids.len());
     for id in ids {
         if let Some(webview) = app.get_webview(&slot_label(id)) {
+            page_activity();
             let _ = webview.reload();
         }
     }
@@ -1895,45 +1890,6 @@ struct Settings {
     auto_reload_minutes: u32,
     light_kick_background: bool,
     kick_daily: bool,
-}
-
-/// ⚙ → General → Memory: the "One browser for all accounts" option.
-#[derive(Serialize)]
-struct SharedBrowserView {
-    /// This platform has it (Windows).
-    available: bool,
-    /// Chosen in the config (takes effect at the next start).
-    on: bool,
-    /// What this run of the app actually uses.
-    running: bool,
-}
-
-#[tauri::command]
-fn get_shared_browser(state: tauri::State<'_, Mutex<AppState>>) -> SharedBrowserView {
-    let on = state.lock().unwrap().config.shared_browser;
-    #[cfg(windows)]
-    let running = shared_browser::environment().is_some();
-    #[cfg(not(windows))]
-    let running = false;
-    SharedBrowserView { available: shared_browser::AVAILABLE, on, running }
-}
-
-/// Saves the choice and restarts the app, which then opens the slots the new way.
-#[tauri::command]
-fn set_shared_browser(app: AppHandle, on: bool) -> Result<(), String> {
-    if !shared_browser::AVAILABLE {
-        return Err("Not available on this system".into());
-    }
-    {
-        let state = app.state::<Mutex<AppState>>();
-        let mut state = state.lock().unwrap();
-        state.config.shared_browser = on;
-        println!("[shared] one browser for all accounts: {} (restarting)", if on { "on" } else { "off" });
-        if let Err(e) = state.config.save(&state.config_path) {
-            return Err(e.to_string());
-        }
-    }
-    app.restart();
 }
 
 #[tauri::command]
@@ -2793,6 +2749,7 @@ fn health_reported(app: &AppHandle, label: &str, json: &str) {
     if reload {
         println!("[health] {label}: {} ({}); reloading", report.state, report.detail);
         if let Some(page) = app.get_webview(label) {
+            page_activity();
             let _ = page.reload();
         }
     }
@@ -3043,6 +3000,7 @@ fn start_twitch_visits(app: &AppHandle) {
         let Some(page) = app.get_webview(&label) else { continue };
         let channel = channels::Channel { platform: Platform::Twitch, login: login.clone() };
         println!("[auto] visiting Twitch {login} ({label})");
+        page_activity();
         if let Err(e) = page.navigate(channel.page_url().parse().unwrap()) {
             eprintln!("[auto] {label}: could not open the full page: {e}");
             app.state::<Mutex<AppState>>().lock().unwrap().visiting.remove(&label);
@@ -3348,6 +3306,20 @@ struct SlotBonuses {
     twitch: Option<BonusEnds>,
 }
 
+/// When the app last opened, reloaded or navigated a page by itself. WebView2 can hand the
+/// window focus when that happens; while the window is away (minimized or in the tray), focus
+/// that close to it isn't the player asking for the window, so it doesn't bring it back.
+static PAGE_ACTIVITY: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+const PAGE_ACTIVITY_QUIET: std::time::Duration = std::time::Duration::from_secs(3);
+
+fn page_activity() {
+    *PAGE_ACTIVITY.lock().unwrap() = Some(std::time::Instant::now());
+}
+
+fn after_page_activity() -> bool {
+    PAGE_ACTIVITY.lock().unwrap().is_some_and(|t| t.elapsed() < PAGE_ACTIVITY_QUIET)
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -3546,6 +3518,7 @@ fn start_auto_reload(app: AppHandle) {
             println!("[reload] auto-reloading {} game page(s) (every {minutes} min)", ids.len());
             for id in ids {
                 if let Some(webview) = app.get_webview(&slot_label(id)) {
+                    page_activity();
                     let _ = webview.reload();
                 }
             }
@@ -3594,15 +3567,14 @@ fn main() {
                     }
                 },
             };
-            // One browser for all accounts: started before any slot opens. If it can't start,
-            // every slot falls back to its own browser (and its old logins).
-            #[cfg(windows)]
-            if config.shared_browser {
-                let dir = shared_browser::data_dir(&base.join("slots"));
-                match shared_browser::start(&dir, &slot_browser_args(1), hunt_dir.is_some()) {
-                    Ok(()) => println!("[shared] one browser for all accounts"),
-                    Err(e) => eprintln!("[shared] could not start the shared browser, using one per slot: {e}"),
-                }
+            // "One browser for all accounts" (0.19.0) was removed: its folder isn't read anymore.
+            let old_shared = base.join("slots").join("shared");
+            if old_shared.is_dir() {
+                std::thread::spawn(move || {
+                    if std::fs::remove_dir_all(&old_shared).is_ok() {
+                        println!("[app] removed the unused shared browser folder");
+                    }
+                });
             }
             let slots = config.slots.clone();
             let geom = config.window.unwrap_or_default();
@@ -3725,9 +3697,15 @@ fn main() {
                         let _ = apply_layout(&event_handle);
                     }
                 }
-                // Its taskbar button clicked, or picked with Alt+Tab, while away.
+                // Its taskbar button clicked, or picked with Alt+Tab, while away. Focus that
+                // comes right after the app opened, reloaded or navigated a page by itself is
+                // WebView2's, not the player's: the window stays away.
                 WindowEvent::Focused(true) if away::is_away() && !away::moving() => {
-                    away::bring_back(&event_window);
+                    if after_page_activity() {
+                        println!("[window] focus right after a page change while away: staying away");
+                    } else {
+                        away::bring_back(&event_window);
+                    }
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
                     let _ = apply_layout(&event_handle);
@@ -3761,8 +3739,6 @@ fn main() {
             set_economy,
             logins::open_login,
             discord::get_discord,
-            get_shared_browser,
-            set_shared_browser,
             discord::set_discord,
             discord::test_discord,
             toggle_mute,
