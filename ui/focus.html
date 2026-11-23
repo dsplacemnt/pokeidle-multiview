@@ -92,7 +92,13 @@
     .supply { display: grid; grid-template-columns: minmax(0, 1fr) 58px 64px 54px; gap: 8px; align-items: center;
       font-size: 12.5px; font-variant-numeric: tabular-nums; padding: 3px 6px; border-radius: 6px; background: var(--chip); }
     .supply.shead { background: transparent; padding-top: 0; padding-bottom: 0; font-size: 10.5px; color: var(--muted); }
-    .supply .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .supply .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600;
+      display: flex; align-items: center; gap: 6px; }
+    .supply .sname span { overflow: hidden; text-overflow: ellipsis; }
+    /* The game's own item icons (balls, potions, coins…). */
+    .ico { width: 18px; height: 18px; flex: none; object-fit: contain; image-rendering: pixelated; }
+    .stat .k { display: flex; align-items: center; gap: 5px; }
+    .stat .k .ico { width: 14px; height: 14px; }
     .supply .sleft, .supply .srate, .supply .seta { text-align: right; white-space: nowrap; }
     .supply .srate { color: var(--muted); }
     .supply .seta { font-weight: 700; }
@@ -382,6 +388,23 @@
     }
     const RESULTS = { seen: 'seen', caught: 'caught', fled: 'fled' };
 
+    // An icon from the game's site (a path the game page sent, or one of ours below); it just
+    // goes away if the image doesn't load.
+    const GAME = 'https://pokeidle.io';
+    const ICONS = {
+      gold: '/assets/site/assets/ui/moeda-ouro.png',
+      xp: '/assets/site/assets/loja/exp.png',
+      ball: '/assets/site/assets/ui/ball-poke.png',
+      potion: '/assets/site/assets/markitems/ultimate_potion.png',
+    };
+    function icon(path) {
+      const img = el('img', 'ico');
+      img.alt = '';
+      img.src = path.startsWith('http') ? path : GAME + path;
+      img.addEventListener('error', () => img.remove());
+      return img;
+    }
+
     // The account's game dropped out: first thing in the panel, with the fix.
     function issueCard(v) {
       if (!v.game_issue) return null;
@@ -424,7 +447,9 @@
       if (!rows.length) sup.append(el('span', 'empty', t('Waiting for the game to show the bag (a few minutes)')));
       for (const s of rows) {
         const r = el('div', 'supply' + (s.hoursLeft !== null && s.hoursLeft < 2 ? ' low' : s.hoursLeft !== null && s.hoursLeft < 6 ? ' warn' : ''));
-        const name = el('span', 'sname', s.name);
+        const name = el('span', 'sname');
+        if (s.icon) name.append(icon(s.icon));
+        name.append(el('span', '', s.name));
         name.title = t(KINDS[s.kind]);
         r.append(
           name,
@@ -443,18 +468,21 @@
 
       // Pace: tiles.
       const grid = el('div', 'grid');
-      const tile = (value, label, cls) => {
+      const tile = (value, label, cls, ico) => {
         const s = el('div', 'stat' + (cls ? ` ${cls}` : ''));
-        s.append(el('div', 'v', value), el('div', 'k', label));
+        const k = el('div', 'k');
+        if (ico) k.append(icon(ico));
+        k.append(el('span', '', label));
+        s.append(el('div', 'v', value), k);
         grid.append(s);
       };
       tile(compact(h.killsPerHour), t('Kills per hour'));
-      tile(compact(h.xpPerHour), t('XP per hour'));
-      tile(compact(h.goldPerHour), t('Gold per hour'));
-      tile(h.costPerHour === null ? '—' : `−${compact(h.costPerHour)}`, t('Supplies per hour'));
-      tile(h.netPerHour === null ? '—' : `${h.netPerHour >= 0 ? '+' : ''}${compact(h.netPerHour)}`, t('Net gold per hour'), h.netPerHour !== null && h.netPerHour < 0 ? 'neg' : 'pos');
+      tile(compact(h.xpPerHour), t('XP per hour'), '', ICONS.xp);
+      tile(compact(h.goldPerHour), t('Gold per hour'), '', ICONS.gold);
+      tile(h.costPerHour === null ? '—' : `−${compact(h.costPerHour)}`, t('Supplies per hour'), '', ICONS.potion);
+      tile(h.netPerHour === null ? '—' : `${h.netPerHour >= 0 ? '+' : ''}${compact(h.netPerHour)}`, t('Net gold per hour'), h.netPerHour !== null && h.netPerHour < 0 ? 'neg' : 'pos', ICONS.gold);
       const rate = h.throws ? Math.round((h.catches / h.throws) * 1000) / 10 : null;
-      tile(h.throws ? `${h.catches}/${h.throws}` : '—', rate !== null ? t('Catches ({rate}%)', { rate }) : t('Catches'));
+      tile(h.throws ? `${h.catches}/${h.throws}` : '—', rate !== null ? t('Catches ({rate}%)', { rate }) : t('Catches'), '', ICONS.ball);
 
       // XP: how far into the level, and when the next one comes at this pace.
       const lv = el('div', 'hunt-sec');

@@ -47,8 +47,29 @@
   let ballCatalog = new Map(); // ball id → { name, price }
   fetch('/assets/items.json')
     .then((r) => r.json())
-    .then((j) => { for (const i of j.items || j || []) names.set(i.id, { name: i.name, price: Number(i.npcPrice) || 0 }); })
+    .then((j) => { for (const i of j.items || j || []) names.set(i.id, { name: i.name, price: Number(i.npcPrice) || 0, icon: itemIcon(i.icon) }); })
     .catch(() => {});
+  // Icons, as the game itself draws them: items.json paths live under /assets/site/assets/
+  // ("/assets/markitems/x.png" → /assets/site/assets/markitems/x.png, a bare name is in
+  // items/), and balls use the game's own small table (other balls show as a Poké Ball).
+  function itemIcon(icon) {
+    if (!icon || typeof icon !== 'string') return null;
+    const path = icon.startsWith('/assets/site/') || icon.startsWith('/img/') ? icon
+      : icon.startsWith('/assets/') ? `/assets/site${icon}`
+      : icon.startsWith('/') ? icon
+      : `/assets/site/assets/items/${icon}`;
+    // Just the path: the report goes through the page title, which has a length limit; the
+    // panel puts the game's address in front.
+    return path;
+  }
+  const BALL_ICONS = {
+    1: '/assets/site/assets/ui/ball-poke.png',
+    2: '/assets/site/assets/ui/ball-great.png',
+    3: '/img/ball-super.png',
+    4: '/assets/site/assets/ui/ball-ultra.png',
+    5: '/img/ball-beast.png',
+  };
+  const ballIcon = (id) => BALL_ICONS[id] || BALL_ICONS[1];
 
   const game = { balls: {}, items: null, itemsAt: 0, xp: null, xpStart: null, xpNext: null, level: null, pokemon: null, hunt: null, wild: null, wildInfo: null, gold: null };
 
@@ -196,6 +217,7 @@
         kind,
         id: Number(id),
         name: info?.name || `#${id}`,
+        icon: kind === 'ball' ? ballIcon(Number(id)) : info?.icon || null,
         left,
         used,
         // null until the rate means something (see sendStats).
