@@ -3,6 +3,33 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.16.0',
+    date: '2026-11-22',
+    notes: {
+      pt: [
+        'Modo economia (botão ECO ou Ctrl+E): esconde todas as contas, que continuam rodando, e mostra uma tela leve com o que precisa de você e os bônus de cada conta. No teste com 4 contas, a CPU do app caiu de ~50% para ~22%.',
+        'Medidor de CPU e RAM do app na barra de cima, com jogos e lives incluídos.',
+        'Lado direito da barra organizado em seções: extensões, recursos, idiomas e opções; o apoio virou só o ♥.',
+        'Contas sem login na Twitch ou na Kick não abrem mais lives (que não rendiam nada): aparece um botão Entrar na barra do slot, no painel, nas Settings e no modo economia, e as lives começam assim que você entra.',
+        'Lives em segundo plano pedem memória baixa ao WebView2: cerca de 1 GB a menos com 32 lives.',
+      ],
+      en: [
+        'Economy mode (ECO button or Ctrl+E): hides every account, which keeps running, and shows a light screen with what needs you and each account\'s bonuses. In a test with 4 accounts, the app\'s CPU went from ~50% to ~22%.',
+        'CPU and RAM meter for the whole app on the top bar, games and streams included.',
+        'Right side of the top bar arranged in sections: extensions, resources, languages and options; support is now just the ♥.',
+        'Accounts not logged in on Twitch or Kick no longer open streams (they earned nothing): a Log in button shows on the slot bar, the side panel, Settings and economy mode, and the streams start as soon as you log in.',
+        'Background streams ask WebView2 for low memory: about 1 GB less with 32 streams.',
+      ],
+      es: [
+        'Modo ahorro (botón ECO o Ctrl+E): oculta todas las cuentas, que siguen funcionando, y muestra una pantalla ligera con lo que te necesita y los bonos de cada cuenta. En una prueba con 4 cuentas, la CPU de la app bajó de ~50% a ~22%.',
+        'Medidor de CPU y RAM de toda la app en la barra superior, con juegos y streams incluidos.',
+        'Lado derecho de la barra organizado en secciones: extensiones, recursos, idiomas y opciones; el apoyo ahora es solo el ♥.',
+        'Las cuentas sin sesión en Twitch o Kick ya no abren streams (no daban nada): aparece un botón Entrar en la barra del slot, el panel, Ajustes y el modo ahorro, y los streams empiezan en cuanto entras.',
+        'Los streams en segundo plano piden memoria baja a WebView2: cerca de 1 GB menos con 32 streams.',
+      ],
+    },
+  },
+  {
     version: '0.15.1',
     date: '2026-11-22',
     notes: {

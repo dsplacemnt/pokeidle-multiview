@@ -22,6 +22,21 @@ under 10 MB.
   only that slot, filling the window (the others keep running hidden); click it again or press
   **GRID** to go back. **Drag the bars between slots** to resize them; the sizes are remembered. **Reset**
   in ⚙ → Layout leaves fullscreen and makes every slot the same size again.
+- **Economy mode.** **ECO** on the top bar (or `Ctrl+E`) hides every slot, which keeps running
+  in the background, and shows a light screen instead: a little animation, what needs you
+  (streams with a ⚠, IdleHub votes that are ready, each with a button) and each account's
+  running bonuses. Drawing four games is what costs the most: with 4 accounts and 32 streams
+  the app went from about 50 % CPU in the grid to about 22 % in economy mode. Picking a slot
+  or GRID leaves it.
+- **Logins.** The app checks each account's Twitch and Kick login from its own session cookies
+  (only whether the login cookie is there; nothing is read out or sent). An account that isn't
+  logged in on a platform earns nothing there, so no lives are opened for it; instead a **Log in**
+  button shows on the slot bar, the side panel, ⚙ → Accounts and economy mode. It opens the
+  login in that slot; once you're in, the login page closes and the lives start.
+- **Lighter background streams.** Streams nobody is looking at ask WebView2 for its low memory
+  level: with 32 streams the app used about 1 GB less, and they keep playing and earning.
+- **Resource meter.** The top bar shows the CPU and memory of the whole app (its own process
+  and every WebView2 process it started), like Task Manager adds them up.
 - **Keyboard shortcuts.** ⚙ → Shortcuts lists them and lets you change each one (click it,
   press the new keys; Delete turns it off). Defaults: `Ctrl+1`…`Ctrl+4` show a slot fullscreen,
   `Ctrl+G` switches between the grid and the last fullscreen slot, `Ctrl+Shift+R` reloads every
@@ -262,6 +277,7 @@ src/tray.rs      tray icon, close/minimize to tray, quit
 src/native.rs    WebView2 events: permissions, shortcuts inside pages, crash recovery
 src/shortcuts.rs keyboard shortcuts: defaults, parsing, actions, settings commands
 src/whatsnew.rs  patch notes window after an update
+src/resources.rs CPU/memory meter of the app and its WebView2 processes
 src/power.rs     keeps Windows awake while streams run
 src/hunt.rs      finds the installed /hunt extension and copies it for WebView2
 src/channels.rs  recognizes Twitch/Kick channel links
@@ -296,25 +312,6 @@ Some details that are easy to miss:
   you open.
 - Known limitation: popup windows opened from inside a page are not covered by the navigation
   guard.
-
-## Apoie o projeto ♥
-
-If the app helps you and you'd like to chip in, any amount helps keep it going. In the app:
-**♥ Apoiar** on the top bar, ⚙ → About, or the tray menu.
-
-<img src="docs/pix-qr.svg" alt="Pix QR code" width="200">
-
-**Pix copia e cola** (random key, you pick the amount):
-
-```
-00020126580014BR.GOV.BCB.PIX0136384baaaf-07f9-495b-96d0-f365b7ac99e55204000053039865802BR5924Thainan Henrique Feistel6009SAO PAULO62140510TlU51tMQRA6304856D
-```
-
-**Free ways to help:** give this repository a ⭐ (it helps more players find the app), and
-invite friends who don't play PokeIdle yet with the referral link
-<https://pokeidle.io/?ref=DBCHW36>.
-
-Ideas, bugs or questions: Discord **dsplacemnt**.
 
 ## Disclaimer
 

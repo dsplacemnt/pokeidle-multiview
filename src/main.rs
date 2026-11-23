@@ -13,6 +13,8 @@ mod native;
 mod net;
 mod power;
 mod splash;
+mod logins;
+mod resources;
 mod shortcuts;
 mod support;
 mod whatsnew;
@@ -90,6 +92,10 @@ struct AppState {
     redeemed: HashMap<(u8, Platform), std::time::Instant>,
     /// The slot that was fullscreen last, so the grid shortcut can go back to it.
     last_focus: Option<u8>,
+    /// Whether each account is logged in on each platform (from its cookies; see logins.rs).
+    logins: HashMap<(u8, Platform), bool>,
+    /// Pages opened by a "Log in" button (see logins.rs): they close once the account is in.
+    login_pages: std::collections::HashSet<String>,
 }
 
 /// Events kept per account in the automation log.
@@ -122,6 +128,10 @@ struct StateView {
     vote: HashMap<u8, VoteStatus>,
     /// A fullscreen slot shows its stats panel (the ▤ button in its header toggles it).
     focus_panel: bool,
+    /// Economy mode: the slots are hidden and the rest screen shows (see `set_economy`).
+    economy: bool,
+    /// Which accounts are logged in on Twitch and Kick: slot → platform → logged in.
+    logins: HashMap<u8, HashMap<Platform, bool>>,
 }
 
 fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
@@ -271,11 +281,13 @@ fn state_view(state: &AppState) -> StateView {
         bonuses: slot_bonuses(state),
         vote: vote_view(state),
         focus_panel: state.config.focus_panel,
+        economy: state.config.economy,
+        logins: logins::view(state),
     }
 }
 
 fn toolbar_hidden(state: &AppState) -> bool {
-    state.config.toolbar_hidden && !state.config.slots.is_empty()
+    state.config.toolbar_hidden && !state.config.slots.is_empty() && !state.config.economy
 }
 
 fn save_and_publish(app: &AppHandle, state: &AppState) {
@@ -317,6 +329,7 @@ fn publish_now(app: &AppHandle, state: &AppState) {
     for id in 1..=MAX_SLOTS {
         let _ = app.emit_to(header_label(id).as_str(), "state", view.clone());
     }
+    let _ = app.emit_to(REST_PAGE, "state", view.clone());
     let _ = app.emit_to(FOCUS_PANEL, "focus", focus_view(state));
 }
 
@@ -345,6 +358,9 @@ struct FocusView {
     points: Vec<(Platform, String, u64)>,
     kick_linked: Option<bool>,
     twitch_linked: Option<bool>,
+    /// Logged in on Kick / Twitch in this slot (None = not checked yet).
+    kick_login: Option<bool>,
+    twitch_login: Option<bool>,
     vote_reminded: bool,
     vote: Option<VoteStatus>,
     daily_enabled: bool,
@@ -390,6 +406,8 @@ fn focus_view(state: &AppState) -> Option<FocusView> {
         points: slot_points(&state.config, id),
         kick_linked: state.linked.get(&(id, Platform::Kick)).copied(),
         twitch_linked: state.linked.get(&(id, Platform::Twitch)).copied(),
+        kick_login: state.logins.get(&(id, Platform::Kick)).copied(),
+        twitch_login: state.logins.get(&(id, Platform::Twitch)).copied(),
         vote_reminded: state.config.vote_slots.contains(&id),
         vote: state.vote.get(&id).map(|(s, _)| s.clone()),
         daily_enabled: state.config.kick_daily,
@@ -421,7 +439,14 @@ fn set_language(app: AppHandle, lang: config::Language) {
             eprintln!("[config] could not save: {e}");
         }
     }
-    let mut pages = vec!["toolbar".to_string(), FOCUS_PANEL.to_string(), "settings".to_string(), "support".to_string()];
+    let mut pages = vec![
+        "toolbar".to_string(),
+        FOCUS_PANEL.to_string(),
+        REST_PAGE.to_string(),
+        "settings".to_string(),
+        "support".to_string(),
+        "whatsnew".to_string(),
+    ];
     pages.extend((1..=MAX_SLOTS).map(header_label));
     for page in pages {
         let _ = app.emit_to(page.as_str(), "language", lang);
@@ -484,8 +509,11 @@ const FOCUS_PANEL: &str = "focus";
 
 /// The stats panel shows while a slot is fullscreen, unless the player hid it.
 fn focus_panel_on(config: &Config) -> bool {
-    config.focus_panel && config.focus.is_some_and(|f| config.slots.iter().any(|s| s.id == f))
+    !config.economy && config.focus_panel && config.focus.is_some_and(|f| config.slots.iter().any(|s| s.id == f))
 }
+
+/// The rest screen of economy mode (local page), over the whole game area.
+const REST_PAGE: &str = "rest";
 
 fn current_layout(app: &AppHandle) -> tauri::Result<layout::Layout> {
     let mut area = game_area(app)?;
@@ -494,7 +522,8 @@ fn current_layout(app: &AppHandle) -> tauri::Result<layout::Layout> {
     if focus_panel_on(&config) {
         area.w = (area.w - FOCUS_PANEL_W - layout::GAP).max(0.0);
     }
-    let ids: Vec<u8> = config.slots.iter().map(|s| s.id).collect();
+    // Economy mode: no tiles at all, so every slot is hidden (and keeps running).
+    let ids: Vec<u8> = if config.economy { Vec::new() } else { config.slots.iter().map(|s| s.id).collect() };
     Ok(layout::compute(area, &ids, config.focus, config.grid_split))
 }
 
@@ -558,6 +587,8 @@ fn layout_plan(app: &AppHandle) -> tauri::Result<Vec<(String, Placement)>> {
             Placement::Hide(None)
         },
     ));
+    let economy = app.state::<Mutex<AppState>>().lock().unwrap().config.economy;
+    plan.push((REST_PAGE.to_string(), if economy { Placement::Show(area) } else { Placement::Hide(None) }));
     let (panels, ids, light_kick) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
@@ -620,6 +651,11 @@ fn layout_plan(app: &AppHandle) -> tauri::Result<Vec<(String, Placement)>> {
     Ok(plan)
 }
 
+/// A Twitch/Kick page of a slot (not a game, header or the app's own pages).
+fn is_stream_label(label: &str) -> bool {
+    label.contains("-twitch-") || label.contains("-kick-")
+}
+
 fn set_rect(webview: &tauri::Webview, r: Rect) -> tauri::Result<()> {
     webview.set_position(LogicalPosition::new(r.x, r.y))?;
     webview.set_size(LogicalSize::new(r.w, r.h))
@@ -637,10 +673,16 @@ fn apply_layout(app: &AppHandle) -> tauri::Result<()> {
             Placement::Show(to) => {
                 set_rect(&webview, to)?;
                 webview.show()?;
+                if is_stream_label(&label) {
+                    native::set_low_memory(&webview, false);
+                }
             }
             Placement::Park(r) => {
                 set_rect(&webview, r)?;
                 webview.show()?;
+                // Background streams ask WebView2 for low memory: measured with 32 streams, about
+                // 1 GB less, still playing and earning (MULTIVIEW_NORMAL_MEMORY=1 turns it off).
+                native::set_low_memory(&webview, std::env::var_os("MULTIVIEW_NORMAL_MEMORY").is_none());
             }
             Placement::Hide(r) => {
                 if let Some(r) = r {
@@ -1145,6 +1187,9 @@ fn page_loaded(app: &AppHandle, webview: &tauri::Webview, url: &Url) {
     if in_background {
         set_kick_light(webview, true);
     }
+    if matches!(url.host_str(), Some(h) if h.ends_with("twitch.tv") || h.ends_with("kick.com")) {
+        logins::check_soon();
+    }
     // Whether the account follows the channel, now and whenever it changes (the ♡ tip).
     if channels::channel_from_url(url).is_some() {
         if let Err(e) = webview.eval(format!("{}\n{FOLLOW_WATCH}", kick::REPORT)) {
@@ -1568,7 +1613,8 @@ fn toggle_focus(app: &AppHandle, id: Option<u8>) {
         if state.config.focus.is_some() {
             state.last_focus = state.config.focus;
         }
-        state.config.focus = if !exists || state.config.focus == id { None } else { id };
+        let was_economy = std::mem::replace(&mut state.config.economy, false);
+        state.config.focus = if !exists || (state.config.focus == id && !was_economy) { None } else { id };
     }
     if let Err(e) = apply_layout(app) {
         eprintln!("[layout] {e}");
@@ -1587,6 +1633,34 @@ async fn close_window(window: tauri::Window) -> Result<(), String> {
 #[tauri::command]
 fn focus_slot(app: AppHandle, id: Option<u8>) {
     toggle_focus(&app, id);
+}
+
+/// Economy mode on or off (toolbar ECO button, the rest screen's button and the shortcut).
+fn set_economy_mode(app: &AppHandle, on: bool) {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        if state.config.economy == on {
+            return;
+        }
+        state.config.economy = on;
+        println!("[economy] {}", if on { "on: slots hidden, rest screen shown" } else { "off" });
+    }
+    if let Err(e) = apply_layout(app) {
+        eprintln!("[layout] {e}");
+    }
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(app, &state.lock().unwrap());
+}
+
+fn toggle_economy(app: &AppHandle) {
+    let on = app.state::<Mutex<AppState>>().lock().unwrap().config.economy;
+    set_economy_mode(app, !on);
+}
+
+#[tauri::command]
+fn set_economy(app: AppHandle, on: bool) {
+    set_economy_mode(&app, on);
 }
 
 /// The grid shortcut: from a fullscreen slot back to the grid, and from the grid to the slot
@@ -1864,15 +1938,18 @@ fn is_live(platform: Platform, channel: &str) -> Result<bool, String> {
 
 /// One platform's turn: live checks, then each slot's streams of that platform.
 fn manage_platform(app: &AppHandle, platform: Platform) {
-    let (priority, per_slot, slots, previous, balances) = {
+    let (priority, per_slot, slots, previous, balances, logged_out) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
+        // Accounts known not to be logged in on this platform: their lives would earn nothing.
+        let logged_out: Vec<u8> =
+            state.logins.iter().filter(|((_, p), on)| *p == platform && !**on).map(|((id, _), _)| *id).collect();
         let (priority, per_slot) = match platform {
             Platform::Kick => (state.config.kick_priority.clone(), KICK_LIVES_PER_SLOT),
             Platform::Twitch => (state.config.twitch_priority.clone(), usize::from(state.config.twitch_lives_per_slot)),
         };
         let previous = state.live.get(&platform).cloned().unwrap_or_default();
-        (priority, per_slot, state.config.slots.clone(), previous, state.config.balances.clone())
+        (priority, per_slot, state.config.slots.clone(), previous, state.config.balances.clone(), logged_out)
     };
     if priority.is_empty() {
         return;
@@ -1933,7 +2010,11 @@ fn manage_platform(app: &AppHandle, platform: Platform) {
             println!("[auto] slot {}: {} {channel} looks offline on its page; picking another", slot.id, platform.name());
             slot_live.insert(channel.clone(), false);
         }
-        let wanted = kick::pick_for_account(&priority, &slot_live, per_slot, points, &open);
+        let wanted = if logged_out.contains(&slot.id) {
+            Vec::new()
+        } else {
+            kick::pick_for_account(&priority, &slot_live, per_slot, points, &open)
+        };
         if let Err(e) = manage_slot_streams(app, slot.id, platform, &wanted) {
             eprintln!("[auto] slot {}: {e}", slot.id);
         }
@@ -1993,6 +2074,9 @@ fn follow_reported(app: &AppHandle, id: u8, label: &str, json: &str) {
         else {
             return;
         };
+        if state.logins.get(&(id, platform)) == Some(&false) {
+            return;
+        }
         let key = config::balance_key(id, platform, &login);
         if state.config.follows.insert(key, report.following) == Some(report.following) {
             return;
@@ -2858,6 +2942,9 @@ struct BonusSlotView {
     /// Whether the account has Kick / Twitch linked in the game (None = not reported yet).
     kick_linked: Option<bool>,
     twitch_linked: Option<bool>,
+    /// Logged in on Kick / Twitch in this slot (None = not checked yet).
+    kick_login: Option<bool>,
+    twitch_login: Option<bool>,
     /// Last seen channel points per channel, most first: [platform, channel, points].
     points: Vec<(Platform, String, u64)>,
     /// The account's running bonuses per platform.
@@ -3011,6 +3098,8 @@ fn automation_view(app: &AppHandle) -> AutomationView {
                 next: next_redeem(&state, s),
                 kick_linked: state.linked.get(&(s.id, Platform::Kick)).copied(),
                 twitch_linked: state.linked.get(&(s.id, Platform::Twitch)).copied(),
+                kick_login: state.logins.get(&(s.id, Platform::Kick)).copied(),
+                twitch_login: state.logins.get(&(s.id, Platform::Twitch)).copied(),
                 points: slot_points(&state.config, s.id),
                 running: SlotBonuses {
                     kick: state.bonus_ends.get(&(s.id, Platform::Kick)).copied(),
@@ -3371,6 +3460,8 @@ fn main() {
                 game_stats: HashMap::new(),
                 redeemed: HashMap::new(),
                 last_focus: None,
+                logins: HashMap::new(),
+                login_pages: std::collections::HashSet::new(),
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is
@@ -3408,6 +3499,14 @@ fn main() {
                     LogicalSize::new(1.0, 1.0),
                 )?
                 .hide()?;
+            // The rest screen of economy mode (local page); placed by apply_layout.
+            window
+                .add_child(
+                    local_page(REST_PAGE, "rest.html".into()),
+                    LogicalPosition::new(0.0, BAR_HEIGHT),
+                    LogicalSize::new(1.0, 1.0),
+                )?
+                .hide()?;
             // Toolbar last, over the other pages; it gets the streams once they reopen.
             window.add_child(
                 local_page("toolbar", "index.html".into()),
@@ -3427,6 +3526,8 @@ fn main() {
                 power::set_keep_awake(&handle, state.config.keep_awake && any_pages(&state));
             }
             start_auto_reload(handle.clone());
+            resources::start(handle.clone());
+            logins::start(handle.clone());
             start_stream_manager(handle.clone());
             start_health_checks(handle.clone());
 
@@ -3487,6 +3588,8 @@ fn main() {
             reorder_pages,
             focus_slot,
             close_window,
+            set_economy,
+            logins::open_login,
             toggle_mute,
             rename_slot,
             drag_split,

@@ -42,6 +42,10 @@
     .plat-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
     .plat-head .state { margin-left: auto; font-size: 11.5px; font-weight: 500; color: var(--muted); }
     .plat-head .state.bad { color: var(--bad); }
+    .plat-head button.login { margin-left: auto; border: 0; cursor: pointer; font: inherit; font-size: 11.5px; font-weight: 600;
+      color: #ffd27a; background: rgba(255, 183, 77, .12); box-shadow: inset 0 0 0 1px rgba(255, 183, 77, .45);
+      border-radius: 10px; padding: 2px 10px; }
+    .plat-head button.login:hover { background: rgba(255, 183, 77, .22); }
     .brow { display: grid; grid-template-columns: 56px 1fr 62px; align-items: center; gap: 8px; font-size: 12px; }
     .brow .label { font-weight: 600; }
     .brow .time { text-align: right; font-variant-numeric: tabular-nums; }
@@ -176,7 +180,15 @@
         const linked = v[`${platform}_linked`];
         const state = el('span', 'state' + (linked === false ? ' bad' : ''),
           t(linked === true ? 'linked in game' : linked === false ? 'not linked in game' : 'waiting for the game'));
-        head.append(mark(platform), el('span', '', PLATFORMS[platform].name), state);
+        if (v[`${platform}_login`] === false) {
+          // Not logged in there: nothing is earned, so the button to log in comes first.
+          const b = el('button', 'login', t('Log in →'));
+          b.title = t('This account isn\'t logged in on {platform}: its streams earn nothing, so they aren\'t opened. Click to log in here; the streams start as soon as you do.', { platform: PLATFORMS[platform].name });
+          b.addEventListener('click', () => invoke('open_login', { id: v.slot, platform }).catch(() => {}));
+          head.append(mark(platform), el('span', '', PLATFORMS[platform].name), b);
+        } else {
+          head.append(mark(platform), el('span', '', PLATFORMS[platform].name), state);
+        }
         block.append(head);
         const ends = v.running?.[platform];
         for (const [key, short, long] of BONUSES) {

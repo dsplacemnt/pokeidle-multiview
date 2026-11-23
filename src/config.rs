@@ -260,6 +260,10 @@ pub struct Config {
     /// A fullscreen slot shows its stats panel at the right ("single focus").
     #[serde(default = "enabled")]
     pub focus_panel: bool,
+    /// Economy mode: every slot is hidden (they keep running) and a light rest screen takes the
+    /// game area, which saves the CPU spent drawing the games.
+    #[serde(default)]
+    pub economy: bool,
     /// Keyboard shortcuts by action ("" = off); see shortcuts.rs. Missing ones use defaults.
     #[serde(default)]
     pub shortcuts: std::collections::BTreeMap<String, String>,
@@ -358,6 +362,7 @@ impl Default for Config {
             vote_slots: Vec::new(),
             vote_slot: None,
             focus_panel: true,
+            economy: false,
             shortcuts: crate::shortcuts::defaults(),
             seen_version: None,
             language: Language::Pt,

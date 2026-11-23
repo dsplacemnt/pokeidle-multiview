@@ -27,6 +27,8 @@
     button:hover { background: var(--chip-active); }
     button:disabled { opacity: .4; cursor: default; }
     #grid.on { background: var(--chip-active); }
+    /* Economy mode: a soft green while it's on. */
+    #eco.on { background: rgba(61, 220, 132, .16); color: #8fe0b0; box-shadow: inset 0 0 0 1px rgba(61, 220, 132, .45); }
     button.icon { width: 30px; padding: 0; font-size: 16px; }
     /* Quick switch between slots (each slot's own controls are in its header). */
     /* Padded, and the active ring is drawn inside the button: a scrolling strip cuts off
@@ -38,8 +40,31 @@
     .slots button:hover { color: var(--text); background: var(--chip); }
     .slots button.active { color: var(--text); background: var(--chip-active); box-shadow: inset 0 0 0 1px var(--accent); }
     .slots .key { opacity: .6; margin-right: 5px; font-size: 11px; }
-    #support { color: #ff8fa0; background: transparent; }
-    #support:hover { background: var(--chip); }
+    /* Right side: sections (extensions · resources · languages · options), same spacing
+       everywhere and a thin divider between them. An empty section (no measurement yet) hides
+       with its divider. */
+    .sections { display: flex; align-items: center; height: 100%; }
+    .section { display: flex; align-items: center; gap: 6px; padding: 0 12px; position: relative; height: 28px; }
+    .section:last-child { padding-right: 0; }
+    .section:empty { display: none; }
+    .section + .section::before { content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 1px;
+      background: var(--chip-active); }
+    /* Extensions: each one's name with ✓ or ✗. */
+    .ext { color: var(--muted); font-size: 12px; cursor: default; }
+    .ext .mark { margin-left: 4px; font-weight: 700; }
+    .ext.ok .mark { color: #3ddc84; }
+    .ext.missing .mark { color: #ff8a80; }
+    /* What the whole app uses (app + its WebView2 processes). */
+    .meter { gap: 12px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; cursor: default; }
+    .meter b { color: var(--text); font-weight: 600; margin-left: 4px; }
+    .meter .busy b { color: #ffb74d; }
+    .meter .high b { color: #ff8a80; }
+    @media (max-width: 760px) { .meter { display: none; } }
+    /* Support: just the heart, the size of a flag button. */
+    #support { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+      background: transparent; color: #ff6b81; }
+    #support:hover { background: var(--chip); color: #ff8fa0; }
+    #support svg { width: 17px; height: 17px; display: block; }
     .error { color: #ff8a80; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .status { color: var(--muted); }
     /* A newer version: bright, so it's seen. */
@@ -48,7 +73,7 @@
     .update.armed { background: #3ddc84; }
     .update:disabled { opacity: 1; cursor: progress; }
     /* Language flags: the active one bright, the other dimmed. */
-    .flags { display: flex; gap: 4px; }
+    .flags { gap: 4px; }
     .flag { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
       background: transparent; opacity: .45; }
     .flag:hover { opacity: .8; background: var(--chip); }
@@ -76,12 +101,13 @@
     </span>
     <button id="add">+ SLOT</button>
     <button id="grid" data-i18n-title title="Grid: show all slots (click a slot's name to show it fullscreen instead)">GRID</button>
+    <button id="eco">ECO</button>
     <div class="slots" id="slots"></div>
     <span class="error" id="error"></span>
-    <span class="status" id="hunt"></span>
-    <button id="update" class="update" hidden></button>
-    <button id="support" data-i18n data-i18n-title title="Support the dev: Pix and Discord">♥ Support</button>
-    <span class="flags">
+    <div class="sections">
+    <span class="section exts"><span class="ext" id="hunt"></span></span>
+    <span class="section meter" id="meter"></span>
+    <span class="section flags">
       <button class="flag" data-lang="pt" title="Português (Brasil)" aria-label="Português (Brasil)">
         <svg viewBox="0 0 20 14" aria-hidden="true"><rect width="20" height="14" fill="#009c3b"/><path d="M10 1.6 18.2 7 10 12.4 1.8 7z" fill="#ffdf00"/><circle cx="10" cy="7" r="3.1" fill="#002776"/><path d="M7.1 6.4c2-.7 4.1-.4 5.9.8" stroke="#fff" stroke-width=".6" fill="none"/></svg>
       </button>
@@ -92,7 +118,12 @@
         <svg viewBox="0 0 20 14" aria-hidden="true"><rect width="20" height="14" fill="#aa151b"/><rect y="3.5" width="20" height="7" fill="#f1bf00"/><rect x="4.4" y="5.2" width="2.4" height="3.4" rx=".5" fill="#aa151b" opacity=".85"/><rect x="4.1" y="4.7" width="3" height=".7" rx=".3" fill="#ad1519" opacity=".7"/></svg>
       </button>
     </span>
-    <button id="settings" class="icon" data-i18n-title title="Settings">⚙</button>
+    <span class="section options">
+      <button id="update" class="update" hidden></button>
+      <button id="support" data-i18n-title title="Support the dev: Pix and Discord" aria-label="Support the dev"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21.2 10.6 20C5.4 15.4 2 12.4 2 8.6 2 5.5 4.4 3.2 7.4 3.2c1.7 0 3.4.8 4.6 2.1 1.2-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.3 5.4 5.4 0 3.8-3.4 6.8-8.6 11.4z"/></svg></button>
+      <button id="settings" class="icon" data-i18n-title title="Settings">⚙</button>
+    </span>
+    </div>
   </div>
   <script>
     // App-wide controls. Each slot's controls and stream pills live in its own header
@@ -115,9 +146,15 @@
 
     function render(state) {
       latest = state;
-      document.getElementById('grid').classList.toggle('on', state.focus == null);
+      document.getElementById('grid').classList.toggle('on', state.focus == null && !state.economy);
+      const eco = document.getElementById('eco');
+      eco.classList.toggle('on', !!state.economy);
+      const ecoKeys = Shortcuts.keys('economy');
+      eco.title = (state.economy
+        ? t('Economy mode is on: the accounts keep running hidden. Click to show them again')
+        : t('Economy mode: hides every account (they keep running) to save CPU, and shows a light screen with what needs you')) + (ecoKeys ? ` (${ecoKeys})` : '');
       slots.replaceChildren(...state.slots.map((slot) => {
-        const focused = state.focus === slot.id;
+        const focused = state.focus === slot.id && !state.economy;
         const b = document.createElement('button');
         const keys = Shortcuts.keys(`focus${slot.id}`);
         b.title = `${focused ? t('Back to the grid') : t('Show {name} fullscreen', { name: slotName(slot) })}${keys ? ` (${keys})` : ''}`;
@@ -132,7 +169,8 @@
       addBtn.disabled = state.slots.length >= state.max_slots;
       addBtn.title = t('Add a slot (another account, up to 4)');
       const hunt = document.getElementById('hunt');
-      hunt.textContent = state.hunt_dir ? '/hunt ✓' : '/hunt ✗';
+      hunt.className = 'ext ' + (state.hunt_dir ? 'ok' : 'missing');
+      hunt.replaceChildren('/hunt', Object.assign(document.createElement('span'), { className: 'mark', textContent: state.hunt_dir ? '✓' : '✗' }));
       hunt.title = state.hunt_dir
         ? t('"/hunt for PokeIdle" extension loaded')
         : t('"/hunt for PokeIdle" not found in any installed browser');
@@ -185,10 +223,28 @@
 
     addBtn.addEventListener('click', () => invoke('add_slot').catch(showError));
     document.getElementById('grid').addEventListener('click', () => invoke('focus_slot', { id: null }).catch(showError));
+    document.getElementById('eco').addEventListener('click', () => invoke('set_economy', { on: !(latest && latest.economy) }).catch(showError));
     document.getElementById('settings').addEventListener('click', () => invoke('open_settings').catch(showError));
     document.getElementById('support').addEventListener('click', () => invoke('open_support').catch(showError));
     document.getElementById('hide').addEventListener('click', () => invoke('set_toolbar_hidden', { hidden: true }).catch(showError));
     Shortcuts.onChange(() => { if (latest) render(latest); });
+
+    // --- Resource meter: CPU and memory of the whole app, every couple of seconds ------------
+    const meter = document.getElementById('meter');
+    function size(bytes) {
+      const gb = bytes / 1024 ** 3;
+      return gb >= 1 ? `${gb.toFixed(gb >= 10 ? 0 : 1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
+    }
+    function renderMeter(u) {
+      const cpu = document.createElement('span');
+      cpu.className = u.cpu >= 60 ? 'high' : u.cpu >= 30 ? 'busy' : '';
+      cpu.append('CPU ', Object.assign(document.createElement('b'), { textContent: `${Math.round(u.cpu)}%` }));
+      const ram = document.createElement('span');
+      ram.append('RAM ', Object.assign(document.createElement('b'), { textContent: size(u.memory) }));
+      meter.replaceChildren(cpu, ram);
+      meter.title = t('What the app uses right now, games and streams included ({n} processes), like Task Manager shows it. CPU: share of the whole PC.', { n: u.processes });
+    }
+    listen('resources', (e) => renderMeter(e.payload));
 
     listen('state', (e) => render(e.payload));
     listen('error', (e) => showError(e.payload));

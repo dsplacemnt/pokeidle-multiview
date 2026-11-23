@@ -132,3 +132,20 @@ pub fn attach(webview: &tauri::Webview, app: AppHandle) {
         eprintln!("[native] could not reach webview: {e}");
     }
 }
+
+/// Asks WebView2 to keep a page's memory low (`low`) or normal: the "memory usage target
+/// level". Low suits pages nobody looks at, like the background streams; the page keeps
+/// running. Errors (an old runtime without the setting) are ignored.
+pub fn set_low_memory(webview: &tauri::Webview, low: bool) {
+    let _ = webview.with_webview(move |platform_webview| unsafe {
+        use windows_core::Interface;
+        let Ok(core) = platform_webview.controller().CoreWebView2() else { return };
+        let Ok(core19) = core.cast::<ICoreWebView2_19>() else { return };
+        let level = if low {
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+        } else {
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+        };
+        let _ = core19.SetMemoryUsageTargetLevel(level);
+    });
+}

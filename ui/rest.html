@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Economy mode</title>
+  <style>
+    :root {
+      --bg: #14161b; --card: #1d2027; --row: #252932; --line: #2e333d; --chip: #262a33;
+      --text: #e6e8ee; --muted: #8b91a1; --accent: #f2c14e; --ok: #3ddc84; --bad: #ff8a80;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font: 13.5px/1.45 "Segoe UI", system-ui, sans-serif; user-select: none; overflow: hidden; }
+    body { display: grid; place-items: center;
+      background: radial-gradient(ellipse at 50% 38%, #1c2029 0%, var(--bg) 62%); }
+    .wrap { width: min(560px, calc(100% - 40px)); display: grid; gap: 22px; justify-items: center; }
+
+    /* The ball: wobbles like a capture, rests, wobbles again. Only transforms and opacity
+       animate, which the compositor does without redrawing the page. */
+    .stage { position: relative; width: 150px; height: 150px; display: grid; place-items: center; }
+    .ball { width: 112px; height: 112px; transform-origin: 50% 88%; animation: wobble 3.2s ease-in-out infinite; }
+    .ball svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .45)); }
+    .glow { transform-origin: 32px 32px; animation: glow 3.2s ease-in-out infinite; }
+    .shadow { position: absolute; bottom: 4px; width: 84px; height: 12px; border-radius: 50%;
+      background: rgba(0, 0, 0, .45); filter: blur(4px); animation: shadow 3.2s ease-in-out infinite; }
+    .spark { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+      opacity: 0; animation: spark 3.2s ease-out infinite; }
+    .spark.a { top: 22px; left: 18px; animation-delay: 1.9s; }
+    .spark.b { top: 10px; right: 26px; animation-delay: 2.05s; }
+    .spark.c { top: 46px; right: 8px; animation-delay: 2.2s; }
+    @keyframes wobble {
+      0%, 46%, 100% { transform: rotate(0); }
+      8% { transform: rotate(-16deg); }
+      16% { transform: rotate(13deg); }
+      24% { transform: rotate(-8deg); }
+      32% { transform: rotate(4deg); }
+      40% { transform: rotate(0); }
+    }
+    @keyframes shadow {
+      0%, 46%, 100% { transform: scaleX(1); opacity: .9; }
+      8%, 24% { transform: scaleX(.86); opacity: .7; }
+      16%, 32% { transform: scaleX(.92); opacity: .8; }
+    }
+    @keyframes glow { 0%, 50%, 100% { opacity: 0; } 62% { opacity: 1; } 78% { opacity: 0; } }
+    @keyframes spark { 0% { opacity: 0; transform: scale(.4) translateY(0); } 15% { opacity: 1; } 60% { opacity: 0; transform: scale(1) translateY(-14px); } 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .ball, .shadow, .glow, .spark { animation: none; } }
+
+    header { text-align: center; display: grid; gap: 6px; }
+    h1 { margin: 0; font-size: 20px; font-weight: 600; color: var(--accent); }
+    header p { margin: 0; color: var(--muted); }
+    button { background: var(--chip); color: var(--text); border: 1px solid #3a3f4b; border-radius: 8px;
+      height: 32px; padding: 0 14px; font: inherit; font-weight: 600; cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #1a1408; }
+    button.primary:hover { background: #ffd76b; border-color: #ffd76b; }
+    button.small { height: 26px; padding: 0 10px; font-size: 12.5px; flex: none; }
+
+    .card { width: 100%; background: var(--card); border-radius: 14px; padding: 14px 16px; display: grid; gap: 10px;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 6px 18px rgba(0, 0, 0, .18); }
+    .card h2 { margin: 0; font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+      display: flex; align-items: center; gap: 8px; }
+    .card h2 .count { background: rgba(255, 138, 128, .16); color: var(--bad); border-radius: 10px; padding: 0 7px; letter-spacing: 0; }
+    .list { display: grid; gap: 6px; max-height: 34vh; overflow-y: auto; scrollbar-width: thin; }
+    .notice { display: flex; align-items: center; gap: 10px; background: var(--row); border-radius: 9px; padding: 8px 8px 8px 12px; }
+    .notice .icon { flex: none; width: 22px; text-align: center; font-size: 15px; }
+    .notice .text { flex: 1; min-width: 0; display: grid; }
+    .notice .text b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .notice .text span { color: var(--muted); font-size: 12.5px; }
+    .notice.warn .icon { color: var(--bad); }
+    .notice.vote .icon { color: var(--accent); }
+    .notice.login .icon { color: #ffd27a; }
+    .calm { color: var(--muted); display: flex; align-items: center; gap: 8px; padding: 2px 2px; }
+    .calm b { color: var(--ok); }
+
+    /* Accounts: a row each, with the bonuses running. */
+    .accounts { display: grid; gap: 6px; }
+    .account { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+    .account .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bonus { height: 20px; padding: 0 8px; border-radius: 10px; display: inline-flex; align-items: center;
+      font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; flex: none; }
+    .bonus.xp { color: #ffd76b; background: rgba(242, 193, 78, .14); }
+    .bonus.capture { color: #8fd3ff; background: rgba(90, 170, 255, .14); }
+    .bonus.lure { color: #d8a8ff; background: rgba(180, 120, 255, .16); }
+    .bonus.none { color: var(--muted); background: transparent; border: 1px dashed #3a3f4b; font-weight: 500; }
+  </style>
+  <script src="i18n.js"></script>
+  <script src="shortcuts.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="stage" aria-hidden="true">
+      <span class="spark a"></span><span class="spark b"></span><span class="spark c"></span>
+      <div class="ball">
+        <svg viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r="27" fill="#f4f6f9"/>
+          <path d="M5 32a27 27 0 0 1 54 0z" fill="#ee2b3b"/>
+          <rect x="5" y="29" width="54" height="6" fill="#1c1f26"/>
+          <circle cx="32" cy="32" r="28.5" fill="none" stroke="#1c1f26" stroke-width="3"/>
+          <circle cx="32" cy="32" r="10" fill="#1c1f26"/>
+          <circle cx="32" cy="32" r="6.5" fill="#f4f6f9"/>
+          <circle class="glow" cx="32" cy="32" r="6.5" fill="#fff6c2"/>
+          <ellipse cx="22" cy="15" rx="8" ry="4.5" fill="#fff" opacity=".35" transform="rotate(-32 22 15)"/>
+        </svg>
+      </div>
+      <span class="shadow"></span>
+    </div>
+
+    <header>
+      <h1 data-i18n>Economy mode</h1>
+      <p id="sub"></p>
+    </header>
+    <button id="leave" class="primary"></button>
+
+    <section class="card">
+      <h2><span data-i18n>Needs you</span><span class="count" id="count" hidden></span></h2>
+      <div class="list" id="notices"></div>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n>Accounts</h2>
+      <div class="accounts" id="accounts"></div>
+    </section>
+  </div>
+
+  <script>
+    // Economy mode's screen: the accounts keep running hidden (no CPU spent drawing them) while
+    // this light page shows what needs the player: streams with a problem and IdleHub votes
+    // that are ready. Everything comes from the app's state; nothing is fetched.
+    const { invoke } = window.__TAURI__.core;
+    const { listen } = window.__TAURI__.event;
+    const { t } = I18N;
+    const PLATFORM = { twitch: 'Twitch', kick: 'Kick' };
+    let latest = null;
+
+    const el = (tag, className, text) => {
+      const e = document.createElement(tag);
+      if (className) e.className = className;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    };
+    const slotName = (slot) => slot.name || `Slot ${slot.id}`;
+    function left(ms) {
+      if (ms < 60000) return '<1m';
+      const m = Math.floor(ms / 60000);
+      const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+      if (d) return `${d}d ${h}h`;
+      if (h) return `${h}h${String(mm).padStart(2, '0')}`;
+      return `${mm}m`;
+    }
+
+    function notice(kind, icon, title, detail, button, action) {
+      const row = el('div', `notice ${kind}`);
+      const text = el('div', 'text');
+      text.append(el('b', '', title), el('span', '', detail));
+      row.append(el('span', 'icon', icon), text);
+      if (button) {
+        const b = el('button', 'small', button);
+        b.addEventListener('click', action);
+        row.append(b);
+      }
+      return row;
+    }
+
+    function render() {
+      const state = latest;
+      if (!state) return;
+      const now = Date.now();
+      const names = Object.fromEntries(state.slots.map((s) => [s.id, slotName(s)]));
+      const streams = Object.values(state.panels || {}).reduce((n, p) => n + (p.pages || []).length, 0);
+      document.getElementById('sub').textContent = t('{accounts} accounts keep running hidden · {streams} streams in the background', { accounts: state.slots.length, streams });
+      const keys = Shortcuts.keys('economy');
+      document.getElementById('leave').textContent = t('Show the accounts') + (keys ? ` (${keys})` : '');
+
+      // What needs the player.
+      const rows = [];
+      for (const slot of state.slots) {
+        for (const page of (state.panels?.[slot.id]?.pages || [])) {
+          if (!page.warning) continue;
+          rows.push(notice('warn', '⚠', `${names[slot.id]} · ${PLATFORM[page.platform] || page.platform} ${page.login || ''}`,
+            I18N.text(page.warning), t('Show'), () => invoke('focus_slot', { id: slot.id })));
+        }
+        for (const platform of ['twitch', 'kick']) {
+          if (state.logins?.[slot.id]?.[platform] !== false) continue;
+          rows.push(notice('login', '🔑', t('{name} isn\'t logged in on {platform}', { name: names[slot.id], platform: PLATFORM[platform] }),
+            t('Its {platform} streams wait for a login (they would earn nothing)', { platform: PLATFORM[platform] }),
+            t('Log in'), () => invoke('open_login', { id: slot.id, platform })));
+        }
+        const vote = state.vote?.[slot.id];
+        if (vote && vote.readyAt && vote.readyAt <= now) {
+          rows.push(notice('vote', '★', t('IdleHub vote ready'), t('{name} can vote now (+1 toward a diamond)', { name: names[slot.id] }),
+            t('Vote'), () => invoke('open_vote', { id: slot.id })));
+        }
+      }
+      const count = document.getElementById('count');
+      count.hidden = !rows.length;
+      count.textContent = rows.length;
+      const list = document.getElementById('notices');
+      if (rows.length) list.replaceChildren(...rows);
+      else {
+        const calm = el('div', 'calm');
+        calm.append(el('b', '', '✓'), t('Nothing needs you right now. This list fills in when something does.'));
+        list.replaceChildren(calm);
+      }
+
+      // Each account with its running bonuses (the longest of Kick's and Twitch's of each kind).
+      document.getElementById('accounts').replaceChildren(...state.slots.map((slot) => {
+        const row = el('div', 'account');
+        row.append(el('span', 'name', names[slot.id]));
+        const running = state.bonuses?.[slot.id] || {};
+        let any = false;
+        for (const [kind, label] of [['xp', 'XP'], ['capture', 'CAP'], ['lure', 'LURE']]) {
+          const end = Math.max(running.kick?.[kind] || 0, running.twitch?.[kind] || 0);
+          if (end > now) { any = true; row.append(el('span', `bonus ${kind}`, `${label} ${left(end - now)}`)); }
+        }
+        if (!any) row.append(el('span', 'bonus none', t('no bonus')));
+        return row;
+      }));
+    }
+
+    document.getElementById('leave').addEventListener('click', () => invoke('set_economy', { on: false }));
+    listen('state', (e) => { latest = e.payload; render(); });
+    I18N.onChange(render);
+    Shortcuts.onChange(render);
+    invoke('get_state').then((s) => { latest = s; render(); });
+    // Countdowns and votes that come due.
+    setInterval(render, 30000);
+  </script>
+</body>
+</html>

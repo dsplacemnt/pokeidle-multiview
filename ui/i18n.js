@@ -284,7 +284,31 @@
     '1 channel added from the game': '1 canal adicionado pelo jogo',
     '{n} channels added from the game': '{n} canais adicionados pelo jogo',
 
+    // Logins
+    'Log in': 'Entrar',
+    'Log in →': 'Entrar →',
+    'Log in to {platform} →': 'Entrar na {platform} →',
+    "This account isn't logged in on {platform}: its streams earn nothing, so they aren't opened. Click to log in here; the streams start as soon as you do.": 'Esta conta não está logada na {platform}: as lives não rendem nada, então não são abertas. Clique para entrar aqui; as lives começam assim que você entrar.',
+    '{platform} logged in': '{platform} logada',
+    'This slot is logged in on {platform}': 'Este slot está logado na {platform}',
+    "{name} isn't logged in on {platform}": '{name} não está logada na {platform}',
+    'Its {platform} streams wait for a login (they would earn nothing)': 'As lives da {platform} esperam o login (sem ele não rendem nada)',
+
+    // Economy mode
+    'Economy mode is on: the accounts keep running hidden. Click to show them again': 'Modo economia ligado: as contas continuam rodando escondidas. Clique para mostrá-las de novo',
+    'Economy mode: hides every account (they keep running) to save CPU, and shows a light screen with what needs you': 'Modo economia: esconde todas as contas (elas continuam rodando) para poupar CPU e mostra uma tela leve com o que precisa de você',
+    'Economy mode on/off (hides the accounts to save CPU)': 'Ligar/desligar o modo economia (esconde as contas para poupar CPU)',
+    'Economy mode': 'Modo economia',
+    '{accounts} accounts keep running hidden · {streams} streams in the background': '{accounts} contas rodando escondidas · {streams} lives em segundo plano',
+    'Show the accounts': 'Mostrar as contas',
+    'Needs you': 'Precisa de você',
+    'Show': 'Ver',
+    'IdleHub vote ready': 'Voto do IdleHub disponível',
+    '{name} can vote now (+1 toward a diamond)': '{name} já pode votar (+1 para um diamante)',
+    'Nothing needs you right now. This list fills in when something does.': 'Nada precisa de você agora. Esta lista se preenche quando algo precisar.',
+
     // Shortcuts and patch notes
+    'What the app uses right now, games and streams included ({n} processes), like Task Manager shows it. CPU: share of the whole PC.': 'O que o app usa agora, com jogos e lives ({n} processos), como o Gerenciador de Tarefas mostra. CPU: parte do PC inteiro.',
     'Shortcuts': 'Atalhos',
     'Keyboard shortcuts': 'Atalhos de teclado',
     'They work while the app is in front, even with the focus inside a game or stream. Click a shortcut and press the new keys: Ctrl or Alt with a letter or number, or a function key (F1–F12). Esc cancels, Delete turns it off.': 'Funcionam com o app em primeiro plano, mesmo com o foco dentro de um jogo ou live. Clique num atalho e pressione as novas teclas: Ctrl ou Alt com uma letra ou número, ou uma tecla de função (F1–F12). Esc cancela, Delete desliga.',
@@ -347,6 +371,8 @@
     [/^IdleHub vote counted$/, 'Voto no IdleHub contado'],
     [/Kick redeem: /, 'Resgate na Kick: '],
     [/chest claimed/g, 'baú resgatado'],
+    [/: logged out, its streams wait for a login$/, ': deslogada, as lives esperam o login'],
+    [/: logged in$/, ': logada'],
     [/not enough points/g, 'pontos insuficientes'],
     [/redeem button disabled for /g, 'botão de resgate desativado para '],
     [/no redeem button for /g, 'sem botão de resgate para '],
@@ -638,7 +664,31 @@
     '1 channel added from the game': '1 canal agregado desde el juego',
     '{n} channels added from the game': '{n} canales agregados desde el juego',
 
+    // Logins
+    'Log in': 'Iniciar sesión',
+    'Log in →': 'Entrar →',
+    'Log in to {platform} →': 'Entrar en {platform} →',
+    "This account isn't logged in on {platform}: its streams earn nothing, so they aren't opened. Click to log in here; the streams start as soon as you do.": 'Esta cuenta no tiene sesión en {platform}: los streams no dan nada, así que no se abren. Haz clic para iniciar sesión aquí; los streams empiezan en cuanto entres.',
+    '{platform} logged in': '{platform} con sesión',
+    'This slot is logged in on {platform}': 'Este slot tiene sesión en {platform}',
+    "{name} isn't logged in on {platform}": '{name} no tiene sesión en {platform}',
+    'Its {platform} streams wait for a login (they would earn nothing)': 'Sus streams de {platform} esperan el inicio de sesión (sin él no dan nada)',
+
+    // Economy mode
+    'Economy mode is on: the accounts keep running hidden. Click to show them again': 'Modo ahorro activado: las cuentas siguen funcionando ocultas. Haz clic para mostrarlas de nuevo',
+    'Economy mode: hides every account (they keep running) to save CPU, and shows a light screen with what needs you': 'Modo ahorro: oculta todas las cuentas (siguen funcionando) para ahorrar CPU y muestra una pantalla ligera con lo que te necesita',
+    'Economy mode on/off (hides the accounts to save CPU)': 'Activar/desactivar el modo ahorro (oculta las cuentas para ahorrar CPU)',
+    'Economy mode': 'Modo ahorro',
+    '{accounts} accounts keep running hidden · {streams} streams in the background': '{accounts} cuentas funcionando ocultas · {streams} streams en segundo plano',
+    'Show the accounts': 'Mostrar las cuentas',
+    'Needs you': 'Te necesita',
+    'Show': 'Ver',
+    'IdleHub vote ready': 'Voto de IdleHub disponible',
+    '{name} can vote now (+1 toward a diamond)': '{name} ya puede votar (+1 para un diamante)',
+    'Nothing needs you right now. This list fills in when something does.': 'Nada te necesita ahora. Esta lista se llena cuando algo lo necesite.',
+
     // Shortcuts and patch notes
+    'What the app uses right now, games and streams included ({n} processes), like Task Manager shows it. CPU: share of the whole PC.': 'Lo que usa la app ahora, juegos y streams incluidos ({n} procesos), como lo muestra el Administrador de tareas. CPU: parte del PC entero.',
     'Shortcuts': 'Atajos',
     'Keyboard shortcuts': 'Atajos de teclado',
     'They work while the app is in front, even with the focus inside a game or stream. Click a shortcut and press the new keys: Ctrl or Alt with a letter or number, or a function key (F1–F12). Esc cancels, Delete turns it off.': 'Funcionan con la app al frente, incluso con el foco dentro de un juego o stream. Haz clic en un atajo y pulsa las nuevas teclas: Ctrl o Alt con una letra o número, o una tecla de función (F1–F12). Esc cancela, Supr lo desactiva.',
@@ -700,6 +750,8 @@
     [/^IdleHub vote counted$/, 'Voto en IdleHub contado'],
     [/Kick redeem: /, 'Canje en Kick: '],
     [/chest claimed/g, 'cofre reclamado'],
+    [/: logged out, its streams wait for a login$/, ': sin sesión, los streams esperan el inicio de sesión'],
+    [/: logged in$/, ': con sesión'],
     [/not enough points/g, 'puntos insuficientes'],
     [/redeem button disabled for /g, 'botón de canje desactivado para '],
     [/no redeem button for /g, 'sin botón de canje para '],

@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Every action, in the order the settings list shows them, with its default keys.
-pub const ACTIONS: [(&str, &str); 7] = [
+pub const ACTIONS: [(&str, &str); 8] = [
     ("focus1", "Ctrl+1"),
     ("focus2", "Ctrl+2"),
     ("focus3", "Ctrl+3"),
@@ -20,6 +20,7 @@ pub const ACTIONS: [(&str, &str); 7] = [
     ("grid", "Ctrl+G"),
     ("reload_all", "Ctrl+Shift+R"),
     ("new_slot", "Ctrl+T"),
+    ("economy", "Ctrl+E"),
 ];
 
 pub fn defaults() -> BTreeMap<String, String> {
@@ -118,6 +119,7 @@ pub fn run(app: &AppHandle, action: &str) {
             crate::toggle_focus(app, Some(id));
         }
         "grid" => crate::toggle_grid(app),
+        "economy" => crate::toggle_economy(app),
         "reload_all" => crate::reload_all_games(app),
         "new_slot" => {
             let app = app.clone();
