@@ -11,7 +11,7 @@
     * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #3a4150 transparent; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
       font: 14px/1.45 "Segoe UI", system-ui, sans-serif; user-select: none; }
-    /* Tabs: General · Channels · Accounts · About. One pane shows at a time and scrolls on its
+    /* Tabs: General · Channels · Accounts · Shortcuts · About. One pane shows at a time and scrolls on its
        own; the header (tabs, "saved", the ⚠ count) stays. */
     body { display: flex; flex-direction: column; overflow: hidden; }
     header { display: flex; align-items: center; gap: 18px; padding: 16px 24px 14px; flex: none; }
@@ -35,6 +35,20 @@
     .pane.accounts.on { display: grid; gap: 18px; align-content: start; }
     #kbonus { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 14px; }
     .about-pane section { max-width: 560px; }
+    .keys-pane section { max-width: 620px; }
+    /* Shortcuts: one row per action, its keys on a button that listens for new ones. */
+    .keys { display: grid; gap: 6px; }
+    .key-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 12px; border-radius: 9px; background: var(--row); }
+    .key-row > span { flex: 1; min-width: 0; }
+    .key-row .hint { margin: 0; }
+    .key-row button.kbd { min-width: 150px; font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .02em; }
+    .key-row button.kbd.off { color: var(--muted); font-weight: 500; }
+    .key-row button.kbd.listening { border-color: var(--accent); color: var(--accent); }
+    .key-row button.clear { width: 30px; padding: 6px 0; }
+    .keys-foot { display: flex; align-items: center; gap: 10px; }
+    .keys-foot .hint { flex: 1; margin: 0; }
+    .fixed-keys { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+    .fixed-keys b { color: var(--text); font-weight: 600; }
     @media (max-width: 900px) {
       .pane.pair.on { grid-template-columns: 1fr; grid-template-rows: none; overflow-y: auto; }
       .pair > section { grid-row: auto; grid-template-rows: none; }
@@ -186,6 +200,7 @@
       <button data-tab="general" data-i18n>General</button>
       <button data-tab="channels" data-i18n>Channels</button>
       <button data-tab="accounts" data-i18n>Accounts</button>
+      <button data-tab="keys" data-i18n>Shortcuts</button>
       <button data-tab="about" data-i18n>About</button>
     </nav>
     <div class="saved" id="saved"></div>
@@ -306,6 +321,26 @@
     </section>
    </div>
 
+   <div class="pane keys-pane" data-pane="keys">
+    <section>
+      <h2 data-i18n>Keyboard shortcuts</h2>
+      <span class="hint" data-i18n>They work while the app is in front, even with the focus inside a game or stream. Click a shortcut and press the new keys: Ctrl or Alt with a letter or number, or a function key (F1–F12). Esc cancels, Delete turns it off.</span>
+      <div class="keys" id="keys"></div>
+      <div class="keys-foot">
+        <span class="hint" id="keys-msg"></span>
+        <button id="keys-reset" data-i18n>Restore defaults</button>
+      </div>
+    </section>
+    <section>
+      <h2 data-i18n>Other keys</h2>
+      <div class="fixed-keys">
+        <span><b>Esc</b> · <span data-i18n>closes this window</span></span>
+        <span><b data-i18n>Double-click</b> · <span data-i18n>a slot's name renames it</span></span>
+        <span><b>Enter</b> · <span data-i18n>saves a name or adds a channel; Esc cancels</span></span>
+      </div>
+    </section>
+   </div>
+
    <div class="pane about-pane" data-pane="about">
     <section class="about">
       <h2 data-i18n>About</h2>
@@ -318,6 +353,7 @@
         <button id="about-support" class="primary full" data-i18n>♥ Support the dev</button>
         <button id="about-github" data-i18n-title title="Opens the project page: a star there helps more players find the app">⭐ GitHub</button>
         <button id="about-discord" data-i18n-title title="Ideas, bugs, questions: the developer's Discord">Discord</button>
+        <button id="about-whatsnew" class="full" data-i18n>What's new in each version</button>
       </div>
       <div class="sub">
         <span data-i18n>Invite friends to PokeIdle</span>
@@ -769,6 +805,92 @@
     });
     document.getElementById('about-referral-open').addEventListener('click', () => invoke('open_referral'));
     document.getElementById('about-support').addEventListener('click', () => invoke('open_support'));
+    document.getElementById('about-whatsnew').addEventListener('click', () => invoke('open_whats_new'));
+
+    // --- Shortcuts --------------------------------------------------------------------------
+    const KEY_ACTIONS = [
+      ['focus1', 'Slot 1 fullscreen (again: back to the grid)'],
+      ['focus2', 'Slot 2 fullscreen (again: back to the grid)'],
+      ['focus3', 'Slot 3 fullscreen (again: back to the grid)'],
+      ['focus4', 'Slot 4 fullscreen (again: back to the grid)'],
+      ['grid', 'Switch between the grid and the last fullscreen slot'],
+      ['reload_all', 'Reload every game page at once'],
+      ['new_slot', 'Open a new slot'],
+    ];
+    let keyMap = {};
+    function flashSaved() {
+      clearTimeout(save.t);
+      saved.textContent = t('Saved');
+      save.t = setTimeout(() => { saved.textContent = ''; }, 1500);
+    }
+    let listening = null;
+    const keysMsg = document.getElementById('keys-msg');
+
+    // The same as shortcuts.js writes them (and the app checks them again).
+    function keyCombo(e) {
+      let key = null;
+      if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+      else if (/^Digit[0-9]$/.test(e.code)) key = e.code.slice(5);
+      else if (/^F([1-9]|1[0-2])$/.test(e.code)) key = e.code;
+      if (!key) return null;
+      if (!(key.startsWith('F') && key.length > 1) && !e.ctrlKey && !e.altKey) return null;
+      return (e.ctrlKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.shiftKey ? 'Shift+' : '') + key;
+    }
+
+    function renderKeys() {
+      document.getElementById('keys').replaceChildren(...KEY_ACTIONS.map(([action, label]) => {
+        const row = Object.assign(document.createElement('div'), { className: 'key-row' });
+        const name = Object.assign(document.createElement('span'), { textContent: t(label) });
+        const keys = keyMap[action] || '';
+        const kbd = Object.assign(document.createElement('button'), {
+          className: 'kbd' + (keys ? '' : ' off') + (listening === action ? ' listening' : ''),
+          textContent: listening === action ? t('Press the keys…') : keys || t('Off'),
+          title: t('Click and press the new keys'),
+        });
+        kbd.addEventListener('click', () => { listening = listening === action ? null : action; keysMsg.textContent = ''; renderKeys(); });
+        const clear = Object.assign(document.createElement('button'), { className: 'clear', textContent: '×', title: t('Turn off'), disabled: !keys });
+        clear.addEventListener('click', () => setKeys(action, ''));
+        row.append(name, kbd, clear);
+        return row;
+      }));
+    }
+
+    async function setKeys(action, keys) {
+      const before = Object.entries(keyMap).find(([a, k]) => keys && a !== action && k === keys);
+      try {
+        keyMap = await invoke('set_shortcut', { action, keys });
+        keysMsg.textContent = before
+          ? t('{keys} was used by "{other}", which is now off.', { keys, other: t(KEY_ACTIONS.find(([a]) => a === before[0])[1]) })
+          : '';
+        flashSaved();
+      } catch (e) {
+        keysMsg.textContent = t('That combination can\'t be used: use Ctrl or Alt with a letter or number, or F1–F12.');
+      }
+      listening = null;
+      renderKeys();
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (!listening) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') { listening = null; renderKeys(); return; }
+      if (e.key === 'Delete' || e.key === 'Backspace') { setKeys(listening, ''); return; }
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+      const keys = keyCombo(e);
+      if (!keys) { keysMsg.textContent = t('That combination can\'t be used: use Ctrl or Alt with a letter or number, or F1–F12.'); return; }
+      setKeys(listening, keys);
+    }, true);
+    document.getElementById('keys-reset').addEventListener('click', async () => {
+      keyMap = await invoke('reset_shortcuts');
+      listening = null;
+      keysMsg.textContent = '';
+      renderKeys();
+      flashSaved();
+    });
+    invoke('get_shortcuts').then((m) => { keyMap = m; renderKeys(); });
+    window.__TAURI__.event.listen('shortcuts', (e) => { keyMap = e.payload; renderKeys(); });
+    I18N.onChange(renderKeys);
     document.getElementById('about-github').addEventListener('click', () => invoke('open_github'));
     document.getElementById('about-discord').addEventListener('click', () => invoke('open_discord'));
 

@@ -13,7 +13,9 @@ mod native;
 mod net;
 mod power;
 mod splash;
+mod shortcuts;
 mod support;
+mod whatsnew;
 mod tray;
 mod updater;
 
@@ -86,6 +88,8 @@ struct AppState {
     /// A redeem just went through for this account and platform: in goals mode it waits for
     /// the game to report the new time before buying again (see `bonus_now`).
     redeemed: HashMap<(u8, Platform), std::time::Instant>,
+    /// The slot that was fullscreen last, so the grid shortcut can go back to it.
+    last_focus: Option<u8>,
 }
 
 /// Events kept per account in the automation log.
@@ -1561,6 +1565,9 @@ fn toggle_focus(app: &AppHandle, id: Option<u8>) {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
         let exists = id.is_some_and(|id| state.config.slots.iter().any(|s| s.id == id));
+        if state.config.focus.is_some() {
+            state.last_focus = state.config.focus;
+        }
         state.config.focus = if !exists || state.config.focus == id { None } else { id };
     }
     if let Err(e) = apply_layout(app) {
@@ -1573,6 +1580,36 @@ fn toggle_focus(app: &AppHandle, id: Option<u8>) {
 #[tauri::command]
 fn focus_slot(app: AppHandle, id: Option<u8>) {
     toggle_focus(&app, id);
+}
+
+/// The grid shortcut: from a fullscreen slot back to the grid, and from the grid to the slot
+/// that was fullscreen last (or the first one).
+fn toggle_grid(app: &AppHandle) {
+    let target = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        if state.config.focus.is_some() {
+            None
+        } else {
+            state
+                .last_focus
+                .filter(|id| state.config.slots.iter().any(|s| s.id == *id))
+                .or_else(|| state.config.slots.first().map(|s| s.id))
+        }
+    };
+    toggle_focus(app, target);
+}
+
+/// Reloads every slot's game page at once (the reload shortcut; the timed option in ⚙ does
+/// the same on its own).
+fn reload_all_games(app: &AppHandle) {
+    let ids: Vec<u8> = app.state::<Mutex<AppState>>().lock().unwrap().config.slots.iter().map(|s| s.id).collect();
+    println!("[reload] reloading {} game page(s) (shortcut)", ids.len());
+    for id in ids {
+        if let Some(webview) = app.get_webview(&slot_label(id)) {
+            let _ = webview.reload();
+        }
+    }
 }
 
 #[tauri::command]
@@ -3326,6 +3363,7 @@ fn main() {
                 log: HashMap::new(),
                 game_stats: HashMap::new(),
                 redeemed: HashMap::new(),
+                last_focus: None,
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is
@@ -3465,6 +3503,12 @@ fn main() {
             set_language,
             support::support_info,
             support::open_support,
+            shortcuts::get_shortcuts,
+            shortcuts::run_shortcut,
+            shortcuts::set_shortcut,
+            shortcuts::reset_shortcuts,
+            whatsnew::get_whats_new,
+            whatsnew::open_whats_new,
             support::open_github,
             support::open_referral,
             support::open_discord,

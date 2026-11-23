@@ -153,6 +153,8 @@ fn finish(app: &AppHandle) {
             let _ = window.set_focus();
         }
     });
+    // After an update: what changed (whatsnew.rs).
+    crate::whatsnew::after_start(app);
     // Streams created while the window was hidden didn't start playing (the browser doesn't
     // autoplay in a hidden window): now that it's shown, they're started.
     let resume = app.clone();

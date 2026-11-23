@@ -123,6 +123,7 @@
     .pill .stop:hover { color: var(--text); background: transparent; }
   </style>
   <script src="i18n.js"></script>
+  <script src="shortcuts.js"></script>
 </head>
 <body>
   <div class="bar">
@@ -207,7 +208,8 @@
     // Click = show the slot fullscreen (again = grid). Double-click = rename it in place
     // (Enter saves, Esc cancels, empty = default name).
     function nameButton(slot, focused) {
-      const b = button(slotName(slot), `${focused ? t('Back to the grid') : t('Show this slot fullscreen')} (Ctrl+${slot.id}) · ${t('double-click to rename')}`, () => {
+      const keys = Shortcuts.keys(`focus${slot.id}`);
+      const b = button(slotName(slot), `${focused ? t('Back to the grid') : t('Show this slot fullscreen')}${keys ? ` (${keys})` : ''} · ${t('double-click to rename')}`, () => {
         clearTimeout(b.clickTimer);
         b.clickTimer = setTimeout(() => invoke('focus_slot', { id }).catch(showError), 220);
       }, 'name');
@@ -566,9 +568,7 @@
         }
       }, { passive: false });
     }
-    document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key >= '1' && e.key <= '4') invoke('focus_slot', { id: Number(e.key) }).catch(showError);
-    });
+    Shortcuts.onChange(() => { if (latest && !editing) render(latest); });
 
     listen('state', (e) => render(e.payload));
     listen('error', (e) => showError(e.payload));

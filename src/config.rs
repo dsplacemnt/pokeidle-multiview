@@ -260,6 +260,12 @@ pub struct Config {
     /// A fullscreen slot shows its stats panel at the right ("single focus").
     #[serde(default = "enabled")]
     pub focus_panel: bool,
+    /// Keyboard shortcuts by action ("" = off); see shortcuts.rs. Missing ones use defaults.
+    #[serde(default)]
+    pub shortcuts: std::collections::BTreeMap<String, String>,
+    /// The app version whose patch notes were last shown; a newer app shows what changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_version: Option<String>,
     /// The app's language (the flags on the top bar). Portuguese unless changed.
     #[serde(default)]
     pub language: Language,
@@ -352,6 +358,8 @@ impl Default for Config {
             vote_slots: Vec::new(),
             vote_slot: None,
             focus_panel: true,
+            shortcuts: crate::shortcuts::defaults(),
+            seen_version: None,
             language: Language::Pt,
             window: None,
         }
@@ -386,6 +394,7 @@ impl Config {
             v: clamp_split(self.grid_split.v, 0.5),
             h: clamp_split(self.grid_split.h, 0.5),
         };
+        self.shortcuts = crate::shortcuts::normalized(&self.shortcuts);
         if !AUTO_RELOAD_OPTIONS.contains(&self.auto_reload_minutes) {
             self.auto_reload_minutes = 0;
         }

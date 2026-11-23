@@ -1,7 +1,8 @@
 //! WebView2 events the slot pages need that Tauri doesn't expose:
 //! - permission requests: only notifications and autoplay are allowed (no camera,
 //!   microphone, location, clipboard…);
-//! - Ctrl+1…Ctrl+4 pressed inside a page focuses that slot, like on the toolbar;
+//! - the app's shortcuts (shortcuts.rs) pressed inside a page run their action, so a game or
+//!   stream page can't swallow them;
 //! - a page whose renderer crashed or stopped responding reloads itself (at most 3 times in
 //!   5 minutes, so a page that keeps crashing doesn't loop forever).
 
@@ -21,8 +22,6 @@ unsafe extern "system" {
 const VK_CONTROL: i32 = 0x11;
 const VK_SHIFT: i32 = 0x10;
 const VK_MENU: i32 = 0x12;
-const VK_1: u32 = 0x31;
-const VK_4: u32 = 0x34;
 
 const CRASH_RELOAD_LIMIT: u32 = 3;
 const CRASH_WINDOW: Duration = Duration::from_secs(300);
@@ -106,16 +105,22 @@ pub fn attach(webview: &tauri::Webview, app: AppHandle) {
             }
             let mut vk = 0u32;
             args.VirtualKey(&mut vk)?;
-            if (VK_1..=VK_4).contains(&vk)
-                && key_down(VK_CONTROL)
-                && !key_down(VK_SHIFT)
-                && !key_down(VK_MENU)
-            {
+            let Some(keys) =
+                crate::shortcuts::from_virtual_key(vk, key_down(VK_CONTROL), key_down(VK_MENU), key_down(VK_SHIFT))
+            else {
+                return Ok(());
+            };
+            let action = {
+                use tauri::Manager;
+                let state = keys_app.state::<std::sync::Mutex<crate::AppState>>();
+                let state = state.lock().unwrap();
+                crate::shortcuts::action_for(&state.config.shortcuts, &keys)
+            };
+            if let Some(action) = action {
                 args.SetHandled(true)?;
-                let id = (vk - VK_1 + 1) as u8;
                 let app = keys_app.clone();
                 // Layout changes create/move webviews: not from inside this event.
-                tauri::async_runtime::spawn(async move { crate::toggle_focus(&app, Some(id)) });
+                tauri::async_runtime::spawn(async move { crate::shortcuts::run(&app, &action) });
             }
             Ok(())
         }));

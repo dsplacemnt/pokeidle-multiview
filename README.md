@@ -22,6 +22,13 @@ under 10 MB.
   only that slot, filling the window (the others keep running hidden); click it again or press
   **GRID** to go back. **Drag the bars between slots** to resize them; the sizes are remembered. **Reset**
   in ⚙ → Layout leaves fullscreen and makes every slot the same size again.
+- **Keyboard shortcuts.** ⚙ → Shortcuts lists them and lets you change each one (click it,
+  press the new keys; Delete turns it off). Defaults: `Ctrl+1`…`Ctrl+4` show a slot fullscreen,
+  `Ctrl+G` switches between the grid and the last fullscreen slot, `Ctrl+Shift+R` reloads every
+  game page and `Ctrl+T` opens a new slot. They work in every page of the app, games and
+  streams included. Keys taken by another action move to the new one (the other turns off).
+- **What's new.** After an update, a small window lists what changed since the version you had
+  (ui/changelog.js); ⚙ → About opens it again with every version.
 - **Single focus stats panel.** A fullscreen slot gets a panel on its right with that account
   at a glance, starting with a **hunt analysis** that adds what the game doesn't show: for each
   ball, potion and revive, how many are left, how many go per hour and **how long they last**
@@ -252,7 +259,9 @@ src/main.rs      window, slot and stream webviews, navigation guard, toolbar com
 src/layout.rs    grid math (pure, unit-tested)
 src/config.rs    saved settings: load, normalize, atomic save
 src/tray.rs      tray icon, close/minimize to tray, quit
-src/native.rs    WebView2 events: permissions, Ctrl+1…4 inside pages, crash recovery
+src/native.rs    WebView2 events: permissions, shortcuts inside pages, crash recovery
+src/shortcuts.rs keyboard shortcuts: defaults, parsing, actions, settings commands
+src/whatsnew.rs  patch notes window after an update
 src/power.rs     keeps Windows awake while streams run
 src/hunt.rs      finds the installed /hunt extension and copies it for WebView2
 src/channels.rs  recognizes Twitch/Kick channel links

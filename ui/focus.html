@@ -113,6 +113,7 @@
     .log .name { white-space: normal; overflow: visible; }
   </style>
   <script src="i18n.js"></script>
+  <script src="shortcuts.js"></script>
 </head>
 <body>
   <div class="top">
@@ -405,9 +406,6 @@
 
     document.getElementById('grid').addEventListener('click', () => view && invoke('focus_slot', { id: view.slot }).catch(() => {}));
     document.getElementById('hide').addEventListener('click', () => invoke('set_focus_panel', { on: false }).catch(() => {}));
-    document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key >= '1' && e.key <= '4') invoke('focus_slot', { id: Number(e.key) }).catch(() => {});
-    });
     listen('focus', (e) => render(e.payload));
     I18N.onChange(() => render(view));
     const refresh = () => invoke('get_focus').then(render).catch(() => {});

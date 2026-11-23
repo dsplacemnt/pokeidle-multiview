@@ -56,6 +56,7 @@
     .flag svg { width: 20px; height: 14px; display: block; border-radius: 2px; }
   </style>
   <script src="i18n.js"></script>
+  <script src="shortcuts.js"></script>
 </head>
 <body>
   <div class="bar">
@@ -118,7 +119,8 @@
       slots.replaceChildren(...state.slots.map((slot) => {
         const focused = state.focus === slot.id;
         const b = document.createElement('button');
-        b.title = `${focused ? t('Back to the grid') : t('Show {name} fullscreen', { name: slotName(slot) })} (Ctrl+${slot.id})`;
+        const keys = Shortcuts.keys(`focus${slot.id}`);
+        b.title = `${focused ? t('Back to the grid') : t('Show {name} fullscreen', { name: slotName(slot) })}${keys ? ` (${keys})` : ''}`;
         const key = document.createElement('span');
         key.className = 'key';
         key.textContent = slot.id;
@@ -186,9 +188,7 @@
     document.getElementById('settings').addEventListener('click', () => invoke('open_settings').catch(showError));
     document.getElementById('support').addEventListener('click', () => invoke('open_support').catch(showError));
     document.getElementById('hide').addEventListener('click', () => invoke('set_toolbar_hidden', { hidden: true }).catch(showError));
-    document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key >= '1' && e.key <= '4') invoke('focus_slot', { id: Number(e.key) }).catch(showError);
-    });
+    Shortcuts.onChange(() => { if (latest) render(latest); });
 
     listen('state', (e) => render(e.payload));
     listen('error', (e) => showError(e.payload));
