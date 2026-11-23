@@ -27,8 +27,9 @@ under 10 MB. An **experimental Linux** build (WebKitGTK) comes with every releas
   in the background, and shows a light screen instead: a little animation, what needs you
   (streams with a ⚠, IdleHub votes that are ready, each with a button) and each account's
   running bonuses. Drawing four games is what costs the most: with 4 accounts and 32 streams
-  the app went from about 50 % CPU in the grid to about 22 % in economy mode. Picking a slot
-  or GRID leaves it.
+  the app went from about 50 % CPU in the grid to about 22 % in economy mode. It also turns on
+  the game's own Battery Saver in each account (and turns it back off when you leave; one you
+  turned on yourself stays). Picking a slot or GRID leaves it.
 - **Logins.** The app checks each account's Twitch and Kick login from its own session cookies
   (only whether the login cookie is there; nothing is read out or sent). An account that isn't
   logged in on a platform earns nothing there, so no lives are opened for it; instead a **Log in**
@@ -36,6 +37,10 @@ under 10 MB. An **experimental Linux** build (WebKitGTK) comes with every releas
   login in that slot; once you're in, the login page closes and the lives start.
 - **Lighter background streams.** Streams nobody is looking at ask WebView2 for its low memory
   level: with 32 streams the app used about 1 GB less, and they keep playing and earning.
+- **Pages that swell get reloaded.** Each game and stream page reports its JavaScript memory;
+  the reading 10 minutes after it opens is its normal size, and when it later reaches twice that
+  (and at least 150 MB more), the page reloads — never the stream on screen, never the game of a
+  slot you have fullscreen, at most one per account every 2 minutes.
 - **Resource meter.** The top bar shows the CPU and memory of the whole app (its own process
   and every WebView2 process it started), like Task Manager adds them up.
 - **Keyboard shortcuts.** ⚙ → Shortcuts lists them and lets you change each one (click it,
@@ -327,6 +332,7 @@ src/channels.rs  recognizes Twitch/Kick channel links
 src/game.rs      game connection warnings and the Pokémon sprites for the stats panel
 src/discord.rs   Discord alerts (webhook, what to send, daily report)
 src/prey.rs      the game's daily Prey: what's left to do today, for the reminders
+src/heavy.rs     reloads pages that swell over a long session
 ui/              toolbar, splitter strips and settings window (the only pages that can call Rust)
 scripts/         scripts injected into the game pages
 tests/fixtures/  a tiny extension used to test extension loading
@@ -359,6 +365,8 @@ Some details that are easy to miss:
   stays in your config file and is never shown back or logged.
 - Known limitation: popup windows opened from inside a page are not covered by the navigation
   guard.
+- More, and how to check a download (SHA256SUMS.txt in every release), in
+  [SECURITY.md](SECURITY.md).
 
 ## Disclaimer
 

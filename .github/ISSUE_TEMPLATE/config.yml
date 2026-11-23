@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security problem / Problema de segurança
+    url: https://github.com/dsplacemnt/pokeidle-multiview/security/advisories/new
+    about: Report it privately, not in a public issue. / Avise em particular, não numa issue pública.
+  - name: Questions and chat / Dúvidas e conversa
+    url: https://discord.com/users/1191794452147208262
+    about: The developer's Discord. / O Discord do desenvolvedor.

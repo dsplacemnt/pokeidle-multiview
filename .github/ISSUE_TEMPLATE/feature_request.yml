@@ -1,0 +1,21 @@
+name: Idea / Sugestão
+description: Something the app could do. / Algo que o app poderia fazer.
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea / A ideia
+      description: What should the app do, and what would it help you with? / O que o app deveria fazer, e em que isso te ajudaria?
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you do it today? / Como você faz isso hoje?
+  - type: markdown
+    attributes:
+      value: |
+        The app plays like you would: it doesn't spend Coins, vote or follow for you, and won't
+        do anything against the game's rules. / O app joga como você jogaria: não gasta Coins,
+        não vota nem segue por você, e não faz nada contra as regras do jogo.

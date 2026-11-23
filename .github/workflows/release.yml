@@ -143,6 +143,14 @@ jobs:
           rm dist/*.sig
           ls -la dist
 
+      # SHA256SUMS.txt: lets anyone check that a downloaded file is exactly the one GitHub built
+      # from this repository (see SECURITY.md).
+      - name: Write SHA256SUMS.txt
+        run: |
+          cd dist
+          sha256sum PokeIdleMultiview_* | sort -k2 > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - uses: softprops/action-gh-release@v3
         with:
           name: PokeIdle Multiview ${{ env.VERSION }}
@@ -164,6 +172,11 @@ jobs:
             it is missing. Installed copies update themselves (⬆ on the top bar); the portable exe
             shows when a new version is out. The files are not code-signed, so Windows SmartScreen
             may warn the first time: choose **More info → Run anyway**.
+
+            **Check your download:** every file here was built by GitHub Actions from this
+            repository's code. `SHA256SUMS.txt` lists their fingerprints; compare yours with
+            `Get-FileHash .\<file>` (PowerShell) or `sha256sum <file>` (Linux). How the app handles
+            your accounts and data: [SECURITY.md](https://github.com/${{ github.repository }}/blob/main/SECURITY.md).
 
             Linux is **experimental**: the /hunt extension isn't available there (it needs Chromium),
             and Twitch/Kick video needs the GStreamer plugins (`gstreamer1.0-plugins-good`,

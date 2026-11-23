@@ -1,0 +1,50 @@
+name: Bug report / Relatar um problema
+description: Something doesn't work as it should. / Algo não funciona como deveria.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! / Obrigado por avisar!
+
+        ⚠️ **Never paste** passwords, cookies, session tokens, your Discord webhook or screenshots
+        that show them. / **Nunca cole** senhas, cookies, tokens de sessão, o seu webhook do
+        Discord ou prints que mostrem isso. Security issues: see [SECURITY.md](https://github.com/dsplacemnt/pokeidle-multiview/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: App version / Versão do app
+      description: ⚙ → About / Sobre
+      placeholder: "0.20.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System / Sistema
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux (.deb)
+        - Linux (AppImage)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / O que aconteceu?
+      description: And what you expected instead. / E o que você esperava.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen / Como reproduzir
+      placeholder: |
+        1. …
+        2. …
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else / Mais detalhes
+      description: How many slots and streams, economy mode on or off, a screenshot without personal data… / Quantos slots e lives, modo economia ligado ou não, um print sem dados pessoais…
