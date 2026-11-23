@@ -3,6 +3,15 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.15.1',
+    date: '2026-11-22',
+    notes: {
+      pt: ['"Entendi" nesta janela e Esc nas Settings agora fecham a janela (antes ela ficava branca e aberta).'],
+      en: ['"Got it" in this window and Esc in Settings now close the window (it used to stay open and blank).'],
+      es: ['"Entendido" en esta ventana y Esc en Ajustes ahora cierran la ventana (antes se quedaba abierta y en blanco).'],
+    },
+  },
+  {
     version: '0.15.0',
     date: '2026-11-22',
     notes: {

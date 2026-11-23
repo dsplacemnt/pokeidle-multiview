@@ -1577,6 +1577,13 @@ fn toggle_focus(app: &AppHandle, id: Option<u8>) {
     save_and_publish(app, &state.lock().unwrap());
 }
 
+/// Closes the window of the page that asks (settings, patch notes): the page's own
+/// window.close() only blanks the webview and leaves the window open.
+#[tauri::command]
+async fn close_window(window: tauri::Window) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn focus_slot(app: AppHandle, id: Option<u8>) {
     toggle_focus(&app, id);
@@ -3479,6 +3486,7 @@ fn main() {
             add_channel,
             reorder_pages,
             focus_slot,
+            close_window,
             toggle_mute,
             rename_slot,
             drag_split,

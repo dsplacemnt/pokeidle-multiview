@@ -927,7 +927,7 @@
     });
     I18N.onChange((lang) => { language.value = lang; if (auto) render(auto); });
 
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.activeElement?.tagName !== 'INPUT') window.close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.activeElement?.tagName !== 'INPUT') invoke('close_window'); });
   </script>
 </body>
 </html>
