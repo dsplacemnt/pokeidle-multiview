@@ -3,6 +3,21 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.21.1',
+    date: '2026-11-24',
+    notes: {
+      pt: [
+        'Quando o Windows atualiza o WebView2 (o navegador que roda as contas, normalmente de madrugada), o app se reinicia sozinho para usar a versão nova. Antes, depois dessa atualização, as lives que caíam não eram reabertas e as Settings davam erro ao abrir. As lives abertas são salvas, e se o app estava na bandeja ou minimizado, ele volta do mesmo jeito, sem aparecer na tela.',
+      ],
+      en: [
+        'When Windows updates WebView2 (the browser that runs the accounts, usually at night), the app now restarts by itself to use the new version. Until now, after such an update, streams that ended weren\'t replaced and Settings failed to open. The open streams are saved, and if the app was in the tray or minimized, it comes back the same way, without showing up on screen.',
+      ],
+      es: [
+        'Cuando Windows actualiza WebView2 (el navegador que ejecuta las cuentas, normalmente de madrugada), la app ahora se reinicia sola para usar la versión nueva. Antes, tras esa actualización, los streams que terminaban no se reemplazaban y Ajustes daba error al abrir. Los streams abiertos se guardan, y si la app estaba en la bandeja o minimizada, vuelve igual, sin aparecer en pantalla.',
+      ],
+    },
+  },
+  {
     version: '0.21.0',
     date: '2026-11-23',
     notes: {
