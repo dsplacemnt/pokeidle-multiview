@@ -101,7 +101,9 @@
     }
   }
 
-  const game = { balls: {}, items: null, itemsAt: 0, xp: null, xpStart: null, xpNext: null, level: null, pokemon: null, hunt: null, wild: null, wildInfo: null, gold: null };
+  // auto: the game's auto-use choices (estado.automation): the balls, potions and revives
+  // ticked for automatic use, each list in the order the game uses them, and the switches.
+  const game = { auto: null, balls: {}, items: null, itemsAt: 0, xp: null, xpStart: null, xpNext: null, level: null, pokemon: null, hunt: null, wild: null, wildInfo: null, gold: null };
 
   // Sprites for the panel, cut from the game's own sprite sheets: the game's sprites.mjs module
   // (already loaded by the page, so this costs no download) knows where each Pokémon's frames
@@ -170,6 +172,7 @@
       for (const [id, n] of Object.entries(state.items)) game.items[id] = Number(n) || 0;
       run.potionsSinceBag = {};
     }
+    if (state.automation && typeof state.automation === 'object') onAuto(state.automation);
     if (Number.isFinite(Number(state.xp))) game.xp = Number(state.xp);
     if (Number.isFinite(Number(state.xpProximo))) game.xpNext = Number(state.xpProximo);
     if (Number.isFinite(Number(state.xpNivel))) game.xpStart = Number(state.xpNivel);
@@ -189,6 +192,27 @@
       sprite(game.wildInfo.look);
       if (w.shiny) shinyEvent(w.slot, game.wildInfo, 'seen');
     }
+  }
+
+  // Only what a message has: a delta can carry part of it.
+  const AUTO_KEYS = ['ballIds', 'potionIds', 'reviveIds', 'autoBallSemParar', 'autoBallAteCapturar', 'autoPotion', 'autoRevive', 'hpLimiar'];
+  function onAuto(a) {
+    const next = { ...(game.auto || {}) };
+    let any = false;
+    for (const k of AUTO_KEYS) {
+      if (!(k in a)) continue;
+      any = true;
+      next[k] = Array.isArray(a[k]) ? a[k].map(Number).filter(Number.isFinite) : a[k];
+    }
+    if (any) { game.auto = next; statsAt = 0; } // a change shows at the next report
+  }
+  // A kind's auto-use list (ids in use order) and whether the game uses that kind at all.
+  function autoList(kind) {
+    const a = game.auto || {};
+    const ids = (kind === 'ball' ? a.ballIds : kind === 'potion' ? a.potionIds : a.reviveIds) || [];
+    const on = kind === 'ball' ? !(a.autoBallSemParar === false && a.autoBallAteCapturar === false)
+      : kind === 'potion' ? a.autoPotion !== false : a.autoRevive !== false;
+    return { ids, on };
   }
 
   function onBattle(events) {
@@ -245,9 +269,15 @@
       const used = run.used[kind][id] || 0;
       const perHour = hours > 0 ? used / hours : 0;
       const info = kind === 'ball' ? ballCatalog.get(Number(id)) : names.get(Number(id));
+      const list = autoList(kind);
+      const order = list.ids.indexOf(Number(id));
       rows.push({
         kind,
         id: Number(id),
+        // Ticked for automatic use: its place in the game's list (0 = first), and whether that
+        // kind's auto-use is on.
+        order: order >= 0 ? order : null,
+        on: order >= 0 && list.on,
         name: info?.name || `#${id}`,
         icon: kind === 'ball' ? ballIcon(Number(id)) : info?.icon || null,
         left,
@@ -259,12 +289,12 @@
         cost: (info?.price || 0) * perHour,
       });
     };
-    // Balls: the ones thrown this run, and any the game holds.
-    const ballIds = new Set([...Object.keys(run.used.ball), ...Object.entries(game.balls).filter(([, n]) => n > 0).map(([id]) => id)]);
-    for (const id of ballIds) if (run.used.ball[id] || game.balls[id] > 0) row('ball', id, game.balls[id] ?? null);
+    // Balls: the ones thrown this run, any the game holds, and the ticked ones (even at 0).
+    const ballIds = new Set([...Object.keys(run.used.ball), ...Object.entries(game.balls).filter(([, n]) => n > 0).map(([id]) => id), ...autoList('ball').ids.map(String)]);
+    for (const id of ballIds) row('ball', id, game.balls[id] ?? (game.auto ? 0 : null));
     // Potions and revives: stock from the last full bag, minus what was used since.
     for (const [kind, set] of [['potion', POTIONS], ['revive', REVIVES]]) {
-      const ids = new Set([...Object.keys(run.used[kind]), ...Object.keys(game.items || {}).filter((id) => set.has(Number(id)) && game.items[id] > 0)]);
+      const ids = new Set([...Object.keys(run.used[kind]), ...Object.keys(game.items || {}).filter((id) => set.has(Number(id)) && game.items[id] > 0), ...autoList(kind).ids.map(String)]);
       for (const id of ids) {
         const bag = game.items ? (game.items[id] ?? 0) : null;
         row(kind, id, bag === null ? null : Math.max(0, bag - (run.potionsSinceBag[id] || 0)));
@@ -295,6 +325,8 @@
       hunt: game.hunt,
       minutes: Math.floor(ms / 60000),
       kills: run.kills,
+      // The account's gold right now (economy mode shows it).
+      gold: game.gold,
       killsPerHour: per(run.kills),
       xpPerHour,
       goldPerHour,
@@ -314,6 +346,8 @@
       // The page's JavaScript memory in MB (Chromium only), for src/heavy.rs.
       heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
       supplies: list.map(({ cost, ...s }) => s),
+      // The auto-use choices as the game sent them (ids and switches only), for app.log.
+      auto: game.auto,
     };
     const text = JSON.stringify(stats);
     if (text === statsSent) return;

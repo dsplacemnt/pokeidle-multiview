@@ -95,6 +95,7 @@
     .supply .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600;
       display: flex; align-items: center; gap: 6px; }
     .supply .sname span { overflow: hidden; text-overflow: ellipsis; }
+    .supply .sname .ico { width: 22px; height: 22px; }
     /* The game's own item icons (balls, potions, coins…). */
     .ico { width: 18px; height: 18px; flex: none; object-fit: contain; image-rendering: pixelated; }
     .stat .k { display: flex; align-items: center; gap: 5px; }
@@ -388,9 +389,11 @@
     // The game's own numbers for this session (whatever game-watch.js picked from its state).
     // Hunt analysis (from game-watch.js): supplies with how long they last, the pace, the next
     // levels and the catches, since the game loaded or the hunt changed.
+    // Numbers in the app's language, whenever this runs (12.450 / 12,450; 124,5 mil / 124.5K).
+    const locale = () => ({ pt: 'pt-BR', es: 'es' })[I18N.lang] || 'en';
     const compact = (n) => (n === null || n === undefined ? '—'
-      : Math.abs(n) >= 1e4 ? new Intl.NumberFormat(document.documentElement.lang, { notation: 'compact', maximumFractionDigits: 1 }).format(n)
-      : Math.round(n).toLocaleString(document.documentElement.lang));
+      : Math.abs(n) >= 1e4 ? new Intl.NumberFormat(locale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+      : Math.round(n).toLocaleString(locale()));
     const hoursText = (h) => {
       if (h === null || h === undefined) return '—';
       const m = Math.round(h * 60);
@@ -448,7 +451,6 @@
       c.append(row);
       return c;
     }
-    const KINDS = { ball: 'Balls', potion: 'Potions', revive: 'Revives' };
 
     function huntCard(v) {
       const h = v.game;
@@ -477,10 +479,17 @@
       if (!rows.length) sup.append(el('span', 'empty', t('Waiting for the game to show the bag (a few minutes)')));
       for (const s of rows) {
         const r = el('div', 'supply' + (s.hoursLeft !== null && s.hoursLeft < 2 ? ' low' : s.hoursLeft !== null && s.hoursLeft < 6 ? ' warn' : ''));
+        // Just the game's icon (the name is in the row's tooltip); the name if there's no icon.
         const name = el('span', 'sname');
-        if (s.icon) name.append(icon(s.icon));
-        name.append(el('span', '', s.name));
-        name.title = t(KINDS[s.kind]);
+        const label = () => el('span', '', s.name);
+        if (s.icon) {
+          const img = icon(s.icon);
+          img.alt = s.name;
+          img.addEventListener('error', () => name.append(label()));
+          name.append(img);
+        } else {
+          name.append(label());
+        }
         r.append(
           name,
           el('span', 'sleft', compact(s.left)),

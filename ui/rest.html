@@ -11,9 +11,11 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
       font: 13.5px/1.45 "Segoe UI", system-ui, sans-serif; user-select: none; overflow: hidden; }
-    body { display: grid; place-items: center;
+    /* Centred; the page itself scrolls only if a small window really can't fit it. */
+    body { display: grid; justify-items: center; align-content: safe center; overflow-y: auto; scrollbar-width: thin;
+      padding: 20px 0; box-sizing: border-box;
       background: radial-gradient(ellipse at 50% 38%, #1c2029 0%, var(--bg) 62%); }
-    .wrap { width: min(560px, calc(100% - 40px)); display: grid; gap: 22px; justify-items: center; }
+    .wrap { width: min(1560px, calc(100% - 64px)); display: grid; gap: 18px; justify-items: center; }
 
     /* The ball: wobbles like a capture, rests, wobbles again. Only transforms and opacity
        animate, which the compositor does without redrawing the page. */
@@ -44,6 +46,13 @@
     @keyframes glow { 0%, 50%, 100% { opacity: 0; } 62% { opacity: 1; } 78% { opacity: 0; } }
     @keyframes spark { 0% { opacity: 0; transform: scale(.4) translateY(0); } 15% { opacity: 1; } 60% { opacity: 0; transform: scale(1) translateY(-14px); } 100% { opacity: 0; } }
     @media (prefers-reduced-motion: reduce) { .ball, .shadow, .glow, .spark { animation: none; } }
+    /* Short windows: a smaller ball, so the accounts fit without scrolling. */
+    @media (max-height: 860px) {
+      .stage { width: 96px; height: 96px; }
+      .ball { width: 72px; height: 72px; }
+      .shadow { width: 56px; height: 9px; bottom: 2px; }
+      .wrap { gap: 12px; }
+    }
 
     header { text-align: center; display: grid; gap: 6px; }
     h1 { margin: 0; font-size: 20px; font-weight: 600; color: var(--accent); }
@@ -74,10 +83,54 @@
     .calm { color: var(--muted); display: flex; align-items: center; gap: 8px; padding: 2px 2px; }
     .calm b { color: var(--ok); }
 
-    /* Accounts: a row each, with the bonuses running. */
-    .accounts { display: grid; gap: 6px; }
-    .account { display: flex; align-items: center; gap: 8px; min-height: 26px; }
-    .account .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Accounts: a box each. Top line: name, bonuses running, streams open. Bottom line: the
+       hunt (status, level, gold, supplies with how long they last). */
+    /* Two side by side when there's room (cards of 440 px or more), no scroll inside. */
+    .accounts { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(440px, calc((100% - 8px) / 2))), 1fr)); }
+    .account { display: grid; gap: 8px; align-content: start; background: var(--row); border-radius: 10px; padding: 10px 12px; }
+    .account .line { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+    .account .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .account .hunt { font-size: 12px; font-variant-numeric: tabular-nums; }
+    .res.gold { margin-left: auto; }
+    /* Items: a section per kind (balls, potions, revives), side by side: balls and revives as
+       wide as they need, potions (most accounts tick several) the rest. */
+    .kinds { display: flex; align-items: flex-start; gap: 0;
+      border-top: 1px solid var(--line); padding-top: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .kind { display: block; min-width: 0; padding: 0 10px; flex: none; width: max-content; max-width: 40%; }
+    .kind-potion { flex: 1 1 0; width: auto; max-width: none; }
+    .kind:first-child { padding-left: 0; }
+    .kind:last-child { padding-right: 0; }
+    .kind + .kind { border-left: 1px solid var(--line); }
+    .klabel { display: block; margin-bottom: 5px; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .knone { color: var(--muted); height: 22px; display: inline-flex; align-items: center; }
+    .hstate { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; color: var(--muted); font-weight: 600; }
+    .hstate .dot { width: 8px; height: 8px; border-radius: 50%; background: #5b6170; flex: none; }
+    .hstate .where { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hstate.hunting { color: var(--ok); }
+    .hstate.hunting .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(61, 220, 132, .18); }
+    .hstate.idle { color: #ffb74d; }
+    .hstate.idle .dot { background: #ffb74d; }
+    .hstate.down { color: var(--bad); }
+    .hstate.down .dot { background: var(--bad); }
+    .hsep { width: 1px; height: 14px; background: var(--line); flex: none; }
+    .lvl { color: var(--muted); flex: none; }
+    .lvl b { color: var(--text); font-weight: 600; }
+    /* Gold and supplies: the game's own icon, how many, and how long it lasts (the item's name
+       is in the tooltip). */
+    .res { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px 0 4px; border-radius: 11px;
+      background: var(--chip); flex: none; font-weight: 600; }
+    .res img { width: 18px; height: 18px; object-fit: contain; image-rendering: pixelated; flex: none; }
+    .res .noicon { color: var(--muted); font-size: 11px; font-weight: 500; }
+    .res small { color: var(--muted); font-size: 11px; font-weight: 500; }
+    .res small.pos { color: var(--ok); }
+    .res small.neg { color: var(--bad); }
+    .res.warn small { color: #ffb74d; font-weight: 700; }
+    .res.low { box-shadow: inset 0 0 0 1px rgba(255, 138, 128, .55); }
+    .res.low small { color: var(--bad); font-weight: 700; }
+    /* In the bag but not ticked for automatic use. */
+    .res.off { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); font-weight: 500; }
+    .res.off img { opacity: .45; filter: grayscale(.6); }
     .bonus { height: 20px; padding: 0 8px; border-radius: 10px; display: inline-flex; align-items: center;
       font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; flex: none; }
     .bonus.xp { color: #ffd76b; background: rgba(242, 193, 78, .14); }
@@ -155,6 +208,136 @@
       return e;
     };
     const slotName = (slot) => slot.name || `Slot ${slot.id}`;
+
+    // The hunt, as the game pages report it every 30 s (game-watch.js; the same numbers as the
+    // stats panel). The game has no "hunting" flag: an account hunts while its kills go up.
+    const GAME = 'https://pokeidle.io';
+    const GOLD_ICON = '/assets/site/assets/ui/moeda-ouro.png';
+    const HUNTING_FOR = 3 * 60000;
+    const STALE_AFTER = 3 * 60000;
+    const huntName = (slug) => (slug || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    // Numbers in the app's language (12.450 / 12,450; 124,5 mil / 124.5K).
+    const locale = () => ({ pt: 'pt-BR', es: 'es' })[I18N.lang] || 'en';
+    const compact = (n) => (n === null || n === undefined ? '—'
+      : Math.abs(n) >= 1e4 ? new Intl.NumberFormat(locale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+      : Math.round(n).toLocaleString(locale()));
+    const hoursText = (h) => {
+      const m = Math.round(h * 60);
+      const d = Math.floor(m / 1440), hh = Math.floor((m % 1440) / 60), mm = m % 60;
+      return d ? `${d}d ${hh}h` : hh ? `${hh}h${String(mm).padStart(2, '0')}` : `${mm}m`;
+    };
+    // The game's icon for an item; its name instead if the image doesn't load.
+    function gameIcon(path, name) {
+      const img = el('img');
+      img.alt = name;
+      img.src = path.startsWith('http') ? path : GAME + path;
+      img.addEventListener('error', () => img.replaceWith(el('span', 'noicon', name)));
+      return img;
+    }
+
+    // The hunt's lines: status, level and gold; then the supplies used in it, if any.
+    function huntLines(slot, state, now) {
+      const line = el('div', 'line hunt');
+      const h = state.hunts?.[slot.id];
+      const issue = state.game_issues?.[slot.id];
+      const status = el('span', 'hstate');
+      status.append(el('span', 'dot'));
+      if (issue) {
+        status.classList.add('down');
+        status.append(el('span', '', I18N.text(issue)));
+        line.append(status);
+        return [line];
+      }
+      if (!h || h.v !== 2 || now - (h.at || 0) > STALE_AFTER) {
+        status.append(el('span', '', t('Waiting for the game')));
+        status.title = t('The game reports its hunt every 30 s once it has loaded');
+        line.append(status);
+        return [line];
+      }
+      if (!h.hunt) {
+        status.append(el('span', '', t('Not hunting')));
+      } else if (h.killAt && now - h.killAt < HUNTING_FOR) {
+        status.classList.add('hunting');
+        status.append(el('span', '', t('Hunting')), el('span', 'where', `· ${huntName(h.hunt)}`));
+        status.title = t('Kills in the last few minutes');
+      } else {
+        status.classList.add('idle');
+        status.append(el('span', '', t('Stopped')), el('span', 'where', `· ${huntName(h.hunt)}`));
+        status.title = t('No kills in the last few minutes');
+      }
+      line.append(status);
+      if (h.trainer) {
+        line.append(el('span', 'hsep'));
+        const lv = el('span', 'lvl');
+        lv.append(el('b', '', `Lv ${h.trainer.level}`), h.trainer.pct !== null ? ` · ${h.trainer.pct}%` : '');
+        lv.title = t('Trainer level');
+        line.append(lv);
+      }
+      // Gold: what the account has, and the net per hour (gold earned minus supplies used).
+      if (h.gold !== null && h.gold !== undefined) {
+        const gold = el('span', 'res gold');
+        gold.append(gameIcon(GOLD_ICON, t('Gold')), compact(h.gold));
+        if (h.netPerHour !== null && h.netPerHour !== undefined) {
+          gold.append(el('small', h.netPerHour < 0 ? 'neg' : 'pos', `${h.netPerHour >= 0 ? '+' : ''}${compact(h.netPerHour)}/h`));
+        }
+        gold.title = h.netPerHour !== null && h.netPerHour !== undefined
+          ? t('Gold: {gold} · net {net} per hour (earned minus supplies used)', { gold: compact(h.gold), net: compact(h.netPerHour) })
+          : t('Gold: {gold}', { gold: compact(h.gold) });
+        line.append(gold);
+      }
+      return [line, itemSections(h)];
+    }
+
+    // The items the account has (none at 0), one section per kind. First the ones ticked for
+    // automatic use, in the order the game uses them (it takes the first one with stock), then
+    // the rest of the bag, dimmed. How long it lasts shows for what's in use (same colours as
+    // the stats panel: under 6 h amber, under 2 h red).
+    const KINDS = [['ball', 'Balls'], ['potion', 'Potions'], ['revive', 'Revives']];
+    function itemSections(h) {
+      const box = el('div', 'kinds');
+      // Until the game has sent its auto-use choices, nothing is known to be ticked or not:
+      // the items show plainly, the one running out first first.
+      const known = h.auto !== null && h.auto !== undefined;
+      for (const [kind, label] of KINDS) {
+        const sec = el('div', `kind kind-${kind}`);
+        sec.append(el('span', 'klabel', t(label)));
+        const chips = el('div', 'chips');
+        const of = (h.supplies || []).filter((s) => s.kind === kind);
+        const all = of.filter((s) => s.left > 0).map((s) => (known ? s : { ...s, on: true, order: null }));
+        const ticked = all.filter((s) => s.on).sort((a, b) => (known ? a.order - b.order : (a.hoursLeft ?? Infinity) - (b.hoursLeft ?? Infinity)));
+        const rest = all.filter((s) => !s.on).sort((a, b) => b.left - a.left);
+        ticked.forEach((s, i) => chips.append(itemChip(s, known ? i + 1 : null)));
+        rest.forEach((s) => chips.append(itemChip(s, null)));
+        if (!all.length) {
+          // Potions and revives come with the full bag, every few minutes.
+          const waiting = of.some((s) => s.left === null || s.left === undefined);
+          const none = el('span', 'knone', waiting ? '…' : '—');
+          none.title = waiting ? t('Waiting for the game to show the bag (a few minutes)') : t('None in the bag');
+          chips.append(none);
+        }
+        sec.append(chips);
+        box.append(sec);
+      }
+      return box;
+    }
+
+    // rank: its place among the ticked items that have stock (1 = the one in use now).
+    function itemChip(s, rank) {
+      const lasts = s.on && s.hoursLeft !== null && s.hoursLeft !== undefined;
+      const r = el('span', 'res' + (!s.on ? ' off' : lasts && s.hoursLeft < 2 ? ' low' : lasts && s.hoursLeft < 6 ? ' warn' : ''));
+      if (s.icon) r.append(gameIcon(s.icon, s.name));
+      else r.append(el('span', 'noicon', s.name));
+      r.append(compact(s.left));
+      if (lasts) r.append(el('small', '', hoursText(s.hoursLeft)));
+      r.title = !s.on
+        ? (s.order !== null && s.order !== undefined
+          ? t('{name}: {left} — ticked, but automatic use of this kind is off in the game', { name: s.name, left: compact(s.left) })
+          : t('{name}: {left} — not ticked for automatic use', { name: s.name, left: compact(s.left) }))
+        : `${lasts ? t('{name}: {left} left, {rate} per hour — lasts about {time}', { name: s.name, left: compact(s.left), rate: compact(s.perHour), time: hoursText(s.hoursLeft) })
+          : t('{name}: {left} left, not used in this hunt yet', { name: s.name, left: compact(s.left) })}${rank ? `\n${t('#{n} in the automatic use order', { n: rank })}` : ''}`;
+      return r;
+    }
+
     function left(ms) {
       if (ms < 60000) return '<1m';
       const m = Math.floor(ms / 60000);
@@ -246,7 +429,8 @@
       // Each account with its streams open on Twitch and Kick, and its running bonuses (the
       // longest of Kick's and Twitch's of each kind).
       document.getElementById('accounts').replaceChildren(...state.slots.map((slot) => {
-        const row = el('div', 'account');
+        const box = el('div', 'account');
+        const row = el('div', 'line');
         row.append(el('span', 'name', names[slot.id]));
         const pages = state.panels?.[slot.id]?.pages || [];
         const lives = el('span', 'streams');
@@ -267,7 +451,8 @@
         if (!any) row.append(el('span', 'bonus none', t('no bonus')));
         // Last, so the counts line up in one column whatever bonuses run.
         row.append(lives);
-        return row;
+        box.append(row, ...huntLines(slot, state, now));
+        return box;
       }));
     }
 

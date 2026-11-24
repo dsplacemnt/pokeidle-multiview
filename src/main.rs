@@ -160,6 +160,35 @@ impl CheckDown {
 }
 
 #[cfg(test)]
+mod hunting_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn kills_going_up_mean_hunting() {
+        let mut first = json!({ "hunt": "rota-1", "kills": 0 });
+        mark_hunting(&mut first, None, 1_000);
+        assert_eq!(first["at"], 1_000);
+        assert!(first["killAt"].is_null());
+        let mut second = json!({ "hunt": "rota-1", "kills": 5 });
+        mark_hunting(&mut second, Some(&first), 31_000);
+        assert_eq!(second["killAt"], 31_000);
+        // No new kills: the last kill time stays.
+        let mut third = json!({ "hunt": "rota-1", "kills": 5 });
+        mark_hunting(&mut third, Some(&second), 61_000);
+        assert_eq!(third["killAt"], 31_000);
+        // Another hunt starts its own count.
+        let mut other = json!({ "hunt": "rota-2", "kills": 0 });
+        mark_hunting(&mut other, Some(&third), 91_000);
+        assert!(other["killAt"].is_null());
+        // The app opened mid-hunt: kills already there count.
+        let mut fresh = json!({ "hunt": "rota-1", "kills": 40 });
+        mark_hunting(&mut fresh, None, 5_000);
+        assert_eq!(fresh["killAt"], 5_000);
+    }
+}
+
+#[cfg(test)]
 mod check_down_tests {
     use super::*;
 
@@ -213,6 +242,9 @@ struct StateView {
     prey_pending: HashMap<u8, String>,
     /// Platforms whose live checks all fail: nothing is opened or swapped there until they work.
     checks_down: HashMap<Platform, CheckDown>,
+    /// Each account's hunt report (see game-watch.js and `mark_hunting`), for economy mode's
+    /// screen: only while it's on, since it changes every 30 s.
+    hunts: HashMap<u8, serde_json::Value>,
 }
 
 fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
@@ -378,6 +410,7 @@ fn state_view(state: &AppState) -> StateView {
         game_issues: game::issues(state),
         prey_pending: prey::pendings(state),
         checks_down: state.checks_down.clone(),
+        hunts: if state.config.economy { state.game_stats.clone() } else { HashMap::new() },
     }
 }
 
@@ -2416,10 +2449,28 @@ fn check_vote(app: &AppHandle) {
     }
 }
 
-/// A game page sent its hunt analysis (see game-watch.js): kept as-is for the stats panel,
-/// which is refreshed if it shows this account.
+/// Stamps a hunt report with when it came ("at") and when the account last killed something
+/// ("killAt"): the game has no "hunting" flag, so economy mode calls an account hunting while
+/// its kills keep going up. Kills count from the hunt's start, so a new hunt starts over.
+fn mark_hunting(stats: &mut serde_json::Value, previous: Option<&serde_json::Value>, now: i64) {
+    let kills = stats.get("kills").and_then(|k| k.as_u64()).unwrap_or(0);
+    let same_hunt = previous.is_some_and(|p| p.get("hunt") == stats.get("hunt"));
+    let before = previous.filter(|_| same_hunt).and_then(|p| p.get("kills")).and_then(|k| k.as_u64());
+    let kill_at = match before {
+        Some(b) if kills > b => Some(now),
+        None if kills > 0 => Some(now),
+        _ => previous.filter(|_| same_hunt).and_then(|p| p.get("killAt")).and_then(|k| k.as_i64()),
+    };
+    if let Some(obj) = stats.as_object_mut() {
+        obj.insert("at".into(), now.into());
+        obj.insert("killAt".into(), kill_at.map_or(serde_json::Value::Null, Into::into));
+    }
+}
+
+/// A game page sent its hunt analysis (see game-watch.js): kept for the stats panel (refreshed
+/// if it shows this account) and economy mode's screen.
 fn stats_reported(app: &AppHandle, id: u8, json: &str) {
-    let Ok(stats) = serde_json::from_str::<serde_json::Value>(json) else { return };
+    let Ok(mut stats) = serde_json::from_str::<serde_json::Value>(json) else { return };
     if !stats.is_object() {
         return;
     }
@@ -2427,9 +2478,20 @@ fn stats_reported(app: &AppHandle, id: u8, json: &str) {
     let mut state = state.lock().unwrap();
     discord::shinies_reported(&mut state, id, &stats);
     let heap = stats.get("heap").and_then(|h| h.as_u64());
+    // The auto-use lists (ball/potion/revive ids in use order, and the switches) into app.log
+    // when they change: they decide what economy mode shows as "in use".
+    let auto = stats.get("auto").filter(|a| !a.is_null());
+    if auto.is_some() && auto != state.game_stats.get(&id).and_then(|p| p.get("auto")) {
+        println!("[game] slot {id}: auto-use {}", auto.unwrap());
+    }
+    mark_hunting(&mut stats, state.game_stats.get(&id), now_ms());
     state.game_stats.insert(id, stats);
     if state.config.focus == Some(id) {
         let _ = app.emit_to(FOCUS_PANEL, "focus", focus_view(&state));
+    }
+    // Economy mode's screen shows every account's hunt.
+    if state.config.economy {
+        publish(app, &state);
     }
     // The game page's memory (heavy.rs locks the state itself).
     drop(state);
