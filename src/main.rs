@@ -33,6 +33,7 @@ mod heavy;
 mod logins;
 mod prey;
 mod resources;
+mod runtime;
 mod shortcuts;
 mod support;
 mod whatsnew;
@@ -986,6 +987,8 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
         set_muted(&webview, true);
     }
     native::attach(&webview, app.clone());
+    // A WebView2 runtime update under this browser: restart onto it (runtime.rs).
+    runtime::watch(&webview, app.clone());
     Ok(())
 }
 
@@ -1392,8 +1395,14 @@ fn create_page(
     // bring a minimized or tray window back on screen.
     let builder = builder.focused(!background);
     page_activity();
-    let page =
-        window.add_child(builder, LogicalPosition::new(r.x, r.y), LogicalSize::new(r.w, r.h))?;
+    let page = match window.add_child(builder, LogicalPosition::new(r.x, r.y), LogicalSize::new(r.w, r.h)) {
+        Ok(page) => page,
+        Err(e) => {
+            // After a WebView2 runtime update no page can be created any more: restart.
+            runtime::page_failed(app, &e.to_string());
+            return Err(e);
+        }
+    };
     if background {
         set_muted(&page, true);
     }
@@ -2031,7 +2040,15 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         // Owned by the main window: stays in front of it and closes with it.
         .owner_raw(main.hwnd().map_err(|e| e.to_string())?)
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let e = e.to_string();
+            runtime::page_failed(&app, &e);
+            if e.contains("80010108") {
+                "WebView2 was updated: the app restarts in a few seconds".to_string()
+            } else {
+                e
+            }
+        })?;
     Ok(())
 }
 

@@ -131,8 +131,19 @@ fn finish(app: &AppHandle) {
     }
     let _ = app.emit_to(WINDOW, "splash", snapshot());
     let main = app.clone();
+    // Restarted on its own (a WebView2 update, see runtime.rs) while the window was away: it
+    // goes back away instead of popping up.
+    let away = crate::runtime::restarted_away(app);
     // Window calls belong on the main thread.
     let _ = app.run_on_main_thread(move || {
+        if let (Some(window), Some(tray)) = (main.get_window("main"), away) {
+            // Off-screen first, then shown (streams only start in a shown window), then away.
+            let _ = window.set_position(tauri::PhysicalPosition::new(-32000, -32000));
+            let _ = window.show();
+            crate::away::send(&window, tray);
+            println!("[splash] restarted while away: back to the {}", if tray { "tray" } else { "taskbar" });
+            return;
+        }
         if let Some(window) = main.get_window("main") {
             // A window saved minimized would come back minimized: after loading, it's in view.
             let _ = window.unminimize();
