@@ -160,7 +160,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
                     change(&app, |v| v.progress = Some(pct));
                 }
             },
-            || println!("[update] downloaded, installing"),
+            || crate::applog::closing("update downloaded, installing it"),
         )
         .await;
     match result {

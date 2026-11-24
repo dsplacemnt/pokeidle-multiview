@@ -64,7 +64,7 @@ pub fn restart_soon(app: &AppHandle, why: &str) {
                 let _ = std::fs::write(path, if crate::away::in_tray() { "tray" } else { "minimized" });
             }
         }
-        println!("[runtime] restarting now");
+        crate::applog::closing("restarting after a WebView2 update");
         // The test switch must not make the new start restart again.
         std::env::remove_var("MULTIVIEW_FAKE_RUNTIME_UPDATE");
         app.restart();

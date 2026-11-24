@@ -411,6 +411,14 @@
         <button id="about-referral-copy" data-i18n>Copy invite</button>
         <button id="about-referral-open" data-i18n>Open</button>
       </div>
+      <div class="sub">
+        <span data-i18n>Something wrong?</span>
+        <span class="hint" data-i18n>The app keeps a log of what it does. Copy the diagnostic and paste it on Discord or in a GitHub issue: it has no passwords, cookies or tokens.</span>
+      </div>
+      <div class="buttons">
+        <button id="about-diagnostics" data-i18n>Copy diagnostic</button>
+        <button id="about-logs" data-i18n>Open the logs folder</button>
+      </div>
     </section>
    </div>
   </main>
@@ -932,6 +940,18 @@
     document.getElementById('about-referral-open').addEventListener('click', () => invoke('open_referral'));
     document.getElementById('about-support').addEventListener('click', () => invoke('open_support'));
     document.getElementById('about-whatsnew').addEventListener('click', () => invoke('open_whats_new'));
+    // Problems: the log (applog.rs).
+    document.getElementById('about-logs').addEventListener('click', () => invoke('open_logs_folder').catch((e) => flash(String(e))));
+    const diagBtn = document.getElementById('about-diagnostics');
+    diagBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(await invoke('diagnostics'));
+        diagBtn.textContent = t('Copied ✓');
+        setTimeout(() => { diagBtn.textContent = t('Copy diagnostic'); }, 2000);
+      } catch (e) {
+        flash(String(e));
+      }
+    });
 
     // --- Shortcuts --------------------------------------------------------------------------
     const KEY_ACTIONS = [

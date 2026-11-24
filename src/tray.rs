@@ -48,6 +48,7 @@ pub fn show_main(app: &AppHandle) {
 fn quit(app: &AppHandle) {
     QUITTING.store(true, Ordering::SeqCst);
     remember_panels(app);
+    crate::applog::closing("Quit from the tray");
     // The window-state plugin saves the window geometry on exit.
     app.exit(0);
 }

@@ -1,5 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// Everything the app prints also goes to its log file (see applog.rs). Defined before the
+// modules so they all use these.
+macro_rules! println {
+    () => { $crate::applog::out(String::new(), false) };
+    ($($arg:tt)*) => { $crate::applog::out(format!($($arg)*), false) };
+}
+macro_rules! eprintln {
+    () => { $crate::applog::out(String::new(), true) };
+    ($($arg:tt)*) => { $crate::applog::out(format!($($arg)*), true) };
+}
+
+mod applog;
+
 #[cfg(windows)]
 mod away;
 #[cfg(not(windows))]
@@ -3597,6 +3610,7 @@ fn start_auto_reload(app: AppHandle) {
 // ---------------------------------------------------------------- startup
 
 fn main() {
+    applog::catch_panics();
     tauri::Builder::default()
         // Must be the first plugin. Two copies would share the slots' data folders and run every
         // background stream twice, so a second launch exits and brings this window forward.
@@ -3609,6 +3623,7 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             let base = app.path().app_local_data_dir()?;
+            applog::start(&base);
             let config_path = base.join("config.json");
             let config = Config::load(&config_path);
             // MULTIVIEW_EXTENSION_DIR points at any unpacked extension instead of /hunt, which
@@ -3808,6 +3823,8 @@ fn main() {
             set_economy,
             logins::open_login,
             discord::get_discord,
+            applog::open_logs_folder,
+            applog::diagnostics,
             prey::dismiss_prey,
             discord::set_discord,
             discord::test_discord,
