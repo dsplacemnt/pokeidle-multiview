@@ -44,6 +44,11 @@ body:
         1. …
         2. …
   - type: textarea
+    id: diagnostic
+    attributes:
+      label: Diagnostic / Diagnóstico
+      description: "⚙ → About → Copy diagnostic, then paste it here (no passwords, cookies or tokens in it). / ⚙ → Sobre → Copiar diagnóstico, e cole aqui (não tem senhas, cookies nem tokens)."
+  - type: textarea
     id: more
     attributes:
       label: Anything else / Mais detalhes

@@ -27,6 +27,14 @@ look.
   own. The only thing it does in the game is press the game's own Battery Saver button while
   the app's economy mode hides the accounts (and press it back afterwards).
 
+## The log
+
+The app writes what it does to `%LOCALAPPDATA%\io.pokeidle-multiview.app\logs\app.log` (on your PC
+only; it is never sent anywhere). It has the app, Windows and WebView2 versions, the streams
+opened and closed, reloads, errors and crashes. It never has passwords, cookies or tokens, and
+each line is still filtered for anything that looks like a token or a Discord webhook. ⚙ →
+About → **Copy diagnostic** copies its last lines to paste in an issue or on Discord.
+
 ## Checking what you download
 
 - Every release is built by GitHub Actions from this repository (`.github/workflows/release.yml`),

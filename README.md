@@ -307,6 +307,7 @@ These environment variables only apply to **debug** builds, except
 | --- | --- |
 | Settings (slots, focus, streams, lists, bonuses) | `%LOCALAPPDATA%\io.pokeidle-multiview.app\config.json` |
 | Each slot's browser data (cookies, logins, storage) | `%LOCALAPPDATA%\io.pokeidle-multiview.app\slots\slot-N\` |
+| The app's log (what it did, errors; ⚙ → About → Copy diagnostic) | `%LOCALAPPDATA%\io.pokeidle-multiview.app\logs\app.log` |
 | Copy of the /hunt extension | `%LOCALAPPDATA%\io.pokeidle-multiview.app\extensions\` |
 | Window size and position | `%APPDATA%\io.pokeidle-multiview.app\.window-state.json` |
 
