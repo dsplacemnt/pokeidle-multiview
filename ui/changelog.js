@@ -3,6 +3,24 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.22.1',
+    date: '2026-11-24',
+    notes: {
+      pt: [
+        'Corrigido: em redes de empresa, faculdade ou com antivírus que inspeciona o HTTPS, o app não conseguia ver quais canais da Twitch estavam ao vivo, e as lives nunca eram abertas nem trocadas. Agora ele confia nos mesmos certificados que o Windows e o navegador.',
+        'Se o app não conseguir checar as lives da Twitch ou da Kick, agora ele avisa: um ⚠ vermelho na barra de cima (clique para checar de novo), um aviso no modo economia e uma linha no registro de atividades de cada conta. Antes, nada aparecia e as lives simplesmente paravam.',
+      ],
+      en: [
+        'Fixed: on company or school networks, or with an antivirus that inspects HTTPS, the app couldn\x27t tell which Twitch channels were live, so their streams were never opened or swapped. It now trusts the same certificates as Windows and the browser.',
+        'If the app can\x27t check the Twitch or Kick lives, it now says so: a red ⚠ in the top bar (click to check again), a notice in economy mode and a line in each account\x27s activity log. Before, nothing showed up and the streams just stopped.',
+      ],
+      es: [
+        'Corregido: en redes de empresa o de universidad, o con un antivirus que inspecciona el HTTPS, la app no podía ver qué canales de Twitch estaban en vivo, y los streams nunca se abrían ni se cambiaban. Ahora confía en los mismos certificados que Windows y el navegador.',
+        'Si la app no puede comprobar los streams de Twitch o de Kick, ahora avisa: un ⚠ rojo en la barra de arriba (haz clic para comprobar de nuevo), un aviso en el modo ahorro y una línea en el registro de actividad de cada cuenta. Antes no aparecía nada y los streams simplemente se detenían.',
+      ],
+    },
+  },
+  {
     version: '0.22.0',
     date: '2026-11-24',
     notes: {
