@@ -26,10 +26,14 @@ under 10 MB. An **experimental Linux** build (WebKitGTK) comes with every releas
 - **Economy mode.** **ECO** on the top bar (or `Ctrl+E`) hides every slot, which keeps running
   in the background, and shows a light screen instead: a little animation, what needs you
   (streams with a ⚠, IdleHub votes that are ready, each with a button) and a card per account:
-  its running bonuses, Twitch/Kick streams open, whether it's hunting (and where), trainer
-  level, gold with the net per hour, and every ball, potion and revive it has, by kind, the ones
+  its trainer level, its Pokémon vs the wild one (small pictures, names in the tooltip),
+  Twitch/Kick streams open, **every bonus it has running and where each comes from** (VIP, shop
+  boosts, Twitch, Kick, guild, sacrifice, raid, events, Prey; one line per effect, each source
+  with its % and time left, the XP total as the game multiplies it), whether it's hunting (and
+  where), gold with the net per hour, and every ball, potion and revive it has, by kind, the ones
   ticked for automatic use first in the game's own order (game icons; the name is in the
-  tooltip). Drawing four games is what costs the most: with 4 accounts and 32 streams
+  tooltip). The cards line up: each part sits at the same height as in the card beside it.
+  Drawing four games is what costs the most: with 4 accounts and 32 streams
   the app went from about 50 % CPU in the grid to about 22 % in economy mode. It also turns on
   the game's own Battery Saver in each account (and turns it back off when you leave; one you
   turned on yourself stays). Picking a slot or GRID leaves it.
@@ -371,12 +375,6 @@ Some details that are easy to miss:
   guard.
 - More, and how to check a download (SHA256SUMS.txt in every release), in
   [SECURITY.md](SECURITY.md).
-
-## Roadmap
-
-- **Every bonus of each account in economy mode.** The account cards show only the bonuses
-  bought with Twitch and Kick channel points (XP, Capture, Lure); the plan is to show every
-  bonus the character has running in the game, whatever gave it.
 
 ## Disclaimer
 

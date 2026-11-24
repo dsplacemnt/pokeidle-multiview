@@ -3,6 +3,27 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.24.0',
+    date: '2026-11-24',
+    notes: {
+      pt: [
+        'Modo economia com todos os bônus de cada conta, e de onde vem cada um: VIP, boosts da loja, Twitch, Kick, guild, sacrifício, raid, eventos e a Prey do dia. Uma linha por efeito (XP, Captura, Lure, Loot e Prey), e cada fonte com o ícone, quanto dá e quanto tempo falta. O XP mostra o total como o jogo calcula (as fontes se multiplicam). Bônus acabando em menos de 15 minutos ficam em amarelo, e os pausados no Safari ficam apagados.',
+        'Cada card mostra o seu Pokémon contra o selvagem, em miniatura (nome e nível ao passar o mouse), e o nível do treinador ao lado do nome da conta.',
+        'Os cards ficam alinhados: os bônus, a caçada e os itens começam na mesma altura que no card ao lado, tenha a conta muitos bônus ou nenhum.',
+      ],
+      en: [
+        'Economy mode shows every bonus of each account, and where each one comes from: VIP, shop boosts, Twitch, Kick, guild, sacrifice, raid, events and the day\'s Prey. One line per effect (XP, Capture, Lure, Loot and Prey), each source with its icon, how much it gives and the time left. XP shows the total as the game works it out (the sources multiply). Bonuses ending in under 15 minutes turn amber, and ones paused in the Safari are dimmed.',
+        'Each card shows your Pokémon against the wild one, as small pictures (name and level when you hover), and the trainer level beside the account\'s name.',
+        'The cards line up: bonuses, hunt and items start at the same height as in the card beside them, whether the account has many bonuses or none.',
+      ],
+      es: [
+        'El modo ahorro muestra todos los bonos de cada cuenta, y de dónde viene cada uno: VIP, boosts de la tienda, Twitch, Kick, guild, sacrificio, raid, eventos y la Prey del día. Una línea por efecto (XP, Captura, Lure, Loot y Prey), y cada fuente con su icono, cuánto da y cuánto tiempo le queda. El XP muestra el total como lo calcula el juego (las fuentes se multiplican). Los bonos que terminan en menos de 15 minutos se ponen en ámbar, y los pausados en el Safari quedan atenuados.',
+        'Cada tarjeta muestra tu Pokémon contra el salvaje, en miniatura (nombre y nivel al pasar el ratón), y el nivel del entrenador junto al nombre de la cuenta.',
+        'Las tarjetas quedan alineadas: los bonos, la caza y los objetos empiezan a la misma altura que en la tarjeta de al lado, tenga la cuenta muchos bonos o ninguno.',
+      ],
+    },
+  },
+  {
     version: '0.23.0',
     date: '2026-11-24',
     notes: {
