@@ -8,7 +8,7 @@
 //! the same size and maximized state.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 
 use tauri::Window;
@@ -59,7 +59,27 @@ unsafe extern "system" {
         cy: i32,
         flags: u32,
     ) -> i32;
+    fn SetWinEventHook(
+        event_min: u32,
+        event_max: u32,
+        module: *mut c_void,
+        callback: WinEventProc,
+        process: u32,
+        thread: u32,
+        flags: u32,
+    ) -> *mut c_void;
+    fn GetForegroundWindow() -> *mut c_void;
+    fn SetForegroundWindow(hwnd: *mut c_void) -> i32;
+    fn GetShellWindow() -> *mut c_void;
 }
+
+type WinEventProc = unsafe extern "system" fn(*mut c_void, u32, *mut c_void, i32, i32, u32, u32);
+
+const EVENT_SYSTEM_MINIMIZESTART: u32 = 0x0016;
+const WINEVENT_OUTOFCONTEXT: u32 = 0;
+const WINEVENT_SKIPOWNPROCESS: u32 = 2;
+/// SetWindowPos "insert after": the bottom of the window stack.
+const HWND_BOTTOM: *mut c_void = 1 as *mut c_void;
 
 const SW_SHOWNORMAL: u32 = 1;
 const SW_SHOWMINIMIZED: u32 = 2;
@@ -68,7 +88,7 @@ const SW_SHOWNOACTIVATE: u32 = 4;
 const SW_MINIMIZE: i32 = 6;
 const WPF_RESTORETOMAXIMIZED: u32 = 2;
 const SWP_NOSIZE: u32 = 0x0001;
-const SWP_NOZORDER: u32 = 0x0004;
+const SWP_NOMOVE: u32 = 0x0002;
 const SWP_NOACTIVATE: u32 = 0x0010;
 
 /// Far left of any screen setup (Windows parks minimized windows at -32000).
@@ -148,14 +168,16 @@ pub fn send(window: &Window, tray: bool) {
             normal.show_cmd = SW_SHOWNOACTIVATE;
             unsafe {
                 SetWindowPlacement(hwnd, &normal);
+                // At the bottom of the window stack: when another window minimizes or closes,
+                // Windows activates the next one down, and an away window it picks pops back.
                 SetWindowPos(
                     hwnd,
-                    std::ptr::null_mut(),
+                    HWND_BOTTOM,
                     AWAY_X,
                     wp.normal_position.top,
                     0,
                     0,
-                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    SWP_NOSIZE | SWP_NOACTIVATE,
                 );
             }
         }
@@ -185,6 +207,58 @@ pub fn bring_back(window: &Window) -> bool {
     MOVING.store(false, Ordering::SeqCst);
     println!("[window] back");
     true
+}
+
+/// When another app's window last started minimizing (ms since the epoch, PC clock).
+static OTHER_MINIMIZED_AT: AtomicI64 = AtomicI64::new(0);
+/// Focus this soon after another window started minimizing is Windows handing it on, not the
+/// player picking this window.
+const HANDOFF_WINDOW_MS: i64 = 1500;
+
+unsafe extern "system" fn other_window_event(_: *mut c_void, _: u32, _: *mut c_void, _: i32, _: i32, _: u32, _: u32) {
+    OTHER_MINIMIZED_AT.store(crate::now_ms(), Ordering::SeqCst);
+}
+
+/// Starts noticing other apps' windows being minimized (on the UI thread, whose message loop
+/// delivers the events). The away window is a normal window off-screen, so when one is
+/// minimized Windows may hand it the focus, and focus while away otherwise means "bring it
+/// back" (its taskbar button, Alt+Tab).
+pub fn watch_other_windows() {
+    let hook = unsafe {
+        SetWinEventHook(
+            EVENT_SYSTEM_MINIMIZESTART,
+            EVENT_SYSTEM_MINIMIZESTART,
+            std::ptr::null_mut(),
+            other_window_event,
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        )
+    };
+    if hook.is_null() {
+        eprintln!("[window] could not watch other windows being minimized");
+    }
+}
+
+/// The focus the away window just got came from another window being minimized.
+pub fn focus_is_handoff() -> bool {
+    crate::now_ms() - OTHER_MINIMIZED_AT.load(Ordering::SeqCst) < HANDOFF_WINDOW_MS
+}
+
+/// Staying away after a handoff: the focus goes to the desktop, as if the window were really
+/// minimized (otherwise typing would go into a window nobody sees), and the window back to the
+/// bottom of the stack.
+pub fn refuse_focus(window: &Window) {
+    let Some(hwnd) = hwnd(window) else { return };
+    unsafe {
+        if GetForegroundWindow() == hwnd {
+            let desktop = GetShellWindow();
+            if !desktop.is_null() {
+                SetForegroundWindow(desktop);
+            }
+        }
+        SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+    }
 }
 
 /// The maximized state to save while away (the off-screen window itself isn't maximized).

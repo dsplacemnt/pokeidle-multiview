@@ -3828,6 +3828,7 @@ fn main() {
                 let state = state.lock().unwrap();
                 power::set_keep_awake(&handle, state.config.keep_awake && any_pages(&state));
             }
+            away::watch_other_windows();
             start_auto_reload(handle.clone());
             resources::start(handle.clone());
             logins::start(handle.clone());
@@ -3862,12 +3863,30 @@ fn main() {
                 // Its taskbar button clicked, or picked with Alt+Tab, while away. Focus that
                 // comes right after the app opened, reloaded or navigated a page by itself is
                 // WebView2's, not the player's: the window stays away.
+                // Focus that Windows hands on because another app's window was minimized isn't
+                // the player's either. The minimize event can arrive just after the focus, so
+                // the choice is made a moment later.
                 WindowEvent::Focused(true) if away::is_away() && !away::moving() => {
                     if after_page_activity() {
                         println!("[window] focus right after a page change while away: staying away");
-                    } else {
-                        away::bring_back(&event_window);
+                        return;
                     }
+                    let app = event_handle.clone();
+                    let window = event_window.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        let _ = app.run_on_main_thread(move || {
+                            if !away::is_away() {
+                                return;
+                            }
+                            if away::focus_is_handoff() {
+                                println!("[window] focus handed on after another window was minimized: staying away");
+                                away::refuse_focus(&window);
+                            } else {
+                                away::bring_back(&window);
+                            }
+                        });
+                    });
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
                     let _ = apply_layout(&event_handle);

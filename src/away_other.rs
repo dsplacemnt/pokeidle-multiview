@@ -32,3 +32,12 @@ pub fn bring_back(window: &Window) -> bool {
 pub fn saved_maximized() -> Option<bool> {
     None
 }
+
+/// Nothing to watch: a minimized window here is really minimized.
+pub fn watch_other_windows() {}
+
+pub fn focus_is_handoff() -> bool {
+    false
+}
+
+pub fn refuse_focus(_window: &Window) {}
