@@ -222,6 +222,11 @@
     'The game needs you': 'O jogo precisa de você',
     'Reload': 'Recarregar',
     'Click to reload the game': 'Clique para recarregar o jogo',
+    "Can't check which {platform} channels are live": "Não dá para ver quais canais da {platform} estão ao vivo",
+    "The network or an antivirus inspects HTTPS with a certificate the app doesn't trust (common on company networks). Its streams aren't opened or swapped meanwhile.": "A rede ou um antivírus inspeciona o HTTPS com um certificado em que o app não confia (comum em redes de empresa). Enquanto isso, as lives não são abertas nem trocadas.",
+    "The app can't reach {platform}: check the internet, a firewall or an antivirus. Its streams aren't opened or swapped meanwhile.": "O app não consegue acessar a {platform}: confira a internet, o firewall ou o antivírus. Enquanto isso, as lives não são abertas nem trocadas.",
+    "Click to check again": "Clique para checar de novo",
+    "Check again": "Checar de novo",
     'Game': 'Jogo',
     '{name}: the game needs you': '{name}: o jogo precisa de você',
     'Activity': 'Atividade',
@@ -452,6 +457,8 @@
     [/^Logged in somewhere else: this game was disconnected$/, 'Conta logada em outro lugar: este jogo foi desconectado'],
     [/^The game lost its connection$/, 'O jogo perdeu a conexão'],
     [/^Game connected again$/, 'Jogo conectado de novo'],
+    [/: can't check which channels are live$/, ": não dá para ver quais canais estão ao vivo"],
+    [/: live checks working again$/, ": checagem de lives funcionando de novo"],
     [/^Prey: today's free roll is ready$/, 'Prey: a roletada grátis de hoje está liberada'],
     [/^Prey: pick one of the 9 Pokémon$/, 'Prey: escolha um dos 9 Pokémon'],
     [/^Prey: done for today$/, 'Prey: feito por hoje'],
@@ -689,6 +696,11 @@
     'The game needs you': 'El juego te necesita',
     'Reload': 'Recargar',
     'Click to reload the game': 'Haz clic para recargar el juego',
+    "Can't check which {platform} channels are live": "No se puede ver qué canales de {platform} están en vivo",
+    "The network or an antivirus inspects HTTPS with a certificate the app doesn't trust (common on company networks). Its streams aren't opened or swapped meanwhile.": "La red o un antivirus inspecciona el HTTPS con un certificado en el que la app no confía (común en redes de empresa). Mientras tanto, los streams no se abren ni se cambian.",
+    "The app can't reach {platform}: check the internet, a firewall or an antivirus. Its streams aren't opened or swapped meanwhile.": "La app no puede acceder a {platform}: revisa internet, el firewall o el antivirus. Mientras tanto, los streams no se abren ni se cambian.",
+    "Click to check again": "Haz clic para comprobar de nuevo",
+    "Check again": "Comprobar de nuevo",
     'Game': 'Juego',
     '{name}: the game needs you': '{name}: el juego te necesita',
     'Activity': 'Actividad',
@@ -918,6 +930,8 @@
     [/^Logged in somewhere else: this game was disconnected$/, 'Cuenta iniciada en otro lugar: este juego se desconectó'],
     [/^The game lost its connection$/, 'El juego perdió la conexión'],
     [/^Game connected again$/, 'Juego conectado de nuevo'],
+    [/: can't check which channels are live$/, ": no se puede ver qué canales están en vivo"],
+    [/: live checks working again$/, ": comprobación de streams funcionando de nuevo"],
     [/^Prey: today's free roll is ready$/, 'Prey: la tirada gratis de hoy está disponible'],
     [/^Prey: pick one of the 9 Pokémon$/, 'Prey: elige uno de los 9 Pokémon'],
     [/^Prey: done for today$/, 'Prey: hecho por hoy'],
@@ -988,8 +1002,23 @@
     if (changed) for (const f of listeners) f(lang);
   }
 
+  // Platforms whose live checks all fail (state.checks_down: platform → "certificate" |
+  // "network"), worded for the pages that warn about it (top bar, slot header, rest screen).
+  function checksDown(state) {
+    const names = { twitch: 'Twitch', kick: 'Kick' };
+    return Object.entries(state?.checks_down || {}).map(([platform, why]) => ({
+      platform,
+      name: names[platform] || platform,
+      title: t("Can't check which {platform} channels are live", { platform: names[platform] || platform }),
+      detail: why === 'certificate'
+        ? t('The network or an antivirus inspects HTTPS with a certificate the app doesn\'t trust (common on company networks). Its streams aren\'t opened or swapped meanwhile.')
+        : t('The app can\'t reach {platform}: check the internet, a firewall or an antivirus. Its streams aren\'t opened or swapped meanwhile.', { platform: names[platform] || platform }),
+    }));
+  }
+
   window.I18N = {
     get lang() { return lang; },
+    checksDown,
     PT,
     ES,
     t,

@@ -17,8 +17,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2"
-# Asks Kick's public API which channels are live (for the Kick priority list).
-ureq = "3"
+# Live checks (Kick API, Twitch pages). platform-verifier: trust the certificates Windows trusts,
+# like the webviews do, so networks that inspect HTTPS (company proxies, antivirus) still work.
+ureq = { version = "3", features = ["platform-verifier"] }
 qrcode = { version = "0.15.0", default-features = false, features = ["svg"] }
 tauri-plugin-updater = "2"
 

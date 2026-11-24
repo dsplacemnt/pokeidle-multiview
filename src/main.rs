@@ -138,6 +138,39 @@ struct AppState {
     discord_sent: discord::Sent,
     /// Each account's daily Prey cards, as its game page reported them (see prey.rs).
     prey: HashMap<u8, (prey::Report, serde_json::Value)>,
+    /// Platforms whose live checks all failed last time: why, as a kind (see `CheckDown`).
+    checks_down: HashMap<Platform, CheckDown>,
+}
+
+/// Why none of a platform's channels could be checked, so the pages can tell the player what to
+/// look at.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum CheckDown {
+    /// The HTTPS certificate isn't trusted: something on the network or PC inspects HTTPS.
+    Certificate,
+    /// Anything else: no internet, a firewall, a blocked site, a page that isn't the platform's.
+    Network,
+}
+
+impl CheckDown {
+    fn of(error: &str) -> Self {
+        if error.to_ascii_lowercase().contains("certificate") { CheckDown::Certificate } else { CheckDown::Network }
+    }
+}
+
+#[cfg(test)]
+mod check_down_tests {
+    use super::*;
+
+    #[test]
+    fn certificate_errors_are_told_apart() {
+        // As ureq/rustls word it in app.log on a network that inspects HTTPS.
+        assert_eq!(CheckDown::of("io: invalid peer certificate: UnknownIssuer"), CheckDown::Certificate);
+        assert_eq!(CheckDown::of("io: timed out"), CheckDown::Network);
+        assert_eq!(CheckDown::of("unexpected page"), CheckDown::Network);
+        assert_eq!(serde_json::to_value(CheckDown::Certificate).unwrap(), "certificate");
+    }
 }
 
 /// Events kept per account in the automation log.
@@ -178,6 +211,8 @@ struct StateView {
     game_issues: HashMap<u8, String>,
     /// Accounts whose daily Prey is due: slot → "roll" (free roll ready) or "pick".
     prey_pending: HashMap<u8, String>,
+    /// Platforms whose live checks all fail: nothing is opened or swapped there until they work.
+    checks_down: HashMap<Platform, CheckDown>,
 }
 
 fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
@@ -342,6 +377,7 @@ fn state_view(state: &AppState) -> StateView {
         logins: logins::view(state),
         game_issues: game::issues(state),
         prey_pending: prey::pendings(state),
+        checks_down: state.checks_down.clone(),
     }
 }
 
@@ -2112,6 +2148,38 @@ fn is_live(platform: Platform, channel: &str) -> Result<bool, String> {
     }
 }
 
+/// Records whether all of a platform's live checks failed; a change goes in every account's
+/// log and on the pages (top bar, rest screen). A first round that works says nothing.
+fn set_checks_down(app: &AppHandle, platform: Platform, down: Option<CheckDown>) {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    let before = match down {
+        Some(d) => state.checks_down.insert(platform, d),
+        None => state.checks_down.remove(&platform),
+    };
+    if before == down {
+        return;
+    }
+    if down.is_some() != before.is_some() {
+        let text = match down {
+            Some(_) => format!("{}: can't check which channels are live", platform.name()),
+            None => format!("{}: live checks working again", platform.name()),
+        };
+        println!("[auto] {text}");
+        let ids: Vec<u8> = state.config.slots.iter().map(|s| s.id).collect();
+        for id in ids {
+            log_event(&mut state, id, text.clone());
+        }
+    }
+    publish(app, &state);
+}
+
+/// "Check again" on a live-checks warning: runs the stream manager now.
+#[tauri::command]
+fn check_streams_now() {
+    AUTO_WAKE.store(true, Ordering::SeqCst);
+}
+
 /// One platform's turn: live checks, then each slot's streams of that platform.
 fn manage_platform(app: &AppHandle, platform: Platform) {
     let (priority, per_slot, slots, previous, balances, logged_out) = {
@@ -2128,6 +2196,7 @@ fn manage_platform(app: &AppHandle, platform: Platform) {
         (priority, per_slot, state.config.slots.clone(), previous, state.config.balances.clone(), logged_out)
     };
     if priority.is_empty() {
+        set_checks_down(app, platform, None);
         return;
     }
     // A channel whose check fails keeps its last known status; with none known, the slots are
@@ -2137,6 +2206,14 @@ fn manage_platform(app: &AppHandle, platform: Platform) {
     // Side by side over one shared client (see net.rs): ~1-2 s for the whole list instead of
     // one channel after another.
     let checks = net::check_all(&priority, |channel| is_live(platform, channel));
+    // Every check failed (not one channel's hiccup): nothing gets opened or swapped on this
+    // platform meanwhile, so it's said where the player looks, not only in app.log.
+    let down = if checks.iter().all(Result::is_err) {
+        checks.iter().find_map(|r| r.as_ref().err()).map(|e| CheckDown::of(e))
+    } else {
+        None
+    };
+    set_checks_down(app, platform, down);
     for (channel, result) in priority.iter().zip(checks) {
         match result {
             Ok(is_live) => {
@@ -3687,6 +3764,7 @@ fn main() {
                 sprites: HashMap::new(),
                 discord_sent: discord::Sent::default(),
                 prey: HashMap::new(),
+                checks_down: HashMap::new(),
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is
@@ -3809,6 +3887,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
+            check_streams_now,
             add_slot,
             close_slot,
             reload_slot,

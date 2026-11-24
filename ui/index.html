@@ -67,6 +67,13 @@
     #support svg { width: 17px; height: 17px; display: block; }
     .error { color: #ff8a80; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .status { color: var(--muted); }
+    /* A platform's live checks all fail: red like a slot's game warning; click checks again. */
+    .checks { display: flex; gap: 6px; }
+    .checks:empty { display: none; }
+    button.checks-down { color: #ff8a80; font-weight: 600; background: rgba(255, 138, 128, .14);
+      box-shadow: inset 0 0 0 1px rgba(255, 138, 128, .55); border-radius: 11px; white-space: nowrap; }
+    button.checks-down:hover { background: rgba(255, 138, 128, .26); }
+    @media (max-width: 900px) { button.checks-down .names { display: none; } }
     /* A newer version: bright, so it's seen. */
     .update { background: var(--accent); color: #1a1408; font-weight: 600; }
     .update:hover { background: #ffd76b; }
@@ -103,6 +110,7 @@
     <button id="grid" data-i18n-title title="Grid: show all slots (click a slot's name to show it fullscreen instead)">GRID</button>
     <button id="eco">ECO</button>
     <div class="slots" id="slots"></div>
+    <span class="checks" id="checks"></span>
     <span class="error" id="error"></span>
     <div class="sections">
     <span class="section exts"><span class="ext" id="hunt"></span></span>
@@ -166,6 +174,20 @@
         b.addEventListener('click', () => invoke('focus_slot', { id: slot.id }).catch(showError));
         return b;
       }));
+      // One chip for every platform whose live checks fail ("⚠ Twitch · Kick"; just ⚠ when the
+      // bar is narrow), each one's reason in the tooltip.
+      const down = I18N.checksDown(state);
+      const checks = document.getElementById('checks');
+      if (down.length) {
+        const b = document.createElement('button');
+        b.className = 'checks-down';
+        b.append('⚠', Object.assign(document.createElement('span'), { className: 'names', textContent: ` ${down.map((c) => c.name).join(' · ')}` }));
+        b.title = `${down.map((c) => `${c.title}\n${c.detail}`).join('\n\n')}\n\n${t('Click to check again')}`;
+        b.addEventListener('click', () => invoke('check_streams_now').catch(showError));
+        checks.replaceChildren(b);
+      } else {
+        checks.replaceChildren();
+      }
       addBtn.disabled = state.slots.length >= state.max_slots;
       addBtn.title = t('Add a slot (another account, up to 4)');
       const hunt = document.getElementById('hunt');

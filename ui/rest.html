@@ -183,6 +183,10 @@
 
       // What needs the player.
       const rows = [];
+      // A platform's live checks all fail: every account's streams there are stuck.
+      for (const c of I18N.checksDown(state)) {
+        rows.push(notice('warn', '⚠', c.title, c.detail, t('Check again'), () => invoke('check_streams_now')));
+      }
       for (const slot of state.slots) {
         // The account's game itself dropped out (logged in elsewhere, disconnected, no session).
         const issue = state.game_issues?.[slot.id];

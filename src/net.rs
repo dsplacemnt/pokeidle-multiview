@@ -17,6 +17,10 @@ pub fn agent() -> &'static ureq::Agent {
     AGENT.get_or_init(|| {
         ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(20)))
+            // The system's certificates (Windows store), not only Mozilla's bundled list: on a
+            // network that inspects HTTPS (a company proxy, an antivirus) every check failed with
+            // "invalid peer certificate: UnknownIssuer" while the pages themselves loaded fine.
+            .tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
             .build()
             .new_agent()
     })

@@ -491,6 +491,14 @@
             ? confirmButton(`⬆ ${v}`, t('Update now?'), title, 'update', () => invoke('install_update').catch(showError))
             : button(`⬆ ${v}`, title, () => invoke('install_update').catch(showError), 'update'));
       }
+      // A platform's live checks all fail and the top bar (where that warning lives) is
+      // hidden: the same warning here.
+      const down = I18N.checksDown(state);
+      if (state.toolbar_hidden && state.corner === id && down.length) {
+        showBar.push(button(`⚠ ${down.map((c) => c.name).join(' · ')}`,
+          `${down.map((c) => `${c.title}\n${c.detail}`).join('\n\n')}\n\n${t('Click to check again')}`,
+          () => invoke('check_streams_now').catch(showError), 'game-issue'));
+      }
       // The account's game dropped out (logged in elsewhere, disconnected, no session): a red
       // chip that reloads the game.
       const issue = state.game_issues?.[id];
