@@ -111,15 +111,23 @@ pub fn sprite_reported(app: &AppHandle, json: &str) {
         y: u32,
         w: u32,
         h: u32,
+        /// Where the drawing is inside the frame ([x, y, w, h] on the sheet), for centring the
+        /// small minis on the Pokémon itself.
+        #[serde(default)]
+        trim: Option<[u32; 4]>,
     }
     let Ok(r) = serde_json::from_str::<Report>(json) else { return };
     // Only the game's own images.
     if !r.src.starts_with("https://pokeidle.io/") || r.w == 0 || r.h == 0 || r.w > 512 || r.h > 512 {
         return;
     }
+    // A trim has to lie inside the frame.
+    let trim = r.trim.filter(|t| {
+        t[2] > 0 && t[3] > 0 && t[0] >= r.x && t[1] >= r.y && t[0] + t[2] <= r.x + r.w && t[1] + t[3] <= r.y + r.h
+    });
     let state = app.state::<Mutex<crate::AppState>>();
     let mut state = state.lock().unwrap();
-    state.sprites.insert(r.look, serde_json::json!({ "src": r.src, "x": r.x, "y": r.y, "w": r.w, "h": r.h }));
+    state.sprites.insert(r.look, serde_json::json!({ "src": r.src, "x": r.x, "y": r.y, "w": r.w, "h": r.h, "trim": trim }));
     crate::publish(app, &state);
 }
 

@@ -87,7 +87,10 @@
        hunt (status, level, gold, supplies with how long they last). */
     /* Two side by side when there's room (cards of 440 px or more), no scroll inside. */
     .accounts { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(440px, calc((100% - 8px) / 2))), 1fr)); }
-    .account { display: grid; gap: 8px; align-content: start; background: var(--row); border-radius: 10px; padding: 10px 12px; }
+    /* Every card has the same four parts (name, bonuses, hunt, items) on rows shared with the
+       cards beside it, so each part starts at the same height whatever the others hold. */
+    .account { display: grid; grid-row: span 4; grid-template-rows: subgrid; grid-template-columns: minmax(0, 1fr); row-gap: 8px; align-content: start;
+      background: var(--row); border-radius: 10px; padding: 10px 12px; }
     .account .line { display: flex; align-items: center; gap: 8px; min-height: 24px; }
     .account .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
     .account .hunt { font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -113,7 +116,6 @@
     .hstate.idle .dot { background: #ffb74d; }
     .hstate.down { color: var(--bad); }
     .hstate.down .dot { background: var(--bad); }
-    .hsep { width: 1px; height: 14px; background: var(--line); flex: none; }
     .lvl { color: var(--muted); flex: none; }
     .lvl b { color: var(--text); font-weight: 600; }
     /* Gold and supplies: the game's own icon, how many, and how long it lasts (the item's name
@@ -133,10 +135,51 @@
     .res.off img { opacity: .45; filter: grayscale(.6); }
     .bonus { height: 20px; padding: 0 8px; border-radius: 10px; display: inline-flex; align-items: center;
       font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; flex: none; }
-    .bonus.xp { color: #ffd76b; background: rgba(242, 193, 78, .14); }
-    .bonus.capture { color: #8fd3ff; background: rgba(90, 170, 255, .14); }
-    .bonus.lure { color: #d8a8ff; background: rgba(180, 120, 255, .16); }
     .bonus.none { color: var(--muted); background: transparent; border: 1px dashed #3a3f4b; font-weight: 500; }
+    /* Bonuses: a row per effect (XP, capture, lure, loot, Prey): its name (and XP's total) on
+       the left, then each source as a chip with its icon, how much it gives and how long it
+       has left. */
+    /* Always the same three lines, in the same places: XP; Capture | Lure; Loot | Prey. */
+    .boosts { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); gap: 5px 10px;
+      align-items: start; align-content: start; border-top: 1px solid var(--line); padding-top: 8px;
+      font-size: 12px; font-variant-numeric: tabular-nums; }
+    .boosts .klabel { margin: 0; height: 22px; display: flex; align-items: center; }
+    .boosts .klabel.right { padding-left: 10px; border-left: 1px solid var(--line); }
+    .boosts .wide { grid-column: 2 / -1; }
+    .boosts .total { height: 22px; display: inline-flex; align-items: center; gap: 6px; padding-right: 2px;
+      color: var(--accent); font-weight: 700; flex: none; }
+    .boosts .total small { color: var(--muted); font-size: 11px; font-weight: 600; }
+    .boosts .empty { color: #5b6170; height: 22px; display: inline-flex; align-items: center; }
+    /* The name line: the account, its trainer level, then (right) the fight and the streams. */
+    .account .line .name { flex: 0 1 auto; }
+    .account .line .tlvl { display: inline-flex; align-items: center; gap: 8px; flex: none; font-size: 12px;
+      font-variant-numeric: tabular-nums; }
+    .account .line .tlvl::before { content: ''; width: 1px; height: 14px; background: var(--line); }
+    .account .line .spacer { flex: 1; min-width: 4px; }
+    /* The fight right now: your Pokémon vs the wild one, as small pictures (names in the
+       tooltip), each centred on the drawing itself in a box of its own. */
+    .fight { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+    .fight + .streams { margin-left: 10px; }
+    .mon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px;
+      margin: -3px 0; border-radius: 7px; background: rgba(255, 255, 255, .035); flex: none; }
+    .mon.shiny { box-shadow: inset 0 0 0 1px rgba(255, 215, 107, .7); }
+    .mon.empty { color: #5b6170; font-size: 12px; }
+    .fight .vs { flex: none; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; color: #5b6170; }
+    /* Narrower cards: the Prey chips drop the bonus kind and keep the Pokémon and its stars. */
+    .account { container-type: inline-size; }
+    @container (max-width: 640px) {
+      .res.src .pkind { display: none; }
+    }
+    .spr { position: relative; flex: none; overflow: hidden; display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; }
+    .spr i { position: absolute; left: 50%; top: 50%; image-rendering: pixelated; background-repeat: no-repeat; }
+    .spr.none::after { content: ''; width: 40%; height: 40%; border-radius: 50%; background: #3a3f4b; }
+    .res.src svg { width: 15px; height: 15px; display: block; flex: none; margin: 0 1px; }
+    .res.src .glyph { width: 18px; text-align: center; color: var(--accent); font-size: 12px; flex: none; }
+    .res.src .tag { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+    .res.src { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+    .res.src .pname { max-width: 110px; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .res.src .tag, .res.src small { flex: none; white-space: nowrap; }
     /* Streams open per platform: the platform's logo and the count, in its colour. A platform
        with none stays (dimmed) so the counts line up from row to row. */
     .streams { display: inline-flex; gap: 6px; flex: none; margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--line); }
@@ -266,13 +309,6 @@
         status.title = t('No kills in the last few minutes');
       }
       line.append(status);
-      if (h.trainer) {
-        line.append(el('span', 'hsep'));
-        const lv = el('span', 'lvl');
-        lv.append(el('b', '', `Lv ${h.trainer.level}`), h.trainer.pct !== null ? ` · ${h.trainer.pct}%` : '');
-        lv.title = t('Trainer level');
-        line.append(lv);
-      }
       // Gold: what the account has, and the net per hour (gold earned minus supplies used).
       if (h.gold !== null && h.gold !== undefined) {
         const gold = el('span', 'res gold');
@@ -336,6 +372,150 @@
         : `${lasts ? t('{name}: {left} left, {rate} per hour — lasts about {time}', { name: s.name, left: compact(s.left), rate: compact(s.perHour), time: hoursText(s.hoursLeft) })
           : t('{name}: {left} left, not used in this hunt yet', { name: s.name, left: compact(s.left) })}${rank ? `\n${t('#{n} in the automatic use order', { n: rank })}` : ''}`;
       return r;
+    }
+
+    // Every bonus the account has running, by effect, each source a chip (game-watch.js reads
+    // them from the game's state: the same list as the game's own "active" panel). Before the
+    // game has reported them, the Twitch and Kick ones the app already knows.
+    const SOURCE = {
+      vip: ['VIP', '/assets/site/assets/loja/vip.png'],
+      boostXp: ['XP Boost', '/assets/site/assets/loja/exp.png'],
+      boostPokexp: ['Pokémon XP Boost', '/assets/site/assets/loja/boost.png'],
+      guildBoost: ['Guild Boost', '/img/itens/boost-guild-32.png'],
+      guild: ['Guild ranking', '/img/itens/guild-escudo-32.png'],
+      sacrificio: ['Sacrifice Boost', '/img/itens/rare-bone.png'],
+      raid: ['Gigantamax Raid', '/img/boss-cabeca-16.png'],
+      atrasados: ['Late Joiner Boost', '/assets/site/assets/loja/exp.png'],
+      evento: ['Event', null, '⚡'],
+      outros: ['Other bonus', null, '?'],
+      twitch: ['Twitch'],
+      kick: ['Kick'],
+    };
+    const SHOP = { xp: 'XP Boost', pokexp: 'Pokémon XP Boost', loot: 'Loot Boost', captura: 'Capture Boost', shiny: 'Shiny Secret Lure' };
+    const PREY_BONUS = { dano: 'Damage', defesa: 'Defense', captura: 'Capture', spawn: 'Spawn' };
+    const SOON = 15 * 60000;
+    const pctText = (p) => `+${p.toLocaleString(locale(), { maximumFractionDigits: 1 })}%`;
+
+    function boostList(slot, state) {
+      const reported = state.hunts?.[slot.id]?.boosts;
+      if (reported && Array.isArray(reported.list)) return reported;
+      const list = [];
+      const running = state.bonuses?.[slot.id] || {};
+      for (const platform of ['twitch', 'kick']) {
+        for (const [kind, k] of [['xp', 'xp'], ['capture', 'cap'], ['lure', 'lure']]) {
+          const e = running[platform]?.[kind] || 0;
+          if (e) list.push({ s: platform, k, p: null, e });
+        }
+      }
+      return { xp: null, list };
+    }
+
+    function sourceName(b) {
+      if (b.s === 'shop') return t('{name} (shop)', { name: t(SHOP[b.b] || b.b) });
+      if (b.s === 'prey') return t('Prey');
+      return t(SOURCE[b.s]?.[0] || 'Other bonus');
+    }
+
+    function boostChip(b, now) {
+      const paused = b.z > 0;
+      const ends = b.e > 0 ? b.e - now : null;
+      const offHunt = b.s === 'prey' && b.h === false;
+      const chip = el('span', 'res src' + (paused || offHunt ? ' off' : ends !== null && ends < SOON ? ' warn' : ''));
+      const [, icon, glyph] = SOURCE[b.s] || [];
+      if (b.s === 'twitch' || b.s === 'kick') chip.innerHTML = LOGO[b.s];
+      else if (b.s === 'shop' && b.i) chip.append(gameIcon(b.i, sourceName(b)));
+      else if (icon) chip.append(gameIcon(icon, sourceName(b)));
+      else if (b.s === 'prey') chip.append(el('span', 'glyph', '🎯'));
+      else chip.append(el('span', 'glyph', glyph || '?'));
+      let effect;
+      if (b.s === 'prey') {
+        const kind = t(PREY_BONUS[b.b] || 'Bonus');
+        const tag = el('span', 'tag');
+        tag.append(el('span', 'pkind', `${kind} `), b.st ? `${b.st}★` : '');
+        chip.append(el('span', 'pname', b.n), tag);
+        effect = `${b.n} · ${kind}${b.st ? ` (${b.st}★)` : ''}`;
+      } else {
+        if (b.p !== null && b.p !== undefined) chip.append(pctText(b.p));
+        if (b.k === 'pk') chip.append(el('span', 'tag', 'PK'));
+        const what = { xp: b.o === 'tr' ? t('trainer XP') : 'XP', pk: t('Pokémon XP'), cap: t('Capture'), lure: t('Lure'), loot: t('Loot') }[b.k] || b.k;
+        effect = b.p !== null && b.p !== undefined ? `${pctText(b.p)} ${what}` : what;
+      }
+      if (paused) chip.append(el('small', '', `⏸ ${left(b.z)}`));
+      else if (ends !== null) chip.append(el('small', '', left(ends)));
+      const when = paused ? t('paused in the Safari, {time} left', { time: left(b.z) })
+        : ends !== null ? t('{time} left', { time: left(ends) }) : t('no end');
+      chip.title = `${sourceName(b)}: ${effect} · ${when}`
+        + (offHunt ? `\n${t('Not in the current hunt: the Prey bonus only works while hunting this Pokémon')}` : '');
+      return chip;
+    }
+
+    function boostSections(slot, state, now) {
+      const { xp, list } = boostList(slot, state);
+      const live = list.filter((b) => b.z > 0 || !(b.e > 0) || b.e > now);
+      const box = el('div', 'boosts');
+      const known = new Set(['xp', 'pk', 'cap', 'lure', 'loot', 'prey']);
+      // Effects the app doesn't know yet go with Loot.
+      const of = (k) => live.filter((b) => (k === 'xp' ? b.k === 'xp' || b.k === 'pk' : k === 'loot' ? b.k === 'loot' || !known.has(b.k) : b.k === k));
+      const order = (a, b) => (b.p ?? -1) - (a.p ?? -1) || (a.e || Infinity) - (b.e || Infinity);
+      // A cell: the effect's name, then its sources (or a dash), always in the same place.
+      const cell = (k, label, cls) => {
+        const head = el('span', `klabel${cls === 'right' ? ' right' : ''}`, t(label));
+        const chips = el('div', `chips${cls === 'wide' ? ' wide' : ''}`);
+        if (k === 'xp' && xp && (xp.tr > 0 || xp.pk > 0)) {
+          const total = el('span', 'total', pctText(xp.tr));
+          if (xp.tr !== xp.pk) total.append(el('small', '', `PK ${pctText(xp.pk)}`));
+          total.title = t('Trainer XP {tr} · Pokémon XP {pk} (the game multiplies the sources together)', { tr: pctText(xp.tr), pk: pctText(xp.pk) });
+          chips.append(total);
+        }
+        const items = of(k).sort(order);
+        items.forEach((b) => chips.append(boostChip(b, now)));
+        if (!items.length) {
+          const none = el('span', 'empty', '—');
+          none.title = t('no bonus');
+          chips.append(none);
+        }
+        box.append(head, chips);
+      };
+      cell('xp', 'XP', 'wide');
+      cell('cap', 'Capture');
+      cell('lure', 'Lure', 'right');
+      cell('loot', 'Loot');
+      cell('prey', 'Prey', 'right');
+      return box;
+    }
+
+    // Your Pokémon vs the wild one, small (the same sprites as the stats panel). Cut to where
+    // the drawing really is in its frame ("trim", measured by the game page) when known, so
+    // every Pokémon sits in the middle of its box; otherwise the whole frame.
+    const SPRITE_BOX = 26;
+    function spriteEl(look, sprites) {
+      const box = el('span', 'spr');
+      const s = look ? sprites?.[look] : null;
+      if (!s) { box.classList.add('none'); return box; }
+      const [x, y, w, h] = Array.isArray(s.trim) ? s.trim : [s.x, s.y, s.w, s.h];
+      const img = el('i');
+      const scale = Math.max(0.25, Math.min(1.5, SPRITE_BOX / w, SPRITE_BOX / h));
+      Object.assign(img.style, {
+        width: `${w}px`, height: `${h}px`,
+        backgroundImage: `url("${s.src}")`, backgroundPosition: `-${x}px -${y}px`,
+        transform: `translate(-50%, -50%) scale(${scale})`,
+      });
+      box.append(img);
+      return box;
+    }
+    function fightEl(slot, state, now) {
+      const h = state.hunts?.[slot.id];
+      if (!h || h.v !== 2 || now - (h.at || 0) > STALE_AFTER || state.game_issues?.[slot.id] || (!h.pokemon && !h.foe)) return null;
+      const fight = el('span', 'fight');
+      const mon = (p, who) => {
+        const m = el('span', 'mon' + (p?.shiny ? ' shiny' : ''));
+        if (!p) { m.classList.add('empty'); m.append('—'); m.title = who; return m; }
+        m.append(spriteEl(p.look, state.sprites));
+        m.title = `${who}: ${p.name} · Lv ${p.level ?? '?'}${p.shiny ? ' · shiny ✦' : ''}`;
+        return m;
+      };
+      fight.append(mon(h.pokemon, t('Your Pokémon')), el('span', 'vs', 'VS'), mon(h.foe, t('Wild Pokémon')));
+      return fight;
     }
 
     function left(ms) {
@@ -432,6 +612,17 @@
         const box = el('div', 'account');
         const row = el('div', 'line');
         row.append(el('span', 'name', names[slot.id]));
+        // The trainer's level beside the name.
+        const tr = state.hunts?.[slot.id]?.trainer;
+        if (tr && tr.level !== null && tr.level !== undefined) {
+          const lv = el('span', 'lvl tlvl');
+          const text = el('span');
+          text.append(el('b', '', `Lv ${tr.level}`), tr.pct !== null && tr.pct !== undefined ? ` · ${tr.pct}%` : '');
+          lv.append(text);
+          lv.title = t('Trainer level');
+          row.append(lv);
+        }
+        row.append(el('span', 'spacer'));
         const pages = state.panels?.[slot.id]?.pages || [];
         const lives = el('span', 'streams');
         for (const platform of ['twitch', 'kick']) {
@@ -442,16 +633,14 @@
           chip.title = t(n === 1 ? '{n} {platform} stream open' : '{n} {platform} streams open', { n, platform: PLATFORM[platform] });
           lives.append(chip);
         }
-        const running = state.bonuses?.[slot.id] || {};
-        let any = false;
-        for (const [kind, label] of [['xp', 'XP'], ['capture', 'CAP'], ['lure', 'LURE']]) {
-          const end = Math.max(running.kick?.[kind] || 0, running.twitch?.[kind] || 0);
-          if (end > now) { any = true; row.append(el('span', `bonus ${kind}`, `${label} ${left(end - now)}`)); }
-        }
-        if (!any) row.append(el('span', 'bonus none', t('no bonus')));
-        // Last, so the counts line up in one column whatever bonuses run.
+        const fight = fightEl(slot, state, now);
+        if (fight) row.append(fight);
         row.append(lives);
-        box.append(row, ...huntLines(slot, state, now));
+        // Always four parts (an empty one where the game hasn't sent the items yet), so the
+        // rows line up with the card beside it.
+        const hunt = huntLines(slot, state, now);
+        while (hunt.length < 2) hunt.push(el('div'));
+        box.append(row, boostSections(slot, state, now), ...hunt);
         return box;
       }));
     }

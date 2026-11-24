@@ -245,6 +245,8 @@ struct StateView {
     /// Each account's hunt report (see game-watch.js and `mark_hunting`), for economy mode's
     /// screen: only while it's on, since it changes every 30 s.
     hunts: HashMap<u8, serde_json::Value>,
+    /// Pokémon sprites by look (see game.rs), for economy mode's fight minis: only while it's on.
+    sprites: HashMap<u32, serde_json::Value>,
 }
 
 fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
@@ -411,6 +413,7 @@ fn state_view(state: &AppState) -> StateView {
         prey_pending: prey::pendings(state),
         checks_down: state.checks_down.clone(),
         hunts: if state.config.economy { state.game_stats.clone() } else { HashMap::new() },
+        sprites: if state.config.economy { state.sprites.clone() } else { HashMap::new() },
     }
 }
 

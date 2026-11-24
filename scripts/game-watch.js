@@ -122,8 +122,34 @@
         const f = frames[0];
         const img = f && s.imagens && s.imagens[f.pagina];
         if (!img || !img.src) return;
-        queue.push(`[multiview-sprite] ${JSON.stringify({ look, src: img.src, x: f.x, y: f.y, w: f.w, h: f.h })}`);
-        if (!busy) next();
+        // Where the drawing really is inside the frame (frames have empty margins, not the same
+        // on every side), so small minis can be centred on the Pokémon itself. Only this page
+        // can read the sheet's pixels (same origin): "trim" = [x, y, w, h] on the sheet.
+        return Promise.resolve(img.decode ? img.decode().catch(() => {}) : null).then(() => {
+          let trim = null;
+          try {
+            const c = document.createElement('canvas');
+            c.width = f.w;
+            c.height = f.h;
+            const g = c.getContext('2d', { willReadFrequently: true });
+            g.drawImage(img, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+            const px = g.getImageData(0, 0, f.w, f.h).data;
+            let x0 = f.w, y0 = f.h, x1 = -1, y1 = -1;
+            for (let y = 0; y < f.h; y++) {
+              for (let x = 0; x < f.w; x++) {
+                if (px[(y * f.w + x) * 4 + 3] > 16) {
+                  if (x < x0) x0 = x;
+                  if (x > x1) x1 = x;
+                  if (y < y0) y0 = y;
+                  if (y > y1) y1 = y;
+                }
+              }
+            }
+            if (x1 >= x0 && y1 >= y0) trim = [f.x + x0, f.y + y0, x1 - x0 + 1, y1 - y0 + 1];
+          } catch {}
+          queue.push(`[multiview-sprite] ${JSON.stringify({ look, src: img.src, x: f.x, y: f.y, w: f.w, h: f.h, trim })}`);
+          if (!busy) next();
+        });
       })
       .catch(() => {});
   }
@@ -348,6 +374,8 @@
       supplies: list.map(({ cost, ...s }) => s),
       // The auto-use choices as the game sent them (ids and switches only), for app.log.
       auto: game.auto,
+      // Every bonus the account has running and where it comes from (economy mode).
+      boosts: boosts(),
     };
     const text = JSON.stringify(stats);
     if (text === statsSent) return;
@@ -475,6 +503,110 @@
     if (!busy) next();
   }
 
+  // Every bonus the account has running, whatever gave it, as the game's own "active" list
+  // shows them. The game merges each "estado" into what it had, top-level field by field (a
+  // "cheio" one replaces it all); the fields that hold bonuses are kept the same way:
+  //   bonusXp   {tr, pk, partes:[{id, tr, pk, ate}]}: the XP multipliers (trainer, Pokémon) and
+  //             each source's part: vip, boostXp/boostPokexp (shop), guildBoost, guild (ranking),
+  //             twitch, kick, atrasados, sacrificio, evento, raid (+ "farm" %), whatever is left
+  //             over counts as "outros";
+  //   loja      boosts {chave: ends} and boostsPausados {chave: ms left} (paused in the Safari),
+  //             chave = xp, pokexp, loot, captura, shiny;
+  //   twitch/kick  bonus {xp, captura, shiny: ends} and pct.
+  // The shop's boost types (name, icon, multiplier) come with the welcome ("tiposBoost").
+  // Reported with the hunt analysis as {xp:{tr, pk}, list:[{s, k, p, e, z, …}]}: s = source,
+  // k = effect (xp, pk = Pokémon XP only, cap, lure, loot, prey), p = % (null = unknown),
+  // e = when it ends (PC clock, ms; 0 = no end), z = ms left while paused.
+  const BOOST_FIELDS = ['bonusXp', 'loja', 'twitch', 'kick'];
+  let held = {};
+  const boostTypes = new Map(); // chave → { mult, icon }
+  const SHOP_KIND = { xp: 'xp', pokexp: 'pk', loot: 'loot', captura: 'cap', shiny: 'lure' };
+  const SHOP_SOURCE = { xp: 'boostXp', pokexp: 'boostPokexp' };
+  const SHOP_ICON = {
+    xp: '/assets/site/assets/loja/exp.png',
+    pokexp: '/assets/site/assets/loja/boost.png',
+    loot: '/assets/site/assets/loja/loot.png',
+    captura: '/assets/site/assets/loja/catch.png',
+    shiny: '/assets/site/assets/loja/shinysecretlure.png',
+  };
+  const gamePath = (rel) => (String(rel).startsWith('/') ? String(rel) : `/assets/${rel}`);
+  function onBoostFields(state, welcome) {
+    if (welcome || state.cheio) held = {};
+    for (const k of BOOST_FIELDS) if (k in state) held[k] = state[k];
+  }
+  function onBoostTypes(list) {
+    for (const b of list) {
+      if (!b || !b.chave) continue;
+      boostTypes.set(String(b.chave), { mult: Number(b.mult) || null, icon: b.icone ? gamePath(b.icone) : null });
+    }
+  }
+  function boosts() {
+    const now = Date.now() + serverOffset; // the server's clock, like the times it sends
+    const local = (t) => (Number(t) > 0 ? Math.round(Number(t) - serverOffset) : 0);
+    const pct = (m) => Math.round((Number(m) - 1) * 1000) / 10;
+    const same = (a, b) => Math.abs(a - b) < 1e-6;
+    const list = [];
+    const from = new Set();
+    let xp = null;
+    const b = held.bonusXp;
+    if (b && Array.isArray(b.partes)) {
+      const f = (x, k) => Number(x?.[k]) || 1;
+      const product = (parts, k) => parts.reduce((m, x) => m * f(x, k), 1);
+      const parts = b.partes.filter((x) => x && (!(Number(x.ate) > 0) || x.ate > now));
+      // What the parts don't explain is another bonus (as the game shows it).
+      const rest = { id: 'outros', tr: f(b, 'tr') / product(b.partes, 'tr'), pk: f(b, 'pk') / product(b.partes, 'pk') };
+      if (!same(rest.tr, 1) || !same(rest.pk, 1)) parts.push(rest);
+      xp = { tr: pct(product(parts, 'tr')), pk: pct(product(parts, 'pk')) };
+      for (const x of parts) {
+        const tr = f(x, 'tr'), pk = f(x, 'pk'), e = local(x.ate);
+        from.add(x.id);
+        if (!same(tr, 1)) list.push({ s: x.id, k: 'xp', p: pct(tr), e, ...(same(tr, pk) ? {} : { o: 'tr' }) });
+        if (!same(pk, 1) && !same(tr, pk)) list.push({ s: x.id, k: 'pk', p: pct(pk), e });
+        if (x.id === 'raid' && Number(x.farm) > 0) list.push({ s: 'raid', k: 'loot', p: Math.round(Number(x.farm)), e });
+      }
+    }
+    // Shop boosts (XP ones only when the XP parts didn't already have them), and paused ones.
+    const shop = (chave, extra) => {
+      const type = boostTypes.get(chave);
+      list.push({ s: 'shop', b: chave, k: SHOP_KIND[chave] || chave, p: type?.mult ? pct(type.mult) : null, i: type?.icon || SHOP_ICON[chave] || null, ...extra });
+    };
+    const l = held.loja || {};
+    for (const [chave, ends] of Object.entries(l.boosts || {})) {
+      if (!(Number(ends) > now) || (SHOP_SOURCE[chave] && from.has(SHOP_SOURCE[chave]))) continue;
+      shop(chave, { e: local(ends) });
+    }
+    for (const [chave, left] of Object.entries(l.boostsPausados || {})) {
+      if (Number(left) > 0) shop(chave, { e: 0, z: Number(left) });
+    }
+    // Twitch and Kick: capture and lure (their XP is one of the XP parts).
+    for (const platform of ['twitch', 'kick']) {
+      const info = held[platform];
+      if (!info || !info.bonus) continue;
+      const p = Number(info.pct) || null;
+      for (const [tp, k] of [['xp', 'xp'], ['captura', 'cap'], ['shiny', 'lure']]) {
+        const ends = Number(info.bonus[tp]) || 0;
+        if (ends > now && !(tp === 'xp' && from.has(platform))) list.push({ s: platform, k, p, e: local(ends) });
+      }
+    }
+    // Today's picked Prey cards: their bonus works while hunting that Pokémon, until 18:00
+    // Brasília (21:00 UTC).
+    if (prey.dia === preyDay()) {
+      const d = new Date(now);
+      let reset = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 21);
+      if (reset <= now) reset += 86400000;
+      prey.cards.forEach((c, i) => {
+        if (!c || c.pk == null || (i === 1 && !prey.unlocked2)) return;
+        const pk = Number(c.pk);
+        list.push({
+          s: 'prey', k: 'prey', b: c.bonus || null, st: Number(c.est) || null, p: null, e: local(reset),
+          n: speciesHunt.get(pk)?.name || `#${pk}`,
+          h: !game.hunt || !huntSpecies.size ? null : !!huntSpecies.get(game.hunt)?.has(pk),
+        });
+      });
+    }
+    return { xp, list };
+  }
+
   function inspect(data) {
     if (typeof data !== 'string') return;
     const battle = data.includes('"batalha"');
@@ -494,6 +626,8 @@
       onPrey(message.estado.automation.prey, message.estado.automation.preyCartela2);
     }
     if (Array.isArray(message.itensNossos)) ownItems(message.itensNossos);
+    if (Array.isArray(message.tiposBoost)) onBoostTypes(message.tiposBoost);
+    if (message.estado && typeof message.estado === 'object') onBoostFields(message.estado, message.t === 'welcome');
     if (catalog && Array.isArray(message.catalogoBolas)) {
       ballCatalog = new Map(message.catalogoBolas.map((x) => [Number(x.id), { name: x.nome || x.name, price: Number(x.priceGold) || 0 }]));
     }
