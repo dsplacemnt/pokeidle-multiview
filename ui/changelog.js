@@ -3,6 +3,24 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.22.2',
+    date: '2026-11-24',
+    notes: {
+      pt: [
+        'Corrigido: com o app minimizado, minimizar outro programa às vezes fazia o Multiview voltar para a tela sozinho. Agora ele só volta quando você pede: pelo botão na barra de tarefas, pelo Alt+Tab ou pelo ícone da bandeja.',
+        'No modo economia, cada conta mostra quantas lives tem abertas na Twitch e na Kick, com o logo de cada uma.',
+      ],
+      en: [
+        'Fixed: with the app minimized, minimizing another program sometimes brought Multiview back on screen by itself. It now only comes back when you ask: its taskbar button, Alt+Tab or the tray icon.',
+        'In economy mode, each account shows how many Twitch and Kick streams it has open, with each one\'s logo.',
+      ],
+      es: [
+        'Corregido: con la app minimizada, minimizar otro programa a veces hacía que Multiview volviera a la pantalla solo. Ahora solo vuelve cuando lo pides: con su botón en la barra de tareas, Alt+Tab o el icono de la bandeja.',
+        'En el modo ahorro, cada cuenta muestra cuántos streams tiene abiertos en Twitch y en Kick, con el logo de cada uno.',
+      ],
+    },
+  },
+  {
     version: '0.22.1',
     date: '2026-11-24',
     notes: {
