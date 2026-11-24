@@ -3,6 +3,24 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.23.0',
+    date: '2026-11-24',
+    notes: {
+      pt: [
+        'Modo economia mais completo: cada conta ganha um card com o que ela está fazendo. Mostra se está caçando (e onde), parada ou desconectada, o nível do treinador, o gold com o lucro por hora e todas as Pokébolas, poções e revives que ela tem, separados por tipo. Os itens marcados para uso automático aparecem primeiro, na ordem em que o jogo usa; os outros ficam apagados. As contas ficam lado a lado, sem precisar rolar.',
+        'Os itens aparecem só com o ícone do jogo, no modo economia e na análise da caçada. O nome aparece ao passar o mouse.',
+      ],
+      en: [
+        'Fuller economy mode: each account gets a card with what it\'s doing. It shows whether it\'s hunting (and where), stopped or disconnected, the trainer level, the gold with the profit per hour and every Poké Ball, potion and revive it has, by kind. The items ticked for automatic use come first, in the order the game uses them; the rest are dimmed. The accounts sit side by side, with no scrolling.',
+        'Items show just the game\'s icon, in economy mode and in the hunt analysis. The name shows when you hover over it.',
+      ],
+      es: [
+        'Modo ahorro más completo: cada cuenta tiene una tarjeta con lo que está haciendo. Muestra si está cazando (y dónde), parada o desconectada, el nivel del entrenador, el oro con la ganancia por hora y todas las Poké Balls, pociones y revivir que tiene, por tipo. Los objetos marcados para uso automático salen primero, en el orden en que el juego los usa; los demás quedan atenuados. Las cuentas quedan lado a lado, sin tener que desplazarse.',
+        'Los objetos se muestran solo con el icono del juego, en el modo ahorro y en el análisis de la caza. El nombre aparece al pasar el ratón.',
+      ],
+    },
+  },
+  {
     version: '0.22.2',
     date: '2026-11-24',
     notes: {
