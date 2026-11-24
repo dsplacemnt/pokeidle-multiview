@@ -3,6 +3,21 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.22.0',
+    date: '2026-11-24',
+    notes: {
+      pt: [
+        'O app agora guarda um registro do que faz (lives abertas e fechadas, recargas, erros e travamentos) em um arquivo no seu PC, que nunca é enviado a lugar nenhum. Se algo der errado, vá em ⚙ → Sobre → Copiar diagnóstico e cole no Discord ou numa issue do GitHub: ele traz as versões do app, do Windows e do WebView2 e as últimas linhas do registro, sem senhas, cookies, tokens ou o seu nome de usuário. O botão Abrir pasta de logs mostra o arquivo completo.',
+      ],
+      en: [
+        'The app now keeps a log of what it does (streams opened and closed, reloads, errors and crashes) in a file on your PC that is never sent anywhere. If something goes wrong, go to ⚙ → About → Copy diagnostic and paste it on Discord or in a GitHub issue: it has the app, Windows and WebView2 versions and the last lines of the log, with no passwords, cookies, tokens or your user name. Open the logs folder shows the whole file.',
+      ],
+      es: [
+        'La app ahora guarda un registro de lo que hace (streams abiertos y cerrados, recargas, errores y cierres inesperados) en un archivo en tu PC que nunca se envía a ningún lado. Si algo sale mal, ve a ⚙ → Acerca de → Copiar diagnóstico y pégalo en Discord o en un issue de GitHub: trae las versiones de la app, de Windows y de WebView2 y las últimas líneas del registro, sin contraseñas, cookies, tokens ni tu nombre de usuario. Abrir carpeta de registros muestra el archivo completo.',
+      ],
+    },
+  },
+  {
     version: '0.21.1',
     date: '2026-11-24',
     notes: {
