@@ -126,7 +126,7 @@ pub fn run(app: &AppHandle, action: &str) {
         "new_slot" => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = crate::add_slot(app.clone()).await {
+                if let Err(e) = crate::add_slot(app.clone(), None).await {
                     let _ = app.emit("error", e);
                 }
             });

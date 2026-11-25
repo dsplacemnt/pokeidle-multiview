@@ -626,7 +626,12 @@
         check.addEventListener('change', () => apply(invoke('set_vote_slot', { id: slot.id, on: check.checked })));
         const v = view.vote?.[slot.id];
         let status = '';
-        if (view.vote_slots.includes(slot.id)) {
+        // Streams only: the vote status comes from the game page, which isn't here.
+        const card = auto?.slots?.find((s) => s.id === slot.id);
+        if (card?.streams_only) {
+          check.disabled = true;
+          status = t('Streams only: the vote reminder needs the game open here');
+        } else if (view.vote_slots.includes(slot.id)) {
           if (!v) status = t('Asking the game for the vote status…');
           else if (v.error) status = t("Couldn't read the vote status: {error}", { error: I18N.text(v.error) });
           else {
@@ -683,7 +688,8 @@
 
     function accountCard(slot) {
       const card = el('div', 'account');
-      const goalsMode = !!slot.goals;
+      // Streams only: a fixed bonus (without the game the times are only estimates).
+      const goalsMode = !!slot.goals && !slot.streams_only;
       const setGoals = (goals) => apply(invoke('set_goals', { id: slot.id, goals }));
 
       // Header: name and the mode switch.
@@ -699,7 +705,13 @@
         });
         mode.append(b);
       }
-      head.append(el('span', 'name', slot.name), mode);
+      if (slot.streams_only) {
+        const tag = el('span', 'chip', t('Fixed'));
+        tag.title = t('Streams only: fixed bonus (goals need the game here to know the times)');
+        head.append(el('span', 'name', slot.name), tag);
+      } else {
+        head.append(el('span', 'name', slot.name), mode);
+      }
 
       // Whether the game has this account's Twitch / Kick linked: without it, redeemed points
       // are given back.
@@ -718,6 +730,13 @@
         }
       }
       for (const [platform, linked] of [['Twitch', slot.twitch_linked], ['Kick', slot.kick_linked]]) {
+        // Streams only: the game isn't here to say whether it's linked.
+        if (slot.streams_only) {
+          const chip = el('span', 'chip', `${platform} ?`);
+          chip.title = t('Streams only: the game isn\'t here to tell. Check on the computer that runs it that {platform} is linked (Bonus on {platform}), or redeemed points are given back.', { platform });
+          links.append(chip);
+          continue;
+        }
         const chip = el('span', 'chip' + (linked === false ? ' bad' : linked ? ' ok' : ''),
           linked === false ? t('{platform} not linked', { platform }) : linked ? `${platform} ✓` : `${platform} ?`);
         chip.title = linked === false
@@ -726,8 +745,23 @@
         links.append(chip);
       }
 
-      card.append(head, links, goalsMode ? goalsEditor(slot, setGoals) : fixedEditor(slot), pointsLine(slot));
+      card.append(head, links, streamsOnlyRow(slot), goalsMode ? goalsEditor(slot, setGoals) : fixedEditor(slot), pointsLine(slot));
       return card;
+    }
+
+    // "Streams only": the account's game runs on another computer; this slot runs only its
+    // streams (and redeems), with the bonus times estimated from its own redeems.
+    function streamsOnlyRow(slot) {
+      const row = el('label', 'row streams-only');
+      const check = Object.assign(document.createElement('input'), { type: 'checkbox', checked: !!slot.streams_only });
+      check.addEventListener('change', () => apply(invoke('set_streams_only', { id: slot.id, on: check.checked })));
+      const text = el('span');
+      text.append(el('span', '', t('Streams only (the game runs on another computer)')),
+        el('span', 'hint', slot.streams_only
+          ? t('The game is closed here; this slot only watches, opens chests and redeems. Bonus times are estimated from this app\'s redeems (≈): a redeem made by hand elsewhere isn\'t counted.')
+          : t('For an account whose game is open on another PC: opening it here too would log that one out. The bonuses still reach it through its linked Twitch/Kick login.')));
+      row.append(check, text);
+      return row;
     }
 
     function fixedEditor(slot) {
@@ -747,10 +781,16 @@
       const running = el('div', 'running');
       const now = Date.now();
       for (const [platform, name] of [['twitch', 'Twitch'], ['kick', 'Kick']]) {
+        // Streams only: the app's own estimate (≈).
+        const est = slot.streams_only;
         const chips = KINDS
           .map(([key, label]) => [key, label, (slot.running?.[platform]?.[key] || 0) - now])
           .filter(([, , ms]) => ms > 0)
-          .map(([key, label, ms]) => el('span', `bonus ${key}`, `${label} ${leftText(ms)}`));
+          .map(([key, label, ms]) => {
+            const chip = el('span', `bonus ${key}`, `${est ? '≈ ' : ''}${label} ${leftText(ms)}`);
+            if (est) chip.title = t('Estimated from this app\'s redeems');
+            return chip;
+          });
         if (!chips.length) chips.push(el('span', 'bonus none', slot.running?.[platform] ? t('no bonus') : '?'));
         const line = el('div', 'bline');
         const items = el('span', 'items');

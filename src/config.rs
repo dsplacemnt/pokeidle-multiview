@@ -1,6 +1,7 @@
 //! Persisted settings: slots (name, mute, streams, bonus), layout, tray, stream automation and
 //! comfort options.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -88,6 +89,17 @@ pub struct SlotConfig {
     /// Redeem goals instead of the fixed `bonus` (Some = goals mode); see goals.rs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goals: Option<Goals>,
+    /// "Streams only": this account's game runs on another computer (one game connection per
+    /// account: opening it here would log the other one out). The slot keeps its session and
+    /// runs only its Twitch/Kick streams, chests and redeems; a light page of the app's own
+    /// takes the game's place.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub streams_only: bool,
+    /// Streams only: when this account's bonuses end, as the app reckons them from its own
+    /// redeems (the game isn't here to tell): platform ("kick"/"twitch") → [xp, capture, lure]
+    /// end times, ms since 1970 (0 = not running).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub bonus_estimate: BTreeMap<String, [i64; 3]>,
 }
 
 fn full_zoom() -> f64 {
@@ -96,7 +108,17 @@ fn full_zoom() -> f64 {
 
 impl SlotConfig {
     pub fn new(id: u8) -> SlotConfig {
-        SlotConfig { id, zoom: 1.0, name: None, muted: false, panels: Vec::new(), bonus: None, goals: None }
+        SlotConfig {
+            id,
+            zoom: 1.0,
+            name: None,
+            muted: false,
+            panels: Vec::new(),
+            bonus: None,
+            goals: None,
+            streams_only: false,
+            bonus_estimate: BTreeMap::new(),
+        }
     }
 }
 

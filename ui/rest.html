@@ -116,6 +116,23 @@
     .hstate.idle .dot { background: #ffb74d; }
     .hstate.down { color: var(--bad); }
     .hstate.down .dot { background: var(--bad); }
+    /* Streams only (the game runs on another computer): a little broadcasting TV where the hunt
+       and the items would be, over both of those rows. */
+    .so-art { grid-row: span 2; display: flex; align-items: center; gap: 14px; min-width: 0; padding: 10px 14px;
+      border-radius: 10px; border: 1px solid rgba(145, 70, 255, .22);
+      background: linear-gradient(100deg, rgba(145, 70, 255, .13), rgba(83, 252, 24, .06) 70%, transparent); }
+    .so-art svg { width: 76px; height: 60px; flex: none; overflow: visible; }
+    .so-art .so-text { display: grid; gap: 2px; min-width: 0; }
+    .so-art b { font-size: 14px; font-weight: 700; color: var(--text); }
+    .so-art span { color: #b9bfcc; font-size: 12.5px; }
+    .so-art small { color: var(--muted); font-size: 11.5px; }
+    .so-art b, .so-art span, .so-art small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .so-art .wave { animation: so-wave 2.6s ease-in-out infinite; }
+    .so-art .wave.w2 { animation-delay: .35s; }
+    .so-art .live-dot { animation: so-blink 1.6s ease-in-out infinite; }
+    @keyframes so-wave { 0%, 100% { opacity: .15; } 50% { opacity: .9; } }
+    @keyframes so-blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+    @media (prefers-reduced-motion: reduce) { .so-art .wave, .so-art .live-dot { animation: none; } }
     .lvl { color: var(--muted); flex: none; }
     .lvl b { color: var(--text); font-weight: 600; }
     /* Gold and supplies: the game's own icon, how many, and how long it lasts (the item's name
@@ -401,10 +418,12 @@
       if (reported && Array.isArray(reported.list)) return reported;
       const list = [];
       const running = state.bonuses?.[slot.id] || {};
+      // Streams only: the app's own estimate (the game runs on another computer).
+      const est = !!slot.streams_only;
       for (const platform of ['twitch', 'kick']) {
         for (const [kind, k] of [['xp', 'xp'], ['capture', 'cap'], ['lure', 'lure']]) {
           const e = running[platform]?.[kind] || 0;
-          if (e) list.push({ s: platform, k, p: null, e });
+          if (e) list.push({ s: platform, k, p: est ? 15 : null, e, est });
         }
       }
       return { xp: null, list };
@@ -441,11 +460,12 @@
         effect = b.p !== null && b.p !== undefined ? `${pctText(b.p)} ${what}` : what;
       }
       if (paused) chip.append(el('small', '', `⏸ ${left(b.z)}`));
-      else if (ends !== null) chip.append(el('small', '', left(ends)));
+      else if (ends !== null) chip.append(el('small', '', `${b.est ? '≈ ' : ''}${left(ends)}`));
       const when = paused ? t('paused in the Safari, {time} left', { time: left(b.z) })
         : ends !== null ? t('{time} left', { time: left(ends) }) : t('no end');
       chip.title = `${sourceName(b)}: ${effect} · ${when}`
-        + (offHunt ? `\n${t('Not in the current hunt: the Prey bonus only works while hunting this Pokémon')}` : '');
+        + (offHunt ? `\n${t('Not in the current hunt: the Prey bonus only works while hunting this Pokémon')}` : '')
+        + (b.est ? `\n${t('Estimated from this app\'s redeems (the game runs on another computer)')}` : '');
       return chip;
     }
 
@@ -482,6 +502,38 @@
       cell('loot', 'Loot');
       cell('prey', 'Prey', 'right');
       return box;
+    }
+
+    // A streams-only account's card: a little TV on the air (screen in Twitch purple fading to
+    // Kick green, LIVE tag, signal waves) and what this slot does.
+    const SO_TV = `<svg viewBox="0 0 80 64" aria-hidden="true">
+      <defs><linearGradient id="so-screen" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#9146ff"/><stop offset="1" stop-color="#53fc18"/></linearGradient></defs>
+      <path class="wave" d="M5 24a14 14 0 0 0 0 18" fill="none" stroke="#c4a5ff" stroke-width="2.2" stroke-linecap="round"/>
+      <path class="wave w2" d="M-1 19a21 21 0 0 0 0 28" fill="none" stroke="#c4a5ff" stroke-width="2.2" stroke-linecap="round"/>
+      <path class="wave" d="M75 24a14 14 0 0 1 0 18" fill="none" stroke="#8ff56a" stroke-width="2.2" stroke-linecap="round"/>
+      <path class="wave w2" d="M81 19a21 21 0 0 1 0 28" fill="none" stroke="#8ff56a" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M31 4l9 9 9-9" fill="none" stroke="#8b91a1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="31" cy="4" r="2" fill="#8b91a1"/><circle cx="49" cy="4" r="2" fill="#8b91a1"/>
+      <rect x="11" y="13" width="58" height="42" rx="9" fill="#1d2027" stroke="#3a3f4b" stroke-width="1.5"/>
+      <rect x="16" y="18" width="40" height="32" rx="5" fill="url(#so-screen)" opacity=".9"/>
+      <path d="M32 27v14l11-7z" fill="#fff"/>
+      <rect x="19" y="21" width="17" height="7" rx="3.5" fill="#ff4d5e"/>
+      <circle class="live-dot" cx="22.5" cy="24.5" r="1.4" fill="#fff"/>
+      <text x="25" y="26.6" font-size="5.2" font-weight="700" fill="#fff" font-family="Segoe UI, sans-serif">LIVE</text>
+      <circle cx="62.5" cy="27" r="2.6" fill="#3a3f4b"/><circle cx="62.5" cy="36" r="2.6" fill="#3a3f4b"/>
+      <rect x="20" y="55" width="7" height="4" rx="1.5" fill="#3a3f4b"/><rect x="53" y="55" width="7" height="4" rx="1.5" fill="#3a3f4b"/>
+    </svg>`;
+    function streamsOnlyArt() {
+      const art = el('div', 'so-art');
+      art.innerHTML = SO_TV;
+      const text = el('div', 'so-text');
+      text.append(el('b', '', t('Streams only')),
+        el('span', '', t('Watching, opening chests and redeeming bonuses')),
+        el('small', '', t('This account\'s game runs on another computer')));
+      art.append(text);
+      art.title = t('This account\'s game runs on another computer: here it only watches its streams, opens chests and redeems its bonuses');
+      return art;
     }
 
     // Your Pokémon vs the wild one, small (the same sprites as the stats panel). Cut to where
@@ -638,6 +690,11 @@
         row.append(lives);
         // Always four parts (an empty one where the game hasn't sent the items yet), so the
         // rows line up with the card beside it.
+        // Streams only: no hunt or items here, the broadcasting TV instead (over both rows).
+        if (slot.streams_only) {
+          box.append(row, boostSections(slot, state, now), streamsOnlyArt());
+          return box;
+        }
         const hunt = huntLines(slot, state, now);
         while (hunt.length < 2) hunt.push(el('div'));
         box.append(row, boostSections(slot, state, now), ...hunt);

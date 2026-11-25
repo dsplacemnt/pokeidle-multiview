@@ -384,6 +384,8 @@
     function renderBonuses() {
       const running = latest?.bonuses?.[id] || {};
       const now = Date.now();
+      // Streams only: the game runs on another computer; the times are the app's estimate.
+      const estimated = !!latest?.slots?.find((s) => s.id === id)?.streams_only;
       // Each platform's bonuses run on their own clock: one group per platform (Twitch, then
       // Kick), each with its platform mark and a chip per running bonus.
       const groups = [];
@@ -393,7 +395,9 @@
           const ms = (running[platform]?.[key] || 0) - now;
           if (ms <= 0) continue;
           const chip = Object.assign(document.createElement('span'), { className: `bonus ${key}`, textContent: `${short} ${left(ms)}` });
-          chip.title = t('{bonus} from {platform}: {left} left', { bonus: long, platform: PLATFORMS[platform].name, left: left(ms) });
+          chip.title = t('{bonus} from {platform}: {left} left', { bonus: long, platform: PLATFORMS[platform].name, left: left(ms) })
+            + (estimated ? `\n${t('Estimated from this app\'s redeems (the game runs on another computer)')}` : '');
+          if (estimated) chip.textContent = `≈ ${chip.textContent}`;
           chips.push(chip);
         }
         // A platform without bonuses stays visible, marked as such ("?" until the game says).
@@ -509,7 +513,8 @@
         ...showBar,
         nameButton(slot, focused),
         ...issueChip,
-        mute,
+        // Streams only: no game here, so no game sound, stats panel or reload.
+        ...(slot.streams_only ? [] : [mute]),
         sep(),
         platformButton('twitch', panels),
         platformButton('kick', panels),
@@ -520,12 +525,12 @@
         error,
         Object.assign(document.createElement('span'), { className: 'spacer' }),
         // Fullscreen: shows or hides the stats panel on the right.
-        ...(focused
+        ...(focused && !slot.streams_only
           ? [button('▤', state.focus_panel ? t('Hide the stats panel') : t('Show the stats panel'),
               () => invoke('set_focus_panel', { on: !state.focus_panel }).catch(showError),
               state.focus_panel ? 'panel-on' : '')]
           : []),
-        button('⟳', t('Reload the game'), () => call('reload_slot')),
+        ...(slot.streams_only ? [] : [button('⟳', t('Reload the game'), () => call('reload_slot'))]),
         confirmButton('×', t('Close?'), t('Close slot (keeps its login)'), '', () => call('close_slot')),
       );
       controls.scrollLeft = scroll;

@@ -42,6 +42,7 @@ mod power;
 #[path = "power_other.rs"]
 mod power;
 mod splash;
+mod streams_only;
 mod heavy;
 mod logins;
 mod prey;
@@ -594,6 +595,7 @@ fn set_language(app: AppHandle, lang: config::Language) {
         let _ = app.emit_to(page.as_str(), "language", lang);
     }
     tray::set_language(&app);
+    streams_only::set_language(&app, lang);
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.set_title(settings_title(lang));
     }
@@ -999,7 +1001,13 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
     // loose popup window.
     let (nav_app, popup_app, title_app, id) = (app.clone(), app.clone(), app.clone(), slot.id);
     let load_app = app.clone();
-    let builder = slot_session_builder(app, slot.id, slot_label(slot.id), GAME_URL)
+    // Streams only: the app's own page in the game's place (the game runs on another computer).
+    let url = if slot.streams_only {
+        streams_only::page_url(app.state::<Mutex<AppState>>().lock().unwrap().config.language)
+    } else {
+        GAME_URL.to_string()
+    };
+    let builder = slot_session_builder(app, slot.id, slot_label(slot.id), &url)
         // The loading screen waits for each game's first load.
         .on_page_load(move |_, payload| {
             if payload.event() == PageLoadEvent::Finished {
@@ -1012,10 +1020,6 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
                 }
             }
         })
-        .initialization_script(DESKTOP_LAYOUT)
-        // Listens to the game's own state messages for its Kick/Twitch partner channels and the
-        // account's link status; it reports through a brief title change.
-        .initialization_script(GAME_WATCH)
         .on_document_title_changed(move |_, title| {
             if let Some(keys) = title.strip_prefix("[multiview-key] ") {
                 shortcut_from_page(&title_app, keys);
@@ -1047,6 +1051,15 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
             }
             guard_popup(&url)
         });
+    let builder = if slot.streams_only {
+        builder
+    } else {
+        builder
+            .initialization_script(DESKTOP_LAYOUT)
+            // Listens to the game's own state messages for its Kick/Twitch partner channels and
+            // the account's link status; it reports through a brief title change.
+            .initialization_script(GAME_WATCH)
+    };
 
     // Start at the final tile size: the game picks its layout from the size it loads at.
     let tile = tile_of(app, slot.id)?;
@@ -1455,6 +1468,13 @@ fn create_page(
                     // Goals mode waits for the game's new time before buying again.
                     if message.contains("redeemed ") {
                         state.redeemed.insert((id, platform), std::time::Instant::now());
+                        // Streams only: no game to tell the new time, so the app reckons it.
+                        if let Some(line) = streams_only::redeem_reported(&mut state, id, platform, message, now_ms()) {
+                            println!("[streams-only] slot {id}: {line}");
+                            log_event(&mut state, id, line);
+                            state.redeemed.remove(&(id, platform));
+                            publish(&title_app, &state);
+                        }
                     }
                 }
             } else if let Some(json) = title.strip_prefix("[multiview-points] ") {
@@ -1676,15 +1696,20 @@ fn get_state(state: tauri::State<'_, Mutex<AppState>>) -> StateView {
 }
 
 // Async on purpose: creating a webview from a sync command deadlocks on Windows.
+/// "+ SLOT" asks first: the game and its streams (the default), or streams only (the account's
+/// game runs on another computer; see streams_only.rs).
 #[tauri::command]
-async fn add_slot(app: AppHandle) -> Result<u8, String> {
+async fn add_slot(app: AppHandle, streams_only: Option<bool>) -> Result<u8, String> {
     let slot = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
         let id = state.config.next_free_id().ok_or("All 4 slots are open")?;
-        let slot = SlotConfig::new(id);
+        let mut slot = SlotConfig::new(id);
+        slot.streams_only = streams_only.unwrap_or(false);
         state.config.slots.push(slot.clone());
         state.config.slots.sort_by_key(|s| s.id);
+        // Streams only: "no bonus" (not "the game hasn't said") until it redeems something.
+        streams_only::sync_ends(&mut state);
         slot
     };
     create_slot_webview(&app, &slot).map_err(|e| e.to_string())?;
@@ -1693,6 +1718,51 @@ async fn add_slot(app: AppHandle) -> Result<u8, String> {
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
     Ok(slot.id)
+}
+
+/// "Streams only" in ⚙ → Accounts: the account's game runs on another computer, so this slot
+/// closes its game and runs only its streams (see streams_only.rs); off brings the game back.
+/// Async: it recreates the slot's page (see add_slot).
+#[tauri::command]
+async fn set_streams_only(app: AppHandle, id: u8, on: bool) -> Result<(), String> {
+    let slot = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        let slot = state.config.slots.iter_mut().find(|s| s.id == id).ok_or("No such slot")?;
+        if slot.streams_only == on {
+            return Ok(());
+        }
+        slot.streams_only = on;
+        // Streams only redeems a fixed bonus: goals become their first bonus.
+        streams_only::fixed_only(slot);
+        if on {
+            // The estimate starts from what the game last said.
+            streams_only::seed(&mut state, id);
+        }
+        // What the game page reported no longer holds.
+        game::forget(&mut state, id);
+        state.game_stats.remove(&id);
+        state.prey.remove(&id);
+        state.linked.retain(|(slot, _), _| *slot != id);
+        state.bonus_ends.retain(|(slot, _), _| *slot != id);
+        streams_only::sync_ends(&mut state);
+        println!("[streams-only] slot {id}: {}", if on { "on (game closed here)" } else { "off (game back)" });
+        log_event(&mut state, id, if on { "Streams only: the game runs on another computer" } else { "Streams only off: the game is back" });
+        if let Err(e) = state.config.save(&state.config_path) {
+            eprintln!("[config] could not save: {e}");
+        }
+        state.config.slots.iter().find(|s| s.id == id).cloned().ok_or("No such slot")?
+    };
+    if let Some(old) = app.get_webview(&slot_label(id)) {
+        old.close().map_err(|e| e.to_string())?;
+    }
+    create_slot_webview(&app, &slot).map_err(|e| e.to_string())?;
+    apply_layout(&app).map_err(|e| e.to_string())?;
+    let state = app.state::<Mutex<AppState>>();
+    save_and_publish(&app, &state.lock().unwrap());
+    drop(state);
+    let _ = app.emit_to("settings", "automation", automation_view(&app));
+    Ok(())
 }
 
 #[tauri::command]
@@ -1874,7 +1944,7 @@ fn set_economy_mode(app: &AppHandle, on: bool) {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
         save_and_publish(app, &state);
-        state.config.slots.iter().map(|s| s.id).collect()
+        state.config.slots.iter().filter(|s| !s.streams_only).map(|s| s.id).collect()
     };
     for id in ids {
         sync_game_economy(app, id, on);
@@ -1923,7 +1993,7 @@ fn toggle_grid(app: &AppHandle) {
 /// Reloads every slot's game page at once (the reload shortcut; the timed option in ⚙ does
 /// the same on its own).
 fn reload_all_games(app: &AppHandle) {
-    let ids: Vec<u8> = app.state::<Mutex<AppState>>().lock().unwrap().config.slots.iter().map(|s| s.id).collect();
+    let ids: Vec<u8> = app.state::<Mutex<AppState>>().lock().unwrap().config.slots.iter().filter(|s| !s.streams_only).map(|s| s.id).collect();
     println!("[reload] reloading {} game page(s) (shortcut)", ids.len());
     for id in ids {
         if let Some(webview) = app.get_webview(&slot_label(id)) {
@@ -2434,6 +2504,8 @@ fn check_vote(app: &AppHandle) {
             .vote_slots
             .iter()
             .copied()
+            // Streams only: no game page here to ask.
+            .filter(|id| !state.config.slots.iter().any(|s| s.id == *id && s.streams_only))
             .filter(|id| match state.vote.get(id) {
                 Some((status, at)) => {
                     let ready = status.ready_at <= now_ms();
@@ -3129,7 +3201,8 @@ const REDEEM_SETTLE: std::time::Duration = std::time::Duration::from_secs(180);
 /// the first goal not met there (None = nothing to buy: every goal met and points saved, the
 /// game hasn't reported the times yet, or a redeem is still being counted).
 fn bonus_now(state: &AppState, slot: &SlotConfig, platform: Platform) -> Option<KickBonus> {
-    let Some(goals) = &slot.goals else { return slot.bonus };
+    // Streams only: a fixed bonus (the app only estimates the times there).
+    let Some(goals) = slot.goals.as_ref().filter(|_| !slot.streams_only) else { return slot.bonus };
     let ends = state.bonus_ends.get(&(slot.id, platform))?;
     if state.redeemed.get(&(slot.id, platform)).is_some_and(|at| at.elapsed() < REDEEM_SETTLE) {
         return None;
@@ -3286,6 +3359,8 @@ struct BonusSlotView {
     points: Vec<(Platform, String, u64)>,
     /// The account's running bonuses per platform.
     running: SlotBonuses,
+    /// Streams only: the game runs on another computer; `running` is the app's own estimate.
+    streams_only: bool,
 }
 
 #[derive(Serialize, Clone, Copy, Default, Debug)]
@@ -3442,6 +3517,7 @@ fn automation_view(app: &AppHandle) -> AutomationView {
                     kick: state.bonus_ends.get(&(s.id, Platform::Kick)).copied(),
                     twitch: state.bonus_ends.get(&(s.id, Platform::Twitch)).copied(),
                 },
+                streams_only: s.streams_only,
             })
             .collect(),
     }
@@ -3695,7 +3771,8 @@ fn set_goals(app: AppHandle, id: u8, goals: Option<config::Goals>) -> Automation
         g
     });
     automation_changed(&app, |state| {
-        if let Some(slot) = state.config.slots.iter_mut().find(|s| s.id == id) {
+        // Streams-only accounts redeem a fixed bonus (their times are only estimates).
+        if let Some(slot) = state.config.slots.iter_mut().find(|s| s.id == id && !s.streams_only) {
             slot.goals = goals;
         }
     })
@@ -3709,6 +3786,8 @@ fn copy_redeem_to_all(app: AppHandle, id: u8) -> AutomationView {
         for slot in &mut state.config.slots {
             slot.bonus = from.bonus;
             slot.goals = from.goals.clone();
+            // Streams only: fixed bonus only (the first goal's, from an account with goals).
+            streams_only::fixed_only(slot);
         }
     })
 }
@@ -3726,7 +3805,7 @@ fn start_auto_reload(app: AppHandle) {
             let (wanted, ids) = {
                 let state = app.state::<Mutex<AppState>>();
                 let state = state.lock().unwrap();
-                let ids: Vec<u8> = state.config.slots.iter().map(|s| s.id).collect();
+                let ids: Vec<u8> = state.config.slots.iter().filter(|s| !s.streams_only).map(|s| s.id).collect();
                 (state.config.auto_reload_minutes, ids)
             };
             if wanted != minutes {
@@ -3831,6 +3910,8 @@ fn main() {
                 prey: HashMap::new(),
                 checks_down: HashMap::new(),
             }));
+            // Streams-only accounts: their saved bonus estimates are the running bonuses.
+            streams_only::sync_ends(&mut handle.state::<Mutex<AppState>>().lock().unwrap());
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is
             // on screen meanwhile.
@@ -3974,6 +4055,7 @@ fn main() {
             check_streams_now,
             add_slot,
             close_slot,
+            set_streams_only,
             reload_slot,
             toggle_panel,
             show_page,
