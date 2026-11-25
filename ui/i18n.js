@@ -414,6 +414,13 @@
     'For an account whose game is open on another PC: opening it here too would log that one out. The bonuses still reach it through its linked Twitch/Kick login.': 'Para uma conta com o jogo aberto em outro PC: abrir aqui também derrubaria o de lá. Os bônus chegam mesmo assim, pelo login da Twitch/Kick vinculado.',
     'Streams only: the game isn\'t here to tell. Check on the computer that runs it that {platform} is linked (Bonus on {platform}), or redeemed points are given back.': 'Só lives: o jogo não está aqui para dizer. Confira no computador que roda o jogo se a {platform} está vinculada (Bônus na {platform}), senão os pontos resgatados voltam.',
     'Streams only: the vote reminder needs the game open here': 'Só lives: o lembrete de voto precisa do jogo aberto aqui',
+    // Game only
+    'Game only': 'Só jogo',
+    'Only this account\'s game: no Twitch or Kick streams, chests or redeems (lighter on the PC)': 'Só o jogo desta conta: sem lives da Twitch ou da Kick, baús ou resgates (mais leve para o PC)',
+    'Game only · no streams': 'Só jogo · sem lives',
+    'This slot runs only the game: no Twitch or Kick streams, chests or redeems. ⚙ → Accounts changes what it runs.': 'Este slot roda só o jogo: sem lives da Twitch ou da Kick, baús ou resgates. ⚙ → Contas muda o que ele roda.',
+    'Runs the game and the Twitch and Kick streams that earn channel points, open chests and redeem the bonus below.': 'Roda o jogo e as lives da Twitch e da Kick que rendem pontos de canal, abrem baús e resgatam o bônus abaixo.',
+    'Only the game runs here: its streams are closed and none open, so no channel points, chests or redeems. The bonuses the game reports still show.': 'Aqui roda só o jogo: as lives são fechadas e nenhuma abre, então não há pontos de canal, baús nem resgates. Os bônus que o jogo informa continuam aparecendo.',
     // Economy mode: bonuses
     '{name} (shop)': '{name} (loja)',
     'Pokémon XP Boost': 'XP Boost Pokémon',
@@ -490,6 +497,10 @@
   const PHRASES = [
     // Errors
     [/^All 4 slots are open$/, 'Os 4 slots já estão abertos'],
+    [/^Game only: this slot runs no streams \(⚙ → Accounts changes what it runs\)$/, 'Só jogo: este slot não roda lives (⚙ → Contas muda o que ele roda)'],
+    [/^Runs the game and its streams$/, 'Roda o jogo e as lives'],
+    [/^Game only: its streams are closed$/, 'Só jogo: as lives foram fechadas'],
+    [/^Streams only: the game runs on another computer$/, 'Só lives: o jogo roda em outro computador'],
     [/^No such slot$/, 'Slot não encontrado'],
     [/^"(.*)" is not a Twitch or Kick channel$/, '"$1" não é um canal da Twitch ou da Kick'],
     [/^Slot (\d+) already runs (\d+) (\w+) streams; close one first$/, 'O slot $1 já tem $2 streams da $3; feche uma antes'],
@@ -942,6 +953,13 @@
     'For an account whose game is open on another PC: opening it here too would log that one out. The bonuses still reach it through its linked Twitch/Kick login.': 'Para una cuenta con el juego abierto en otra PC: abrirlo aquí también cerraría la sesión de allá. Los bonos llegan igual, por el login de Twitch/Kick vinculado.',
     'Streams only: the game isn\'t here to tell. Check on the computer that runs it that {platform} is linked (Bonus on {platform}), or redeemed points are given back.': 'Solo streams: el juego no está aquí para decirlo. Revisa en la computadora que corre el juego que {platform} esté vinculado (Bono en {platform}), o los puntos canjeados se devuelven.',
     'Streams only: the vote reminder needs the game open here': 'Solo streams: el recordatorio de voto necesita el juego abierto aquí',
+    // Game only
+    'Game only': 'Solo juego',
+    'Only this account\'s game: no Twitch or Kick streams, chests or redeems (lighter on the PC)': 'Solo el juego de esta cuenta: sin streams de Twitch o Kick, cofres ni canjes (más liviano para la PC)',
+    'Game only · no streams': 'Solo juego · sin streams',
+    'This slot runs only the game: no Twitch or Kick streams, chests or redeems. ⚙ → Accounts changes what it runs.': 'Este slot corre solo el juego: sin streams de Twitch o Kick, cofres ni canjes. ⚙ → Cuentas cambia lo que corre.',
+    'Runs the game and the Twitch and Kick streams that earn channel points, open chests and redeem the bonus below.': 'Corre el juego y los streams de Twitch y Kick que dan puntos de canal, abren cofres y canjean el bono de abajo.',
+    'Only the game runs here: its streams are closed and none open, so no channel points, chests or redeems. The bonuses the game reports still show.': 'Aquí corre solo el juego: sus streams se cierran y no se abre ninguno, así que no hay puntos de canal, cofres ni canjes. Los bonos que informa el juego se siguen mostrando.',
     // Economy mode: bonuses
     '{name} (shop)': '{name} (tienda)',
     'Pokémon XP Boost': 'XP Boost Pokémon',
@@ -1016,6 +1034,10 @@
   const PHRASES_ES = [
     // Errors
     [/^All 4 slots are open$/, 'Los 4 slots ya están abiertos'],
+    [/^Game only: this slot runs no streams \(⚙ → Accounts changes what it runs\)$/, 'Solo juego: este slot no corre streams (⚙ → Cuentas cambia lo que corre)'],
+    [/^Runs the game and its streams$/, 'Corre el juego y sus streams'],
+    [/^Game only: its streams are closed$/, 'Solo juego: sus streams se cerraron'],
+    [/^Streams only: the game runs on another computer$/, 'Solo streams: el juego corre en otra computadora'],
     [/^No such slot$/, 'Slot no encontrado'],
     [/^"(.*)" is not a Twitch or Kick channel$/, '"$1" no es un canal de Twitch o Kick'],
     [/^Slot (\d+) already runs (\d+) (\w+) streams; close one first$/, 'El slot $1 ya tiene $2 streams de $3; cierra uno primero'],

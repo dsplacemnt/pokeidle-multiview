@@ -23,6 +23,10 @@
     .half { min-width: 0; height: 100%; display: flex; align-items: center; }
     .half.left { flex: 0 1 auto; max-width: 60%; }
     .half.streams { flex: 1 1 0; position: relative; }
+    /* Game only: the right part is just a note, so the controls get the room they need and the
+       note gives way (ellipsis). */
+    body.game-only .half.left { max-width: none; }
+    body.game-only .streams .empty { min-width: 0; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; }
     .divider { flex: none; width: 2px; height: 20px; border-radius: 1px; background: var(--chip-active); }
     .row { display: flex; align-items: center; gap: 2px; overflow-x: auto; overflow-y: hidden;
       scrollbar-width: none; }
@@ -468,6 +472,7 @@
       const panels = state.panels[id];
       const focused = state.focus === id;
       document.body.classList.toggle('focused', focused);
+      document.body.classList.toggle('game-only', !!slot.game_only);
 
       const scroll = controls.scrollLeft;
       const error = document.createElement('span');
@@ -515,10 +520,8 @@
         ...issueChip,
         // Streams only: no game here, so no game sound, stats panel or reload.
         ...(slot.streams_only ? [] : [mute]),
-        sep(),
-        platformButton('twitch', panels),
-        platformButton('kick', panels),
-        ...stopButton(panels),
+        // Game only: no Twitch/Kick pages in this slot.
+        ...(slot.game_only ? [] : [sep(), platformButton('twitch', panels), platformButton('kick', panels), ...stopButton(panels)]),
         bonusBox,
         voteBox,
         ...preyChip(state, focused),
@@ -536,6 +539,13 @@
       controls.scrollLeft = scroll;
       renderBonuses();
 
+      // Game only: no "+" or pills, just what the slot is (⚙ → Accounts changes it).
+      if (slot.game_only) {
+        const note = Object.assign(document.createElement('span'), { className: 'empty', textContent: t('Game only · no streams') });
+        note.title = t('This slot runs only the game: no Twitch or Kick streams, chests or redeems. ⚙ → Accounts changes what it runs.');
+        streams.replaceChildren(note);
+        return;
+      }
       // Right part: "+", then the pills (they scroll).
       const pillScroll = pills.scrollLeft;
       const pages = panels?.pages ?? [];

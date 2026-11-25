@@ -67,7 +67,7 @@ use tauri::{
 };
 
 use config::{
-    Config, KickBonus, Platform, SavedPanel, SlotConfig, KICK_LIVES_PER_SLOT, MAX_PAGES_PER_PLATFORM,
+    Config, KickBonus, Platform, SavedPanel, SlotConfig, SlotMode, KICK_LIVES_PER_SLOT, MAX_PAGES_PER_PLATFORM,
     MAX_SLOTS,
 };
 use layout::Rect;
@@ -414,8 +414,7 @@ fn state_view(state: &AppState) -> StateView {
         prey_pending: prey::pendings(state),
         checks_down: state.checks_down.clone(),
         hunts: if state.config.economy { state.game_stats.clone() } else { HashMap::new() },
-        sprites: if state.config.economy { state.sprites.clone() } else { HashMap::new() },
-    }
+        sprites: if state.config.economy { state.sprites.clone() } else { HashMap::new() },    }
 }
 
 fn toolbar_hidden(state: &AppState) -> bool {
@@ -1313,6 +1312,7 @@ fn spawn_route_channel(app: &AppHandle, id: u8, channel: channels::Channel) {
 /// - a page of the platform that isn't on a channel (login, home) is reused;
 /// - otherwise a new page starts in the background, muted.
 fn route_channel(app: &AppHandle, id: u8, channel: &channels::Channel) -> Result<(), String> {
+    refuse_if_game_only(app, id)?;
     let (same_platform, front) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
@@ -1352,6 +1352,16 @@ fn route_channel(app: &AppHandle, id: u8, channel: &channels::Channel) -> Result
     }
     remember_panels(app);
     apply_layout(app).map_err(|e| e.to_string())
+}
+
+/// Game-only slots open no Twitch/Kick pages: a channel link clicked in the game says so.
+fn refuse_if_game_only(app: &AppHandle, id: u8) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().unwrap();
+    if state.config.slots.iter().any(|s| s.id == id && !s.runs_streams()) {
+        return Err("Game only: this slot runs no streams (⚙ → Accounts changes what it runs)".into());
+    }
+    Ok(())
 }
 
 /// Records which channel a page is on; true if it changed.
@@ -1696,16 +1706,16 @@ fn get_state(state: tauri::State<'_, Mutex<AppState>>) -> StateView {
 }
 
 // Async on purpose: creating a webview from a sync command deadlocks on Windows.
-/// "+ SLOT" asks first: the game and its streams (the default), or streams only (the account's
-/// game runs on another computer; see streams_only.rs).
+/// "+ SLOT" asks first: the game and its streams (the default), the game only (no streams), or
+/// streams only (the account's game runs on another computer; see streams_only.rs).
 #[tauri::command]
-async fn add_slot(app: AppHandle, streams_only: Option<bool>) -> Result<u8, String> {
+async fn add_slot(app: AppHandle, mode: Option<SlotMode>) -> Result<u8, String> {
     let slot = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
         let id = state.config.next_free_id().ok_or("All 4 slots are open")?;
         let mut slot = SlotConfig::new(id);
-        slot.streams_only = streams_only.unwrap_or(false);
+        slot.set_mode(mode.unwrap_or_default());
         state.config.slots.push(slot.clone());
         state.config.slots.sort_by_key(|s| s.id);
         // Streams only: "no bonus" (not "the game hasn't said") until it redeems something.
@@ -1720,49 +1730,70 @@ async fn add_slot(app: AppHandle, streams_only: Option<bool>) -> Result<u8, Stri
     Ok(slot.id)
 }
 
-/// "Streams only" in ⚙ → Accounts: the account's game runs on another computer, so this slot
-/// closes its game and runs only its streams (see streams_only.rs); off brings the game back.
-/// Async: it recreates the slot's page (see add_slot).
+/// What a slot runs, from ⚙ → Accounts: the game and its streams, the game only (its streams
+/// close and none open), or streams only (the account's game runs on another computer, so the
+/// game closes here; see streams_only.rs). Async: it may recreate the slot's page (see add_slot).
 #[tauri::command]
-async fn set_streams_only(app: AppHandle, id: u8, on: bool) -> Result<(), String> {
-    let slot = {
+async fn set_slot_mode(app: AppHandle, id: u8, mode: SlotMode) -> Result<AutomationView, String> {
+    let (slot, game_changed) = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
         let slot = state.config.slots.iter_mut().find(|s| s.id == id).ok_or("No such slot")?;
-        if slot.streams_only == on {
-            return Ok(());
+        let before = slot.mode();
+        if before == mode {
+            drop(state);
+            return Ok(automation_view(&app));
         }
-        slot.streams_only = on;
+        slot.set_mode(mode);
+        // The game page goes or comes back only when streams only is involved.
+        let game_changed = (before == SlotMode::Streams) != (mode == SlotMode::Streams);
         // Streams only redeems a fixed bonus: goals become their first bonus.
         streams_only::fixed_only(slot);
-        if on {
+        if mode == SlotMode::Streams {
             // The estimate starts from what the game last said.
             streams_only::seed(&mut state, id);
         }
-        // What the game page reported no longer holds.
-        game::forget(&mut state, id);
-        state.game_stats.remove(&id);
-        state.prey.remove(&id);
-        state.linked.retain(|(slot, _), _| *slot != id);
-        state.bonus_ends.retain(|(slot, _), _| *slot != id);
-        streams_only::sync_ends(&mut state);
-        println!("[streams-only] slot {id}: {}", if on { "on (game closed here)" } else { "off (game back)" });
-        log_event(&mut state, id, if on { "Streams only: the game runs on another computer" } else { "Streams only off: the game is back" });
+        if game_changed {
+            // What the game page reported no longer holds.
+            game::forget(&mut state, id);
+            state.game_stats.remove(&id);
+            state.prey.remove(&id);
+            state.linked.retain(|(slot, _), _| *slot != id);
+            state.bonus_ends.retain(|(slot, _), _| *slot != id);
+            streams_only::sync_ends(&mut state);
+        }
+        println!("[slot-mode] slot {id}: {before:?} -> {mode:?}");
+        log_event(&mut state, id, match mode {
+            SlotMode::Both => "Runs the game and its streams",
+            SlotMode::Game => "Game only: its streams are closed",
+            SlotMode::Streams => "Streams only: the game runs on another computer",
+        });
         if let Err(e) = state.config.save(&state.config_path) {
             eprintln!("[config] could not save: {e}");
         }
-        state.config.slots.iter().find(|s| s.id == id).cloned().ok_or("No such slot")?
+        (state.config.slots.iter().find(|s| s.id == id).cloned().ok_or("No such slot")?, game_changed)
     };
-    if let Some(old) = app.get_webview(&slot_label(id)) {
-        old.close().map_err(|e| e.to_string())?;
+    if mode == SlotMode::Game {
+        // Every stream, chest visit and login page of this slot stops.
+        stop_pages_inner(&app, id, None).map_err(|e| e.to_string())?;
+        set_front(&app, id, None).map_err(|e| e.to_string())?;
     }
-    create_slot_webview(&app, &slot).map_err(|e| e.to_string())?;
+    if game_changed {
+        if let Some(old) = app.get_webview(&slot_label(id)) {
+            old.close().map_err(|e| e.to_string())?;
+        }
+        create_slot_webview(&app, &slot).map_err(|e| e.to_string())?;
+    }
+    if slot.runs_streams() {
+        // Streams back: the manager opens them now rather than at its next round.
+        check_streams_now();
+    }
     apply_layout(&app).map_err(|e| e.to_string())?;
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
     drop(state);
-    let _ = app.emit_to("settings", "automation", automation_view(&app));
-    Ok(())
+    // Returned to Settings, which redraws its cards with it.
+    Ok(automation_view(&app))
 }
 
 #[tauri::command]
@@ -1798,6 +1829,7 @@ async fn close_slot(app: AppHandle, id: u8) -> Result<(), String> {
 // Async: may create a webview (see add_slot).
 #[tauri::command]
 async fn toggle_panel(app: AppHandle, id: u8, platform: Platform) -> Result<(), String> {
+    refuse_if_game_only(&app, id)?;
     toggle_panel_inner(&app, id, platform).map_err(|e| e.to_string())?;
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
@@ -2369,7 +2401,8 @@ fn manage_platform(app: &AppHandle, platform: Platform) {
             println!("[auto] slot {}: {} {channel} looks offline on its page; picking another", slot.id, platform.name());
             slot_live.insert(channel.clone(), false);
         }
-        let wanted = if logged_out.contains(&slot.id) {
+        // Game only: no streams at all (any left from before are closed).
+        let wanted = if logged_out.contains(&slot.id) || !slot.runs_streams() {
             Vec::new()
         } else {
             kick::pick_for_account(&priority, &slot_live, per_slot, points, &open)
@@ -3361,6 +3394,8 @@ struct BonusSlotView {
     running: SlotBonuses,
     /// Streams only: the game runs on another computer; `running` is the app's own estimate.
     streams_only: bool,
+    /// Game only: no streams here, so nothing is redeemed.
+    game_only: bool,
 }
 
 #[derive(Serialize, Clone, Copy, Default, Debug)]
@@ -3450,7 +3485,8 @@ fn automation_view(app: &AppHandle) -> AutomationView {
         let mut not: HashMap<String, Vec<String>> = HashMap::new();
         let mut unseen: HashMap<String, Vec<String>> = HashMap::new();
         for channel in list {
-            for slot in &state.config.slots {
+            // Game-only accounts open no streams: following doesn't concern them.
+            for slot in state.config.slots.iter().filter(|s| s.runs_streams()) {
                 match state.config.follows.get(&config::balance_key(slot.id, p, &channel.to_ascii_lowercase())) {
                     Some(true) => {}
                     Some(false) => not.entry(channel.clone()).or_default().push(slot_name(slot.id)),
@@ -3510,14 +3546,15 @@ fn automation_view(app: &AppHandle) -> AutomationView {
                 next: next_redeem(&state, s),
                 kick_linked: state.linked.get(&(s.id, Platform::Kick)).copied(),
                 twitch_linked: state.linked.get(&(s.id, Platform::Twitch)).copied(),
-                kick_login: state.logins.get(&(s.id, Platform::Kick)).copied(),
-                twitch_login: state.logins.get(&(s.id, Platform::Twitch)).copied(),
+                kick_login: state.logins.get(&(s.id, Platform::Kick)).copied().filter(|_| s.runs_streams()),
+                twitch_login: state.logins.get(&(s.id, Platform::Twitch)).copied().filter(|_| s.runs_streams()),
                 points: slot_points(&state.config, s.id),
                 running: SlotBonuses {
                     kick: state.bonus_ends.get(&(s.id, Platform::Kick)).copied(),
                     twitch: state.bonus_ends.get(&(s.id, Platform::Twitch)).copied(),
                 },
                 streams_only: s.streams_only,
+                game_only: s.game_only,
             })
             .collect(),
     }
@@ -4055,7 +4092,7 @@ fn main() {
             check_streams_now,
             add_slot,
             close_slot,
-            set_streams_only,
+            set_slot_mode,
             reload_slot,
             toggle_panel,
             show_page,

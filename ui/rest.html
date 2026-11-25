@@ -46,12 +46,23 @@
     @keyframes glow { 0%, 50%, 100% { opacity: 0; } 62% { opacity: 1; } 78% { opacity: 0; } }
     @keyframes spark { 0% { opacity: 0; transform: scale(.4) translateY(0); } 15% { opacity: 1; } 60% { opacity: 0; transform: scale(1) translateY(-14px); } 100% { opacity: 0; } }
     @media (prefers-reduced-motion: reduce) { .ball, .shadow, .glow, .spark { animation: none; } }
-    /* Short windows: a smaller ball, so the accounts fit without scrolling. */
-    @media (max-height: 860px) {
-      .stage { width: 96px; height: 96px; }
-      .ball { width: 72px; height: 72px; }
-      .shadow { width: 56px; height: 9px; bottom: 2px; }
+    /* The ball, the title and the button: stacked and centred when the window is tall. */
+    .hero { display: grid; gap: 18px; justify-items: center; }
+    /* Not that tall (a maximized Full HD window included): one row as wide as the cards (small
+       ball, title, the button at the right), so four accounts fit without scrolling. */
+    @media (max-height: 1099px) {
       .wrap { gap: 12px; }
+      .hero { width: 100%; display: flex; align-items: center; gap: 14px; padding: 0 4px; }
+      .hero header { text-align: left; gap: 0; flex: 1; min-width: 0; }
+      .hero header p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .hero #leave { flex: none; }
+      .stage { width: 52px; height: 52px; flex: none; }
+      .ball { width: 42px; height: 42px; }
+      .shadow { width: 32px; height: 6px; bottom: 0; }
+      .spark { width: 4px; height: 4px; }
+      .spark.a { top: 4px; left: 2px; }
+      .spark.b { top: 0; right: 4px; }
+      .spark.c { top: 14px; right: -2px; }
     }
 
     header { text-align: center; display: grid; gap: 6px; }
@@ -72,9 +83,11 @@
       display: flex; align-items: center; gap: 8px; }
     .card h2 .count { background: rgba(255, 138, 128, .16); color: var(--bad); border-radius: 10px; padding: 0 7px; letter-spacing: 0; }
     .list { display: grid; gap: 6px; max-height: 34vh; overflow-y: auto; scrollbar-width: thin; }
-    .notice { display: flex; align-items: center; gap: 10px; background: var(--row); border-radius: 9px; padding: 8px 8px 8px 12px; }
+    .notice { display: flex; align-items: center; gap: 10px; background: var(--row); border-radius: 9px; padding: 6px 6px 6px 12px; }
     .notice .icon { flex: none; width: 22px; text-align: center; font-size: 15px; }
-    .notice .text { flex: 1; min-width: 0; display: grid; }
+    /* Title and detail on one line when there's room, the detail below when there isn't. */
+    .notice .text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
+    .notice .text b { max-width: 100%; }
     .notice .text b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .notice .text span { color: var(--muted); font-size: 12.5px; }
     .notice.warn .icon { color: var(--bad); }
@@ -206,12 +219,16 @@
     .live.twitch { color: #c4a5ff; background: rgba(145, 70, 255, .16); box-shadow: inset 0 0 0 1px rgba(145, 70, 255, .35); }
     .live.kick { color: #8ff56a; background: rgba(83, 252, 24, .10); box-shadow: inset 0 0 0 1px rgba(83, 252, 24, .30); }
     .live.zero { opacity: .38; }
+    /* Game only: in the counts' place, a muted tag (as wide as the two chips). */
+    .live.gonly { min-width: 98px; justify-content: center; padding: 0 10px; color: var(--muted); font-weight: 600;
+      background: rgba(255, 255, 255, .05); box-shadow: inset 0 0 0 1px var(--line); white-space: nowrap; }
   </style>
   <script src="i18n.js"></script>
   <script src="shortcuts.js"></script>
 </head>
 <body>
   <div class="wrap">
+    <div class="hero">
     <div class="stage" aria-hidden="true">
       <span class="spark a"></span><span class="spark b"></span><span class="spark c"></span>
       <div class="ball">
@@ -234,6 +251,7 @@
       <p id="sub"></p>
     </header>
     <button id="leave" class="primary"></button>
+    </div>
 
     <section class="card">
       <h2><span data-i18n>Needs you</span><span class="count" id="count" hidden></span></h2>
@@ -677,7 +695,13 @@
         row.append(el('span', 'spacer'));
         const pages = state.panels?.[slot.id]?.pages || [];
         const lives = el('span', 'streams');
-        for (const platform of ['twitch', 'kick']) {
+        // Game only: no streams to count.
+        if (slot.game_only) {
+          const tag = el('span', 'live gonly', t('Game only'));
+          tag.title = t('This slot runs only the game: no Twitch or Kick streams, chests or redeems. ⚙ → Accounts changes what it runs.');
+          lives.append(tag);
+        }
+        for (const platform of slot.game_only ? [] : ['twitch', 'kick']) {
           const n = pages.filter((p) => p.platform === platform).length;
           const chip = el('span', `live ${platform}${n ? '' : ' zero'}`);
           chip.innerHTML = LOGO[platform];

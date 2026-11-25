@@ -95,6 +95,10 @@ pub struct SlotConfig {
     /// takes the game's place.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub streams_only: bool,
+    /// "Game only": the account plays here but runs no Twitch/Kick streams (no lives, chests or
+    /// redeems); the game's own bonuses still show. Never set together with `streams_only`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub game_only: bool,
     /// Streams only: when this account's bonuses end, as the app reckons them from its own
     /// redeems (the game isn't here to tell): platform ("kick"/"twitch") → [xp, capture, lure]
     /// end times, ms since 1970 (0 = not running).
@@ -117,9 +121,41 @@ impl SlotConfig {
             bonus: None,
             goals: None,
             streams_only: false,
+            game_only: false,
             bonus_estimate: BTreeMap::new(),
         }
     }
+
+    pub fn mode(&self) -> SlotMode {
+        if self.streams_only {
+            SlotMode::Streams
+        } else if self.game_only {
+            SlotMode::Game
+        } else {
+            SlotMode::Both
+        }
+    }
+
+    pub fn set_mode(&mut self, mode: SlotMode) {
+        self.streams_only = mode == SlotMode::Streams;
+        self.game_only = mode == SlotMode::Game;
+    }
+
+    /// The slot runs Twitch/Kick streams (every mode but "game only").
+    pub fn runs_streams(&self) -> bool {
+        self.mode() != SlotMode::Game
+    }
+}
+
+/// What a slot runs: the game and its streams (the usual), only the game, or only the streams
+/// (the game runs on another computer; see streams_only.rs).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SlotMode {
+    #[default]
+    Both,
+    Game,
+    Streams,
 }
 
 /// Cleans the Twitch priority list: logins or links become lowercase logins, invalid and
@@ -436,6 +472,14 @@ impl Config {
         for slot in &mut self.slots {
             slot.zoom = if slot.zoom.is_finite() { slot.zoom.clamp(0.5, 2.0) } else { 1.0 };
             slot.name = slot.name.as_deref().and_then(clean_name);
+            // One mode at a time (a hand-edited file could tick both).
+            if slot.streams_only {
+                slot.game_only = false;
+            }
+            // Game only runs no streams: nothing to reopen.
+            if slot.game_only {
+                slot.panels.clear();
+            }
             // No duplicate pages and at most MAX_PAGES_PER_PLATFORM per platform; the URL is
             // checked against the nav policy at restore.
             let mut seen: Vec<SavedPanel> = Vec::new();
@@ -532,6 +576,25 @@ mod tests {
             vec![s(1, 1.0), s(3, 2.0)]
         );
         assert_eq!(cfg.focus, None);
+    }
+
+    #[test]
+    fn slot_modes_load_and_stay_exclusive() {
+        let cfg: Config = serde_json::from_str(
+            r#"{"slots":[{"id":1,"zoom":1.0},{"id":2,"zoom":1.0,"game_only":true,"panels":[{"platform":"kick","url":"https://kick.com/a"}]},
+                {"id":3,"zoom":1.0,"streams_only":true},{"id":4,"zoom":1.0,"streams_only":true,"game_only":true}]}"#,
+        )
+        .unwrap();
+        let cfg = cfg.normalized();
+        let modes: Vec<SlotMode> = cfg.slots.iter().map(SlotConfig::mode).collect();
+        assert_eq!(modes, vec![SlotMode::Both, SlotMode::Game, SlotMode::Streams, SlotMode::Streams]);
+        assert!(cfg.slots[1].panels.is_empty() && !cfg.slots[1].runs_streams());
+        assert!(!cfg.slots[3].game_only);
+        let mut slot = SlotConfig::new(1);
+        slot.set_mode(SlotMode::Game);
+        assert!(slot.game_only && !slot.streams_only);
+        // The usual mode writes nothing new to the file.
+        assert!(!serde_json::to_string(&SlotConfig::new(1)).unwrap().contains("_only"));
     }
 
     #[test]

@@ -144,7 +144,9 @@ fn check(app: &AppHandle) {
 /// Each account's known login state, for the pages: slot → platform → logged in.
 pub fn view(state: &crate::AppState) -> HashMap<u8, HashMap<Platform, bool>> {
     let mut out: HashMap<u8, HashMap<Platform, bool>> = HashMap::new();
-    for ((id, platform), on) in &state.logins {
+    // Game-only accounts open no streams: their Twitch/Kick logins don't matter there.
+    let game_only = |id: &u8| state.config.slots.iter().any(|s| s.id == *id && !s.runs_streams());
+    for ((id, platform), on) in state.logins.iter().filter(|((id, _), _)| !game_only(id)) {
         out.entry(*id).or_default().insert(*platform, *on);
     }
     out

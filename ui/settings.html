@@ -123,6 +123,11 @@
     .seg button { border: 0; background: transparent; padding: 4px 12px; border-radius: 7px; font-size: 12.5px; color: var(--muted); }
     .seg button:hover:not(.on) { color: var(--text); }
     .seg button.on { background: #353a46; color: var(--text); font-weight: 600; }
+    /* What the slot runs: three equal choices, the hint for the chosen one below. */
+    .account .runs { display: grid; gap: 6px; }
+    .account .runs .seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .account .runs .seg button { padding: 5px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .account .runs .hint { margin: 0; }
     .account .fixed { display: grid; gap: 10px; }
     .account .fixed select { width: 100%; }
     .account .running { display: grid; gap: 4px; }
@@ -705,7 +710,10 @@
         });
         mode.append(b);
       }
-      if (slot.streams_only) {
+      if (slot.game_only) {
+        // Game only: no streams, so nothing to redeem.
+        head.append(el('span', 'name', slot.name));
+      } else if (slot.streams_only) {
         const tag = el('span', 'chip', t('Fixed'));
         tag.title = t('Streams only: fixed bonus (goals need the game here to know the times)');
         head.append(el('span', 'name', slot.name), tag);
@@ -745,23 +753,40 @@
         links.append(chip);
       }
 
-      card.append(head, links, streamsOnlyRow(slot), goalsMode ? goalsEditor(slot, setGoals) : fixedEditor(slot), pointsLine(slot));
+      if (slot.game_only) {
+        // Game only: the bonuses the game reports still show; no links, editor or points.
+        card.append(head, modeRow(slot), runningLines(slot));
+        return card;
+      }
+      card.append(head, links, modeRow(slot), goalsMode ? goalsEditor(slot, setGoals) : fixedEditor(slot), pointsLine(slot));
       return card;
     }
 
-    // "Streams only": the account's game runs on another computer; this slot runs only its
-    // streams (and redeems), with the bonus times estimated from its own redeems.
-    function streamsOnlyRow(slot) {
-      const row = el('label', 'row streams-only');
-      const check = Object.assign(document.createElement('input'), { type: 'checkbox', checked: !!slot.streams_only });
-      check.addEventListener('change', () => apply(invoke('set_streams_only', { id: slot.id, on: check.checked })));
-      const text = el('span');
-      text.append(el('span', '', t('Streams only (the game runs on another computer)')),
-        el('span', 'hint', slot.streams_only
-          ? t('The game is closed here; this slot only watches, opens chests and redeems. Bonus times are estimated from this app\'s redeems (≈): a redeem made by hand elsewhere isn\'t counted.')
-          : t('For an account whose game is open on another PC: opening it here too would log that one out. The bonuses still reach it through its linked Twitch/Kick login.')));
-      row.append(check, text);
-      return row;
+    // What the slot runs: the game and its streams (the usual), the game only (no streams), or
+    // streams only (the game runs on another computer; bonus times estimated from its redeems).
+    function modeRow(slot) {
+      const current = slot.streams_only ? 'streams' : slot.game_only ? 'game' : 'both';
+      const box = el('div', 'runs');
+      const seg = el('div', 'seg');
+      for (const [mode, label, title] of [
+        ['both', t('Game + streams'), t('The usual: this account\'s game, with its Twitch and Kick streams')],
+        ['game', t('Game only'), t('Only this account\'s game: no Twitch or Kick streams, chests or redeems (lighter on the PC)')],
+        ['streams', t('Streams only'), t('For an account whose game is open on another PC: opening it here too would log that one out. The bonuses still reach it through its linked Twitch/Kick login.')],
+      ]) {
+        const b = el('button', mode === current ? 'on' : '', label);
+        b.title = title;
+        b.addEventListener('click', () => {
+          if (mode !== current) apply(invoke('set_slot_mode', { id: slot.id, mode }));
+        });
+        seg.append(b);
+      }
+      const hint = {
+        both: t('Runs the game and the Twitch and Kick streams that earn channel points, open chests and redeem the bonus below.'),
+        game: t('Only the game runs here: its streams are closed and none open, so no channel points, chests or redeems. The bonuses the game reports still show.'),
+        streams: t('The game is closed here; this slot only watches, opens chests and redeems. Bonus times are estimated from this app\'s redeems (≈): a redeem made by hand elsewhere isn\'t counted.'),
+      }[current];
+      box.append(seg, el('span', 'hint', hint));
+      return box;
     }
 
     function fixedEditor(slot) {
