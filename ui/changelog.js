@@ -3,6 +3,30 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.26.1',
+    date: '2026-11-25',
+    notes: {
+      pt: [
+        'Slots "Só lives" consertados: o slot ficava com a tela preta e sem cabeçalho (nem dava para renomear), e com um slot desses o app podia nem abrir na próxima vez. Agora, no lugar do jogo, aparece a lista das lives abertas dessa conta, com os pontos de canal dela em cada uma, da que tem mais para a que tem menos. Clique numa live para assistir ali mesmo; clicar de novo volta para a lista.',
+        'Os slots Só lives não mostram mais tempos de bônus estimados: sem o jogo aqui, a conta saía errada sempre que um resgate era feito em outro lugar. Os tempos certos aparecem no jogo, no computador que roda ele.',
+        'Ao fechar um slot, o que o jogo dele tinha informado (caçada, itens, bônus, voto, Prey) é apagado. Um slot novo no mesmo lugar começa limpo, e o modo economia não mostra mais os dados da conta antiga.',
+        'Se um slot não conseguir abrir, o app abre mesmo assim com os outros, em vez de não abrir.',
+      ],
+      en: [
+        'Streams-only slots fixed: the slot showed a black screen and no header (so it couldn\'t even be renamed), and with such a slot the app might not open the next time. Now, where the game would be, it lists that account\'s open streams with its channel points on each, most first. Click a stream to watch it right there; clicking again comes back to the list.',
+        'Streams-only slots no longer show estimated bonus times: with no game here, they went wrong whenever a redeem was made elsewhere. The real times show in the game, on the computer that runs it.',
+        'Closing a slot clears what its game had reported (hunt, items, bonuses, vote, Prey). A new slot in the same place starts clean, and economy mode no longer shows the old account\'s data.',
+        'If a slot can\'t open, the app still opens with the others instead of not opening at all.',
+      ],
+      es: [
+        'Slots "Solo streams" arreglados: el slot quedaba con la pantalla negra y sin encabezado (ni se podía renombrar), y con un slot así la app podía no abrir la próxima vez. Ahora, en lugar del juego, aparece la lista de los streams abiertos de esa cuenta, con sus puntos de canal en cada uno, de mayor a menor. Haz clic en un stream para verlo ahí mismo; hacer clic de nuevo vuelve a la lista.',
+        'Los slots Solo streams ya no muestran tiempos de bono estimados: sin el juego aquí, la cuenta salía mal cada vez que se canjeaba en otro lado. Los tiempos reales se ven en el juego, en la computadora que lo corre.',
+        'Al cerrar un slot, se borra lo que su juego había informado (caza, objetos, bonos, voto, Prey). Un slot nuevo en el mismo lugar empieza limpio, y el modo ahorro ya no muestra los datos de la cuenta anterior.',
+        'Si un slot no puede abrir, la app abre igual con los demás en vez de no abrir.',
+      ],
+    },
+  },
+  {
     version: '0.26.0',
     date: '2026-11-25',
     notes: {
