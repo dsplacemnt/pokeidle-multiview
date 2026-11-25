@@ -3,6 +3,24 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.25.0',
+    date: '2026-11-24',
+    notes: {
+      pt: [
+        'Slots "Só lives": para uma conta que está com o jogo aberto em outro computador. Ao clicar em + SLOT, escolha entre Jogo + lives (o normal) e Só lives. Um slot Só lives não abre o jogo (abrir aqui também derrubaria o do outro PC): ele só roda as lives da Twitch e da Kick dessa conta, abre os baús e resgata os bônus, que chegam à conta do jogo pelo login da Twitch/Kick vinculado.',
+        'Sem o jogo aqui, o app estima o tempo de cada bônus pelos resgates que ele mesmo faz (aparece com ≈). Por isso essas contas usam bônus fixo, sem metas, e ficam sem o lembrete de voto. Em ⚙ → Contas dá para trocar um slot entre os dois modos quando quiser, e no modo economia o card dele mostra uma TV transmitindo.',
+      ],
+      en: [
+        'Streams-only slots: for an account whose game is open on another computer. Clicking + SLOT asks Game + streams (the usual) or Streams only. A streams-only slot doesn\'t open the game (opening it here too would log the other PC out): it only runs that account\'s Twitch and Kick streams, opens the chests and redeems the bonuses, which reach the game account through its linked Twitch/Kick login.',
+        'With no game here, the app estimates each bonus\'s time from the redeems it makes itself (shown with ≈). So these accounts use a fixed bonus, no goals, and have no vote reminder. ⚙ → Accounts switches a slot between the two modes at any time, and in economy mode its card shows a broadcasting TV.',
+      ],
+      es: [
+        'Slots "Solo streams": para una cuenta que tiene el juego abierto en otra computadora. Al hacer clic en + SLOT, elige entre Juego + streams (lo normal) y Solo streams. Un slot Solo streams no abre el juego (abrirlo aquí también cerraría el de la otra PC): solo corre los streams de Twitch y Kick de esa cuenta, abre los cofres y canjea los bonos, que llegan a la cuenta del juego por el login de Twitch/Kick vinculado.',
+        'Sin el juego aquí, la app estima el tiempo de cada bono por los canjes que hace ella misma (aparece con ≈). Por eso esas cuentas usan bono fijo, sin metas, y no tienen el recordatorio de voto. En ⚙ → Cuentas puedes cambiar un slot entre los dos modos cuando quieras, y en el modo ahorro su tarjeta muestra una TV transmitiendo.',
+      ],
+    },
+  },
+  {
     version: '0.24.0',
     date: '2026-11-24',
     notes: {
