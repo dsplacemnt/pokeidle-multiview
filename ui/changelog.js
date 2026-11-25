@@ -3,6 +3,30 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.26.0',
+    date: '2026-11-25',
+    notes: {
+      pt: [
+        'Slots "Só jogo": para uma conta que você quer só jogando, sem lives. Ao clicar em + SLOT agora são três opções: Jogo + lives (o normal), Só jogo e Só lives. Um slot Só jogo não abre lives da Twitch nem da Kick (nem baús ou resgates), então pesa menos no PC; os bônus que o jogo informa continuam aparecendo no cabeçalho e no modo economia.',
+        'Em ⚙ → Contas, cada conta tem os três modos lado a lado para trocar quando quiser. Passar uma conta para Só jogo fecha as lives dela na hora, sem recarregar o jogo; voltar para Jogo + lives abre as lives de novo.',
+        'O modo economia ficou mais compacto: em telas não muito altas (como Full HD com a janela maximizada), a Pokébola, o título e o botão ficam numa linha só, e os avisos de "Precisa de você" ocupam menos espaço. Assim quatro contas cabem sem rolar a tela.',
+        'Trocar o modo de um slot em ⚙ → Contas não mostra mais uma mensagem de erro por engano.',
+      ],
+      en: [
+        'Game-only slots: for an account you only want playing, with no streams. Clicking + SLOT now offers three choices: Game + streams (the usual), Game only and Streams only. A game-only slot opens no Twitch or Kick streams (and no chests or redeems), so it\'s lighter on the PC; the bonuses the game reports still show in its header and in economy mode.',
+        'In ⚙ → Accounts, each account has the three modes side by side to switch at any time. Switching an account to Game only closes its streams right away, without reloading the game; going back to Game + streams opens them again.',
+        'Economy mode is more compact: on screens that aren\'t very tall (like Full HD with the window maximized), the Poké Ball, the title and the button sit on one line, and the "Needs you" notices take less room. So four accounts fit without scrolling.',
+        'Changing a slot\'s mode in ⚙ → Accounts no longer shows an error message by mistake.',
+      ],
+      es: [
+        'Slots "Solo juego": para una cuenta que solo quieres jugando, sin streams. Al hacer clic en + SLOT ahora hay tres opciones: Juego + streams (lo normal), Solo juego y Solo streams. Un slot Solo juego no abre streams de Twitch ni de Kick (ni cofres ni canjes), así que pesa menos en la PC; los bonos que informa el juego se siguen mostrando en su encabezado y en el modo ahorro.',
+        'En ⚙ → Cuentas, cada cuenta tiene los tres modos lado a lado para cambiar cuando quieras. Pasar una cuenta a Solo juego cierra sus streams al instante, sin recargar el juego; volver a Juego + streams los abre de nuevo.',
+        'El modo ahorro quedó más compacto: en pantallas no muy altas (como Full HD con la ventana maximizada), la Poké Ball, el título y el botón quedan en una sola línea, y los avisos de "Te necesita" ocupan menos espacio. Así caben cuatro cuentas sin desplazarse.',
+        'Cambiar el modo de un slot en ⚙ → Cuentas ya no muestra un mensaje de error por equivocación.',
+      ],
+    },
+  },
+  {
     version: '0.25.0',
     date: '2026-11-24',
     notes: {
