@@ -12,15 +12,15 @@ under 10 MB. An **experimental Linux** build (WebKitGTK) comes with every releas
 
 - **Up to 4 slots.** Each slot has its own WebView2 data folder, so cookies, storage and logins
   stay separate and are kept between runs.
-- **Streams-only slots.** **+ SLOT** asks what the new slot runs: **Game + streams** (the usual)
-  or **Streams only**, for an account whose game is open on another computer (the game keeps one
-  connection per account, so opening it here too would log that one out). A streams-only slot
-  runs that account's Twitch and Kick streams, chests and redeems, with a light page where the
-  game would be; the bonuses still reach the game account through its linked Twitch/Kick login.
-  With no game here to tell the bonus times, the app estimates them from its own redeems (each
-  reward's title says its hours; shown with ≈; a redeem made by hand elsewhere isn't counted),
-  so these accounts redeem a fixed bonus (no goals) and have no vote reminder. ⚙ → Accounts
-  switches a slot between the two at any time; economy mode shows a broadcasting TV on its card.
+- **What each slot runs.** **+ SLOT** asks: **Game + streams** (the usual), **Game only** (no
+  Twitch or Kick streams, chests or redeems; lighter on the PC) or **Streams only**, for an
+  account whose game is open on another computer (the game keeps one connection per account, so
+  opening it here too would log that one out). A streams-only slot runs that account's Twitch and
+  Kick streams, chests and redeems; where the game would be, a page lists its streams with the
+  account's channel points on each (click one to watch it there). The bonuses still reach the
+  game account through its linked Twitch/Kick login; their times show in the game on the other
+  computer, so these accounts redeem a fixed bonus (no goals) and have no vote reminder.
+  ⚙ → Accounts switches a slot between the three at any time.
 - **A header on each slot.** Every slot has its own strip on top: its controls (name, sound,
   Twitch/Kick, running bonuses, reload, close) on the left and its stream pills on the right, past a
   divider. Everything about one account sits next to its game. The toolbar at the top keeps

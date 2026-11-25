@@ -129,9 +129,12 @@
     .hstate.idle .dot { background: #ffb74d; }
     .hstate.down { color: var(--bad); }
     .hstate.down .dot { background: var(--bad); }
-    /* Streams only (the game runs on another computer): a little broadcasting TV where the hunt
-       and the items would be, over both of those rows. */
-    .so-art { grid-row: span 2; display: flex; align-items: center; gap: 14px; min-width: 0; padding: 10px 14px;
+    /* Streams only (the game runs on another computer): a little broadcasting TV where the
+       bonuses, the hunt and the items would be, over those three rows. */
+    /* Its card: the name line, then the TV filling the rest of the card (as tall as the one
+       beside it). */
+    .account.so { grid-template-rows: auto 1fr; }
+    .so-art { grid-row: span 3; display: flex; align-items: center; gap: 14px; min-width: 0; padding: 10px 14px;
       border-radius: 10px; border: 1px solid rgba(145, 70, 255, .22);
       background: linear-gradient(100deg, rgba(145, 70, 255, .13), rgba(83, 252, 24, .06) 70%, transparent); }
     .so-art svg { width: 76px; height: 60px; flex: none; overflow: visible; }
@@ -436,12 +439,10 @@
       if (reported && Array.isArray(reported.list)) return reported;
       const list = [];
       const running = state.bonuses?.[slot.id] || {};
-      // Streams only: the app's own estimate (the game runs on another computer).
-      const est = !!slot.streams_only;
       for (const platform of ['twitch', 'kick']) {
         for (const [kind, k] of [['xp', 'xp'], ['capture', 'cap'], ['lure', 'lure']]) {
           const e = running[platform]?.[kind] || 0;
-          if (e) list.push({ s: platform, k, p: est ? 15 : null, e, est });
+          if (e) list.push({ s: platform, k, p: null, e });
         }
       }
       return { xp: null, list };
@@ -478,12 +479,11 @@
         effect = b.p !== null && b.p !== undefined ? `${pctText(b.p)} ${what}` : what;
       }
       if (paused) chip.append(el('small', '', `⏸ ${left(b.z)}`));
-      else if (ends !== null) chip.append(el('small', '', `${b.est ? '≈ ' : ''}${left(ends)}`));
+      else if (ends !== null) chip.append(el('small', '', left(ends)));
       const when = paused ? t('paused in the Safari, {time} left', { time: left(b.z) })
         : ends !== null ? t('{time} left', { time: left(ends) }) : t('no end');
       chip.title = `${sourceName(b)}: ${effect} · ${when}`
-        + (offHunt ? `\n${t('Not in the current hunt: the Prey bonus only works while hunting this Pokémon')}` : '')
-        + (b.est ? `\n${t('Estimated from this app\'s redeems (the game runs on another computer)')}` : '');
+        + (offHunt ? `\n${t('Not in the current hunt: the Prey bonus only works while hunting this Pokémon')}` : '');
       return chip;
     }
 
@@ -709,14 +709,15 @@
           chip.title = t(n === 1 ? '{n} {platform} stream open' : '{n} {platform} streams open', { n, platform: PLATFORM[platform] });
           lives.append(chip);
         }
-        const fight = fightEl(slot, state, now);
+        const fight = slot.streams_only ? null : fightEl(slot, state, now);
         if (fight) row.append(fight);
         row.append(lives);
         // Always four parts (an empty one where the game hasn't sent the items yet), so the
         // rows line up with the card beside it.
-        // Streams only: no hunt or items here, the broadcasting TV instead (over both rows).
+        // Streams only: no bonuses, hunt or items here, the broadcasting TV instead (3 rows).
         if (slot.streams_only) {
-          box.append(row, boostSections(slot, state, now), streamsOnlyArt());
+          box.classList.add('so');
+          box.append(row, streamsOnlyArt());
           return box;
         }
         const hunt = huntLines(slot, state, now);

@@ -693,7 +693,7 @@
 
     function accountCard(slot) {
       const card = el('div', 'account');
-      // Streams only: a fixed bonus (without the game the times are only estimates).
+      // Streams only: a fixed bonus (goals need the bonus times, which only the game knows).
       const goalsMode = !!slot.goals && !slot.streams_only;
       const setGoals = (goals) => apply(invoke('set_goals', { id: slot.id, goals }));
 
@@ -763,7 +763,7 @@
     }
 
     // What the slot runs: the game and its streams (the usual), the game only (no streams), or
-    // streams only (the game runs on another computer; bonus times estimated from its redeems).
+    // streams only (the game runs on another computer; it redeems a fixed bonus).
     function modeRow(slot) {
       const current = slot.streams_only ? 'streams' : slot.game_only ? 'game' : 'both';
       const box = el('div', 'runs');
@@ -783,7 +783,7 @@
       const hint = {
         both: t('Runs the game and the Twitch and Kick streams that earn channel points, open chests and redeem the bonus below.'),
         game: t('Only the game runs here: its streams are closed and none open, so no channel points, chests or redeems. The bonuses the game reports still show.'),
-        streams: t('The game is closed here; this slot only watches, opens chests and redeems. Bonus times are estimated from this app\'s redeems (≈): a redeem made by hand elsewhere isn\'t counted.'),
+        streams: t('The game is closed here; this slot only watches, opens chests and redeems the bonus below. The bonus times show in the game, on the computer that runs it.'),
       }[current];
       box.append(seg, el('span', 'hint', hint));
       return box;
@@ -797,7 +797,8 @@
       }
       select.value = slot.bonus || '';
       select.addEventListener('change', () => apply(invoke('set_bonus', { id: slot.id, bonus: select.value || null })));
-      box.append(select, runningLines(slot));
+      // Streams only: no bonus times here (the game on the other computer has them).
+      box.append(select, ...(slot.streams_only ? [] : [runningLines(slot)]));
       return box;
     }
 
@@ -806,16 +807,10 @@
       const running = el('div', 'running');
       const now = Date.now();
       for (const [platform, name] of [['twitch', 'Twitch'], ['kick', 'Kick']]) {
-        // Streams only: the app's own estimate (≈).
-        const est = slot.streams_only;
         const chips = KINDS
           .map(([key, label]) => [key, label, (slot.running?.[platform]?.[key] || 0) - now])
           .filter(([, , ms]) => ms > 0)
-          .map(([key, label, ms]) => {
-            const chip = el('span', `bonus ${key}`, `${est ? '≈ ' : ''}${label} ${leftText(ms)}`);
-            if (est) chip.title = t('Estimated from this app\'s redeems');
-            return chip;
-          });
+          .map(([key, label, ms]) => el('span', `bonus ${key}`, `${label} ${leftText(ms)}`));
         if (!chips.length) chips.push(el('span', 'bonus none', slot.running?.[platform] ? t('no bonus') : '?'));
         const line = el('div', 'bline');
         const items = el('span', 'items');

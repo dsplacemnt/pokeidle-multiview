@@ -226,6 +226,10 @@
     const slotName = (slot) => slot.name || `Slot ${slot.id}`;
     const frontPage = (panels) => panels?.pages?.find((p) => p.label === panels.front);
     const pageName = (page) => page.login || t('{platform} (not on a channel)', { platform: PLATFORMS[page.platform].name });
+    // Leaving a shown stream: back to the game, or (streams only) to the slot's list of streams.
+    const backTitle = (name) => (latest?.slots?.find((s) => s.id === id)?.streams_only
+      ? t('Back to the streams list ({name} keeps running muted)', { name })
+      : t('Back to the game ({name} keeps running muted)', { name }));
 
     // While the player types (renaming, adding a channel), state updates don't redraw the row.
     let editing = false;
@@ -275,7 +279,7 @@
       const shown = frontPage(panels)?.platform === platform;
       const count = panels?.pages?.filter((p) => p.platform === platform).length ?? 0;
       const title = shown
-        ? t('Back to the game ({name} keeps running muted)', { name })
+        ? backTitle(name)
         : count
           ? t(count > 1 ? '{count} {name} streams running in the background — click to show one (the pills pick which)'
               : '1 {name} stream running in the background — click to show it', { count, name })
@@ -351,7 +355,7 @@
       // A problem the app couldn't fix by itself (stalled, logged out, offline).
       if (page.warning) el.classList.add('warn');
       const show = button('', shown
-        ? t('Back to the game ({name} keeps running muted)', { name: pageName(page) })
+        ? backTitle(pageName(page))
         : t('Show {name} ({platform}) in this slot', { name: pageName(page), platform: name }),
         () => call('show_page', { label: page.label }), 'show');
       show.innerHTML = svg;
@@ -388,8 +392,12 @@
     function renderBonuses() {
       const running = latest?.bonuses?.[id] || {};
       const now = Date.now();
-      // Streams only: the game runs on another computer; the times are the app's estimate.
-      const estimated = !!latest?.slots?.find((s) => s.id === id)?.streams_only;
+      // Streams only: the game runs on another computer, which alone knows the bonus times.
+      if (latest?.slots?.find((s) => s.id === id)?.streams_only) {
+        bonusBox.replaceChildren();
+        renderVote();
+        return;
+      }
       // Each platform's bonuses run on their own clock: one group per platform (Twitch, then
       // Kick), each with its platform mark and a chip per running bonus.
       const groups = [];
@@ -399,9 +407,7 @@
           const ms = (running[platform]?.[key] || 0) - now;
           if (ms <= 0) continue;
           const chip = Object.assign(document.createElement('span'), { className: `bonus ${key}`, textContent: `${short} ${left(ms)}` });
-          chip.title = t('{bonus} from {platform}: {left} left', { bonus: long, platform: PLATFORMS[platform].name, left: left(ms) })
-            + (estimated ? `\n${t('Estimated from this app\'s redeems (the game runs on another computer)')}` : '');
-          if (estimated) chip.textContent = `≈ ${chip.textContent}`;
+          chip.title = t('{bonus} from {platform}: {left} left', { bonus: long, platform: PLATFORMS[platform].name, left: left(ms) });
           chips.push(chip);
         }
         // A platform without bonuses stays visible, marked as such ("?" until the game says).

@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Streams only</title>
+  <style>
+    :root {
+      --bg: #14161b; --card: #1d2027; --row: #252932; --line: #2e333d; --chip: #262a33;
+      --text: #e6e8ee; --muted: #8b91a1; --accent: #f2c14e; --ok: #3ddc84; --bad: #ff8a80;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font: 13.5px/1.45 "Segoe UI", system-ui, sans-serif; user-select: none; }
+    /* Centred; scrolls only when the slot is too small for the list. */
+    body { display: grid; justify-items: center; align-content: safe center; overflow-y: auto; scrollbar-width: thin;
+      padding: 20px 0; background: radial-gradient(ellipse at 50% 30%, #1c2029 0%, var(--bg) 62%); }
+    .wrap { width: min(860px, calc(100% - 32px)); display: grid; gap: 14px; }
+
+    /* What this slot is: the broadcasting TV, the title and what it does. */
+    .hero { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .hero svg { width: 64px; height: 52px; flex: none; overflow: visible; }
+    .hero .text { display: grid; gap: 2px; min-width: 0; }
+    h1 { margin: 0; font-size: 18px; font-weight: 600; color: var(--accent); }
+    .hero p { margin: 0; color: var(--muted); }
+    .wave { animation: wave 2.6s ease-in-out infinite; }
+    .wave.w2 { animation-delay: .35s; }
+    .live-dot { animation: blink 1.6s ease-in-out infinite; }
+    @keyframes wave { 0%, 100% { opacity: .15; } 50% { opacity: .9; } }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+    @media (prefers-reduced-motion: reduce) { .wave, .live-dot { animation: none; } }
+
+    .card { background: var(--card); border-radius: 14px; padding: 14px 16px; display: grid; gap: 10px;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 6px 18px rgba(0, 0, 0, .18); }
+    .card h2 { margin: 0; font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+      display: flex; align-items: center; gap: 8px; }
+    .card h2 .n { color: var(--text); letter-spacing: 0; }
+    button { background: var(--chip); color: var(--text); border: 1px solid #3a3f4b; border-radius: 8px;
+      height: 28px; padding: 0 12px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; flex: none; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #1a1408; }
+    button.primary:hover { background: #ffd76b; border-color: #ffd76b; }
+    button.icon { width: 28px; padding: 0; color: var(--muted); background: transparent; border-color: transparent; font-size: 15px; }
+    button.icon:hover { color: var(--bad); background: var(--chip); border-color: transparent; }
+
+    .blines { display: grid; gap: 6px; }
+
+    /* Something to do: not logged in on a platform, live checks down. */
+    .notice { display: flex; align-items: center; gap: 10px; background: var(--row); border-radius: 9px; padding: 6px 6px 6px 12px; }
+    .notice .icon { flex: none; width: 22px; text-align: center; font-size: 15px; color: #ffd27a; }
+    .notice.warn .icon { color: var(--bad); }
+    .notice .text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
+    .notice .text b { font-weight: 600; }
+    .notice .text span { color: var(--muted); font-size: 12.5px; }
+
+    /* The open streams: a card each, side by side as the slot allows. The whole card shows the
+       stream here; ▶ says so, × (on hover) stops it. */
+    .grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+    .stream { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 4px 8px;
+      min-height: 40px; background: var(--row); border-radius: 9px; padding: 5px 4px 5px 10px; border: 1px solid transparent;
+      cursor: pointer; }
+    .stream:hover { border-color: #3a3f4b; background: #2a2f39; }
+    .stream.warn { border-color: rgba(255, 138, 128, .45); }
+    .stream.shown { border-color: var(--accent); }
+    .stream .logo { width: 20px; height: 20px; display: block; }
+    .stream .logo svg { width: 100%; height: 100%; display: block; }
+    .stream .who { min-width: 0; display: grid; line-height: 1.3; }
+    .stream .who b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stream .who span { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stream .who span.bad { color: var(--bad); }
+    .stream .who span.ok { color: var(--accent); }
+    .stream .actions { display: flex; align-items: center; }
+    .stream .actions button { width: 26px; height: 26px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 12px; }
+    .stream:hover .play { color: var(--accent); }
+    .stream .stop { visibility: hidden; font-size: 15px; }
+    .stream:hover .stop { visibility: visible; }
+    .stream .stop:hover { color: var(--bad); background: var(--chip); }
+    .stream .tip { color: #ff8fa0; margin-left: 4px; font-weight: 400; }
+    /* The account's channel points there, in the platform's colour; dimmed until read. */
+    .pts { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .pts small { font-size: 10.5px; font-weight: 600; color: var(--muted); margin-left: 3px; }
+    .pts.twitch { color: #c4a5ff; }
+    .pts.kick { color: #8ff56a; }
+    .pts.unknown { color: #5b6170; font-weight: 600; }
+    .empty { color: var(--muted); display: grid; gap: 4px; padding: 6px 2px; }
+    .empty b { color: var(--text); font-weight: 600; }
+    .foot { color: var(--muted); font-size: 12px; text-align: center; }
+  </style>
+  <script src="i18n.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <svg viewBox="0 0 80 64" aria-hidden="true">
+        <defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#9146ff"/><stop offset="1" stop-color="#53fc18"/></linearGradient></defs>
+        <path class="wave" d="M5 24a14 14 0 0 0 0 18" fill="none" stroke="#c4a5ff" stroke-width="2.2" stroke-linecap="round"/>
+        <path class="wave w2" d="M-1 19a21 21 0 0 0 0 28" fill="none" stroke="#c4a5ff" stroke-width="2.2" stroke-linecap="round"/>
+        <path class="wave" d="M75 24a14 14 0 0 1 0 18" fill="none" stroke="#8ff56a" stroke-width="2.2" stroke-linecap="round"/>
+        <path class="wave w2" d="M81 19a21 21 0 0 1 0 28" fill="none" stroke="#8ff56a" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M31 4l9 9 9-9" fill="none" stroke="#8b91a1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="31" cy="4" r="2" fill="#8b91a1"/><circle cx="49" cy="4" r="2" fill="#8b91a1"/>
+        <rect x="11" y="13" width="58" height="42" rx="9" fill="#1d2027" stroke="#3a3f4b" stroke-width="1.5"/>
+        <rect x="16" y="18" width="40" height="32" rx="5" fill="url(#screen)" opacity=".9"/>
+        <path d="M32 27v14l11-7z" fill="#fff"/>
+        <rect x="19" y="21" width="17" height="7" rx="3.5" fill="#ff4d5e"/>
+        <circle class="live-dot" cx="22.5" cy="24.5" r="1.4" fill="#fff"/>
+        <text x="25" y="26.6" font-size="5.2" font-weight="700" fill="#fff" font-family="Segoe UI, sans-serif">LIVE</text>
+        <circle cx="62.5" cy="27" r="2.6" fill="#3a3f4b"/><circle cx="62.5" cy="36" r="2.6" fill="#3a3f4b"/>
+      </svg>
+      <div class="text">
+        <h1 id="title"></h1>
+        <p id="sub"></p>
+      </div>
+    </div>
+    <div id="notices" class="blines"></div>
+    <section class="card">
+      <h2 id="streams-head"></h2>
+      <div id="streams"></div>
+    </section>
+    <p class="foot" id="foot"></p>
+  </div>
+
+  <script>
+    // A streams-only slot's page, in the game's place: the account's game runs on another
+    // computer, and this slot only runs its Twitch and Kick streams. It lists them with the
+    // account's channel points on each (click one to watch it here, like the header's pills),
+    // and says what needs the player (a login).
+    const { invoke } = window.__TAURI__.core;
+    const { listen } = window.__TAURI__.event;
+    const { t } = I18N;
+    const id = Number(new URLSearchParams(location.search).get('id'));
+    const PLATFORMS = {
+      twitch: { name: 'Twitch', svg: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#9146FF" d="M4.3 2 2.5 6.5V20h5v2.5h2.8l2.5-2.5h4l4.7-4.7V2H4.3Z"/><path fill="#fff" d="M19.5 14.2 16.7 17h-4.5l-2.5 2.5V17H5.5V4h14v10.2Z"/><path fill="#9146FF" d="M15.2 7.2h2v5.6h-2zM10.6 7.2h2v5.6h-2z"/></svg>' },
+      kick: { name: 'Kick', svg: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#53FC18"/><path fill="#0B0E0F" d="M5.5 4.5h5v4h1.7V6.6h1.9V4.5h4.4v5.3h-2.1v1.9h-1.9v.6h1.9v1.9h2.1v5.3h-4.4v-2.1h-1.9v-1.9h-1.7v4h-5z"/></svg>' },
+    };
+    let latest = null;
+
+    const el = (tag, className, text) => {
+      const e = document.createElement(tag);
+      if (className) e.className = className;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    };
+    const button = (text, title, onClick, className) => {
+      const b = el('button', className || '', text);
+      b.title = title;
+      b.addEventListener('click', onClick);
+      return b;
+    };
+    const call = (cmd, args = {}) => invoke(cmd, { id, ...args }).catch((e) => console.warn(cmd, e));
+
+    function notice(kind, icon, title, detail, action) {
+      const row = el('div', `notice ${kind}`);
+      const text = el('div', 'text');
+      text.append(el('b', '', title), el('span', '', detail));
+      row.append(el('span', 'icon', icon), text);
+      if (action) row.append(action);
+      return row;
+    }
+
+    // Numbers in the app's language (12.450 / 12,450; 124,5 mil / 124.5K).
+    const locale = () => ({ pt: 'pt-BR', es: 'es' })[I18N.lang] || 'en';
+    const compact = (n) => (n >= 1e4
+      ? new Intl.NumberFormat(locale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+      : n.toLocaleString(locale()));
+
+    // The account's channel points on the stream's channel.
+    function pointsEl(page, points) {
+      const { name } = PLATFORMS[page.platform];
+      if (!page.login) return el('span');
+      if (points === null) {
+        const none = el('span', 'pts unknown', '—');
+        none.title = page.platform === 'twitch'
+          ? t('Points on {channel} not read yet: Twitch shows them on the visits the app makes every ~15 minutes', { channel: page.login })
+          : t('Points on {channel} not read yet: Kick shows them once the page has loaded', { channel: page.login });
+        return none;
+      }
+      const pts = el('span', `pts ${page.platform}`, compact(points));
+      pts.append(el('small', '', t('pts')));
+      pts.title = t('{points} channel points on {channel} ({platform})', { points: points.toLocaleString(locale()), channel: page.login, platform: name });
+      return pts;
+    }
+
+    function streamCard(page, shown, points) {
+      const { name, svg } = PLATFORMS[page.platform];
+      const card = el('div', 'stream' + (page.warning ? ' warn' : '') + (shown ? ' shown' : ''));
+      const show = () => call('show_page', { label: page.label });
+      card.addEventListener('click', show);
+      card.title = shown
+        ? t('Back to this list ({name} keeps running muted)', { name: page.login || name })
+        : t('Show {name} ({platform}) in this slot', { name: page.login || name, platform: name });
+      const logo = el('span', 'logo');
+      logo.innerHTML = svg;
+      const who = el('div', 'who');
+      const channel = el('b', '', page.login || t('{platform} (not on a channel)', { platform: name }));
+      if (page.not_following) {
+        const tip = el('span', 'tip', '♡');
+        tip.title = page.platform === 'twitch'
+          ? t("Tip: this account doesn't follow {name} on Twitch. Following gives +300 channel points once — show the stream and follow it there.", { name: page.login })
+          : t("Tip: this account doesn't follow {name} on Kick. Show the stream and follow it there.", { name: page.login });
+        channel.append(tip);
+      }
+      who.append(channel);
+      // A second line only when there's something to say: a problem, or it's the one shown.
+      if (page.warning) {
+        const status = el('span', 'bad', `⚠ ${I18N.text(page.warning)}`);
+        card.title = `${status.textContent}\n\n${card.title}`;
+        who.append(status);
+      } else if (shown) {
+        who.append(el('span', 'ok', t('On screen')));
+      }
+      const actions = el('div', 'actions');
+      const stop = button('×', t('Stop {name}', { name: page.login || name }), (e) => {
+        e.stopPropagation();
+        call('stop_page', { label: page.label });
+      }, 'stop');
+      actions.append(stop, button(shown ? '↩' : '▶', card.title, (e) => { e.stopPropagation(); show(); }, 'play'));
+      card.append(logo, who, pointsEl(page, points), actions);
+      return card;
+    }
+
+    function render() {
+      const state = latest;
+      if (!state) return;
+      const slot = state.slots.find((s) => s.id === id);
+      if (!slot) return;
+      document.title = `${slot.name || `Slot ${id}`} · ${t('Streams only')}`;
+      document.getElementById('title').textContent = t('Streams only');
+      document.getElementById('sub').textContent = t("This account's game runs on another computer: here it only watches its streams, opens chests and redeems its bonuses");
+
+      // What needs the player.
+      const notices = [];
+      for (const c of I18N.checksDown(state)) {
+        notices.push(notice('warn', '⚠', c.title, c.detail, button(t('Check again'), '', () => invoke('check_streams_now'))));
+      }
+      for (const platform of ['twitch', 'kick']) {
+        if (state.logins?.[id]?.[platform] !== false) continue;
+        const { name } = PLATFORMS[platform];
+        notices.push(notice('login', '🔑', t("This account isn't logged in on {platform}", { platform: name }),
+          t('Its {platform} streams wait for a login (they would earn nothing)', { platform: name }),
+          button(t('Log in'), '', () => call('open_login', { platform }), 'primary')));
+      }
+      document.getElementById('notices').replaceChildren(...notices);
+
+      // The open streams.
+      const panels = state.panels?.[id];
+      // The account's points on each channel (null = not read yet).
+      const pointsOf = new Map((state.points?.[id] || []).map(([platform, channel, n]) => [`${platform}:${channel}`, n]));
+      const pts = (p) => (p.login ? pointsOf.get(`${p.platform}:${p.login.toLowerCase()}`) ?? null : null);
+      // Twitch then Kick; in each, most points first (the same as the manager's picks).
+      const pages = [...(panels?.pages || [])].sort((a, b) =>
+        (a.platform === b.platform ? 0 : a.platform === 'twitch' ? -1 : 1) || (pts(b) ?? -1) - (pts(a) ?? -1));
+      const head = document.getElementById('streams-head');
+      head.replaceChildren(t('Open streams'), el('span', 'n', String(pages.length)));
+      const box = document.getElementById('streams');
+      if (pages.length) {
+        const grid = el('div', 'grid');
+        grid.append(...pages.map((p) => streamCard(p, p.label === panels.front, pts(p))));
+        box.replaceChildren(grid);
+      } else {
+        const empty = el('div', 'empty');
+        empty.append(el('b', '', t('No streams open yet')),
+          t("The app opens this account's lives from the priority lists in ⚙ → Channels as soon as they're live. The + in the header above adds a channel by hand."));
+        box.replaceChildren(empty);
+      }
+
+      document.getElementById('foot').textContent = pages.length
+        ? t("Click a stream to watch it here (the header's pills do the same); clicking it again comes back to this list.")
+        : '';
+    }
+
+    listen('state', (e) => { latest = e.payload; render(); });
+    I18N.onChange(render);
+    invoke('get_state').then((s) => { latest = s; render(); });
+  </script>
+</body>
+</html>

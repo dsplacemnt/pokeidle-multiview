@@ -248,6 +248,9 @@ struct StateView {
     hunts: HashMap<u8, serde_json::Value>,
     /// Pokémon sprites by look (see game.rs), for economy mode's fight minis: only while it's on.
     sprites: HashMap<u32, serde_json::Value>,
+    /// Streams-only slots: the account's last seen channel points per channel, for the cards on
+    /// the slot's own page ([platform, channel, points], most first).
+    points: HashMap<u8, Vec<(Platform, String, u64)>>,
 }
 
 fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
@@ -316,6 +319,16 @@ fn slot_may_navigate(url: &Url) -> bool {
     }
 }
 
+/// One of the app's own pages in ui/ (served at http://tauri.localhost on Windows,
+/// tauri://localhost elsewhere).
+fn is_app_page(url: &Url) -> bool {
+    match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost"),
+        "http" | "https" => url.host_str() == Some("tauri.localhost"),
+        _ => false,
+    }
+}
+
 /// Navigation in a slot page: allowed sites load in the slot; any other web page is opened in
 /// the default browser instead, and the slot stays where it is.
 fn guard_navigation(url: &Url) -> bool {
@@ -351,6 +364,16 @@ fn guard_popup(url: &Url) -> NewWindowResponse<tauri::Wry> {
 #[cfg(test)]
 mod nav_tests {
     use super::*;
+
+    #[test]
+    fn only_the_apps_own_origin_counts_as_an_app_page() {
+        let app = |url: &str| is_app_page(&url.parse().unwrap());
+        assert!(app("http://tauri.localhost/streams.html?id=4"));
+        assert!(app("tauri://localhost/streams.html?id=4"));
+        assert!(!app("https://pokeidle.io/"));
+        assert!(!app("http://tauri.localhost.evil.com/"));
+        assert!(!app("https://localhost/"));
+    }
 
     fn ok(url: &str) -> bool {
         slot_may_navigate(&url.parse().unwrap())
@@ -414,7 +437,15 @@ fn state_view(state: &AppState) -> StateView {
         prey_pending: prey::pendings(state),
         checks_down: state.checks_down.clone(),
         hunts: if state.config.economy { state.game_stats.clone() } else { HashMap::new() },
-        sprites: if state.config.economy { state.sprites.clone() } else { HashMap::new() },    }
+        sprites: if state.config.economy { state.sprites.clone() } else { HashMap::new() },
+        points: state
+            .config
+            .slots
+            .iter()
+            .filter(|s| s.streams_only)
+            .map(|s| (s.id, slot_points(&state.config, s.id)))
+            .collect(),
+    }
 }
 
 fn toolbar_hidden(state: &AppState) -> bool {
@@ -461,6 +492,10 @@ fn publish_now(app: &AppHandle, state: &AppState) {
         let _ = app.emit_to(header_label(id).as_str(), "state", view.clone());
     }
     let _ = app.emit_to(REST_PAGE, "state", view.clone());
+    // The streams-only slots' own page (only those: the others are the game, a remote site).
+    for slot in state.config.slots.iter().filter(|s| s.streams_only) {
+        let _ = app.emit_to(slot_label(slot.id).as_str(), "state", view.clone());
+    }
     let _ = app.emit_to(FOCUS_PANEL, "focus", focus_view(state));
 }
 
@@ -590,11 +625,17 @@ fn set_language(app: AppHandle, lang: config::Language) {
         "whatsnew".to_string(),
     ];
     pages.extend((1..=MAX_SLOTS).map(header_label));
+    // The streams-only slots' own page (the other slots hold the game, a remote site).
+    let streams_only: Vec<String> = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        state.config.slots.iter().filter(|s| s.streams_only).map(|s| slot_label(s.id)).collect()
+    };
+    pages.extend(streams_only);
     for page in pages {
         let _ = app.emit_to(page.as_str(), "language", lang);
     }
     tray::set_language(&app);
-    streams_only::set_language(&app, lang);
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.set_title(settings_title(lang));
     }
@@ -652,7 +693,8 @@ const FOCUS_PANEL: &str = "focus";
 
 /// The stats panel shows while a slot is fullscreen, unless the player hid it.
 fn focus_panel_on(config: &Config) -> bool {
-    !config.economy && config.focus_panel && config.focus.is_some_and(|f| config.slots.iter().any(|s| s.id == f))
+    // Streams only: no game here, so no game numbers for the panel to show.
+    !config.economy && config.focus_panel && config.focus.is_some_and(|f| config.slots.iter().any(|s| s.id == f && !s.streams_only))
 }
 
 /// The rest screen of economy mode (local page), over the whole game area.
@@ -850,7 +892,7 @@ fn slot_session_builder(
     app: &AppHandle,
     slot_id: u8,
     label: String,
-    url: &str,
+    url: WebviewUrl,
 ) -> WebviewBuilder<tauri::Wry> {
     let (data_dir, hunt_dir) = {
         let state = app.state::<Mutex<AppState>>();
@@ -860,7 +902,7 @@ fn slot_session_builder(
 
     // Each slot gets its own WebView2 user data folder: separate cookies, storage and
     // logins that survive restarts.
-    let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url.parse().unwrap()))
+    let mut builder = WebviewBuilder::new(label, url)
     .data_directory(data_dir.clone())
     // Dark until the page paints (no white flash while it loads).
     .background_color(BACKGROUND)
@@ -1000,13 +1042,16 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
     // loose popup window.
     let (nav_app, popup_app, title_app, id) = (app.clone(), app.clone(), app.clone(), slot.id);
     let load_app = app.clone();
-    // Streams only: the app's own page in the game's place (the game runs on another computer).
-    let url = if slot.streams_only {
-        streams_only::page_url(app.state::<Mutex<AppState>>().lock().unwrap().config.language)
+    // Streams only: the app's own page in the game's place (the game runs on another computer),
+    // listing the account's streams. It runs in the slot's session too, so the slot keeps a
+    // page whose cookies say whether the account is logged in (logins.rs).
+    let streams_only = slot.streams_only;
+    let url = if streams_only {
+        WebviewUrl::App(format!("streams.html?id={id}").into())
     } else {
-        GAME_URL.to_string()
+        WebviewUrl::External(GAME_URL.parse().unwrap())
     };
-    let builder = slot_session_builder(app, slot.id, slot_label(slot.id), &url)
+    let builder = slot_session_builder(app, slot.id, slot_label(slot.id), url)
         // The loading screen waits for each game's first load.
         .on_page_load(move |_, payload| {
             if payload.event() == PageLoadEvent::Finished {
@@ -1037,6 +1082,10 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
             }
         })
         .on_navigation(move |url| {
+            // Streams only: the app's own page loads (and reloads) in place.
+            if streams_only && is_app_page(url) {
+                return true;
+            }
             if let Some(channel) = channels::channel_from_url(url) {
                 spawn_route_channel(&nav_app, id, channel);
                 return false;
@@ -1447,7 +1496,7 @@ fn create_page(
     let window = app.get_window("main").expect("main window exists");
     let label = format!("slot-{id}-{}-{}", platform.key(), NEXT_PAGE.fetch_add(1, Ordering::SeqCst));
     let (load_app, title_app) = (app.clone(), app.clone());
-    let builder = slot_session_builder(app, id, label.clone(), url)
+    let builder = slot_session_builder(app, id, label.clone(), WebviewUrl::External(url.parse().unwrap()))
         // Keeps playing when the app is minimized or in the tray (scripts/always-visible.js).
         .initialization_script_for_all_frames(ALWAYS_VISIBLE)
         .on_page_load(move |webview, payload| {
@@ -1478,13 +1527,6 @@ fn create_page(
                     // Goals mode waits for the game's new time before buying again.
                     if message.contains("redeemed ") {
                         state.redeemed.insert((id, platform), std::time::Instant::now());
-                        // Streams only: no game to tell the new time, so the app reckons it.
-                        if let Some(line) = streams_only::redeem_reported(&mut state, id, platform, message, now_ms()) {
-                            println!("[streams-only] slot {id}: {line}");
-                            log_event(&mut state, id, line);
-                            state.redeemed.remove(&(id, platform));
-                            publish(&title_app, &state);
-                        }
                     }
                 }
             } else if let Some(json) = title.strip_prefix("[multiview-points] ") {
@@ -1716,14 +1758,27 @@ async fn add_slot(app: AppHandle, mode: Option<SlotMode>) -> Result<u8, String> 
         let id = state.config.next_free_id().ok_or("All 4 slots are open")?;
         let mut slot = SlotConfig::new(id);
         slot.set_mode(mode.unwrap_or_default());
+        // A new slot starts clean: nothing a slot closed before under this number said.
+        forget_slot(&mut state, id);
         state.config.slots.push(slot.clone());
         state.config.slots.sort_by_key(|s| s.id);
-        // Streams only: "no bonus" (not "the game hasn't said") until it redeems something.
-        streams_only::sync_ends(&mut state);
         slot
     };
-    create_slot_webview(&app, &slot).map_err(|e| e.to_string())?;
-    create_slot_header(&app, slot.id).map_err(|e| e.to_string())?;
+    // Couldn't open: the slot is taken back out rather than left in the list without a page.
+    let created = create_slot_webview(&app, &slot).and_then(|_| create_slot_header(&app, slot.id));
+    if let Err(e) = created {
+        eprintln!("[slot] slot {}: could not open: {e}", slot.id);
+        for label in [slot_label(slot.id), header_label(slot.id)] {
+            if let Some(webview) = app.get_webview(&label) {
+                let _ = webview.close();
+            }
+        }
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        state.config.slots.retain(|s| s.id != slot.id);
+        save_and_publish(&app, &state);
+        return Err(format!("Couldn't open the new slot: {e}"));
+    }
     apply_layout(&app).map_err(|e| e.to_string())?;
     let state = app.state::<Mutex<AppState>>();
     save_and_publish(&app, &state.lock().unwrap());
@@ -1749,18 +1804,9 @@ async fn set_slot_mode(app: AppHandle, id: u8, mode: SlotMode) -> Result<Automat
         let game_changed = (before == SlotMode::Streams) != (mode == SlotMode::Streams);
         // Streams only redeems a fixed bonus: goals become their first bonus.
         streams_only::fixed_only(slot);
-        if mode == SlotMode::Streams {
-            // The estimate starts from what the game last said.
-            streams_only::seed(&mut state, id);
-        }
         if game_changed {
             // What the game page reported no longer holds.
-            game::forget(&mut state, id);
-            state.game_stats.remove(&id);
-            state.prey.remove(&id);
-            state.linked.retain(|(slot, _), _| *slot != id);
-            state.bonus_ends.retain(|(slot, _), _| *slot != id);
-            streams_only::sync_ends(&mut state);
+            forget_game(&mut state, id);
         }
         println!("[slot-mode] slot {id}: {before:?} -> {mode:?}");
         log_event(&mut state, id, match mode {
@@ -1796,6 +1842,32 @@ async fn set_slot_mode(app: AppHandle, id: u8, mode: SlotMode) -> Result<Automat
     Ok(automation_view(&app))
 }
 
+/// What the game page of slot `id` told the app: its hunt, bonuses, links, vote, Prey and
+/// connection. Dropped when the game leaves the slot (closed, or streams only), so economy
+/// mode, the headers and Settings don't keep showing an account that's no longer there.
+fn forget_game(state: &mut AppState, id: u8) {
+    game::forget(state, id);
+    state.game_stats.remove(&id);
+    state.prey.remove(&id);
+    state.vote.remove(&id);
+    state.linked.retain(|(slot, _), _| *slot != id);
+    state.bonus_ends.retain(|(slot, _), _| *slot != id);
+    state.redeemed.retain(|(slot, _), _| *slot != id);
+}
+
+/// Everything the app knows about slot `id` beyond its config: a slot closed and opened again
+/// under the same number starts clean. The account's channel points and follows stay (they
+/// belong to the login, which closing keeps).
+fn forget_slot(state: &mut AppState, id: u8) {
+    forget_game(state, id);
+    state.logins.retain(|(slot, _), _| *slot != id);
+    state.page_offline.retain(|(slot, _, _), _| *slot != id);
+    state.daily_tries.remove(&id);
+    state.log.remove(&id);
+    state.config.vote_slots.retain(|s| *s != id);
+    state.config.prey_dismissed.remove(&id);
+}
+
 #[tauri::command]
 async fn close_slot(app: AppHandle, id: u8) -> Result<(), String> {
     // Forget the slot first, so a failed close never leaves it half-open in the config.
@@ -1806,7 +1878,7 @@ async fn close_slot(app: AppHandle, id: u8) -> Result<(), String> {
         if state.config.focus == Some(id) {
             state.config.focus = None;
         }
-        game::forget(&mut state, id);
+        forget_slot(&mut state, id);
         state.panels.remove(&id).map(|p| p.pages).unwrap_or_default()
     };
     for label in pages.into_iter().map(|p| p.label).chain([slot_label(id), header_label(id)]) {
@@ -2442,6 +2514,10 @@ fn points_reported(app: &AppHandle, id: u8, json: &str) {
         if let Err(e) = state.config.save(&state.config_path) {
             eprintln!("[config] could not save: {e}");
         }
+        // A streams-only slot's page shows each stream's points.
+        if state.config.slots.iter().any(|s| s.id == id && s.streams_only) {
+            publish(app, &state);
+        }
     }
 }
 
@@ -2701,7 +2777,7 @@ async fn open_vote(app: AppHandle, id: u8) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     // The slot's session (cookies, sign-ins). IdleHub and its sign-ins (Google, Discord) open
     // here; anything else goes to the default browser.
-    let builder = slot_session_builder(&app, id, format!("{label}-page"), parsed.as_str())
+    let builder = slot_session_builder(&app, id, format!("{label}-page"), WebviewUrl::External(parsed.clone()))
         .on_navigation(|url| {
             let in_window = url.scheme() == "https" && url.host_str().is_some_and(is_idlehub);
             in_window || guard_navigation(url)
@@ -3234,7 +3310,7 @@ const REDEEM_SETTLE: std::time::Duration = std::time::Duration::from_secs(180);
 /// the first goal not met there (None = nothing to buy: every goal met and points saved, the
 /// game hasn't reported the times yet, or a redeem is still being counted).
 fn bonus_now(state: &AppState, slot: &SlotConfig, platform: Platform) -> Option<KickBonus> {
-    // Streams only: a fixed bonus (the app only estimates the times there).
+    // Streams only: a fixed bonus (without the game there are no bonus times).
     let Some(goals) = slot.goals.as_ref().filter(|_| !slot.streams_only) else { return slot.bonus };
     let ends = state.bonus_ends.get(&(slot.id, platform))?;
     if state.redeemed.get(&(slot.id, platform)).is_some_and(|at| at.elapsed() < REDEEM_SETTLE) {
@@ -3392,7 +3468,7 @@ struct BonusSlotView {
     points: Vec<(Platform, String, u64)>,
     /// The account's running bonuses per platform.
     running: SlotBonuses,
-    /// Streams only: the game runs on another computer; `running` is the app's own estimate.
+    /// Streams only: the game runs on another computer (no bonus times here).
     streams_only: bool,
     /// Game only: no streams here, so nothing is redeemed.
     game_only: bool,
@@ -3808,7 +3884,7 @@ fn set_goals(app: AppHandle, id: u8, goals: Option<config::Goals>) -> Automation
         g
     });
     automation_changed(&app, |state| {
-        // Streams-only accounts redeem a fixed bonus (their times are only estimates).
+        // Streams-only accounts redeem a fixed bonus (no bonus times without the game).
         if let Some(slot) = state.config.slots.iter_mut().find(|s| s.id == id && !s.streams_only) {
             slot.goals = goals;
         }
@@ -3947,8 +4023,6 @@ fn main() {
                 prey: HashMap::new(),
                 checks_down: HashMap::new(),
             }));
-            // Streams-only accounts: their saved bonus estimates are the running bonuses.
-            streams_only::sync_ends(&mut handle.state::<Mutex<AppState>>().lock().unwrap());
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is
             // on screen meanwhile.
@@ -3961,11 +4035,18 @@ fn main() {
                 .inner_size(geom.width.max(640.0), geom.height.max(400.0))
                 .min_inner_size(640.0, 400.0)
                 .build()?;
+            // One slot that can't open must not keep the app (and the other accounts) from
+            // starting: it's logged, and its header still comes up so it can be closed.
             for slot in &slots {
-                create_slot_webview(&handle, slot)?;
+                if let Err(e) = create_slot_webview(&handle, slot) {
+                    eprintln!("[slot] slot {}: could not open its page: {e}", slot.id);
+                    splash::game_loaded(&handle, slot.id);
+                }
             }
             for slot in &slots {
-                create_slot_header(&handle, slot.id)?;
+                if let Err(e) = create_slot_header(&handle, slot.id) {
+                    eprintln!("[slot] slot {}: could not open its header: {e}", slot.id);
+                }
             }
             // The two splitter strips (local page, same environment as the toolbar); placed
             // over the gaps between slots by apply_layout.

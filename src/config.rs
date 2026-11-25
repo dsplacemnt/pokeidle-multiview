@@ -1,7 +1,6 @@
 //! Persisted settings: slots (name, mute, streams, bonus), layout, tray, stream automation and
 //! comfort options.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -99,11 +98,6 @@ pub struct SlotConfig {
     /// redeems); the game's own bonuses still show. Never set together with `streams_only`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub game_only: bool,
-    /// Streams only: when this account's bonuses end, as the app reckons them from its own
-    /// redeems (the game isn't here to tell): platform ("kick"/"twitch") → [xp, capture, lure]
-    /// end times, ms since 1970 (0 = not running).
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub bonus_estimate: BTreeMap<String, [i64; 3]>,
 }
 
 fn full_zoom() -> f64 {
@@ -122,7 +116,6 @@ impl SlotConfig {
             goals: None,
             streams_only: false,
             game_only: false,
-            bonus_estimate: BTreeMap::new(),
         }
     }
 
@@ -582,7 +575,7 @@ mod tests {
     fn slot_modes_load_and_stay_exclusive() {
         let cfg: Config = serde_json::from_str(
             r#"{"slots":[{"id":1,"zoom":1.0},{"id":2,"zoom":1.0,"game_only":true,"panels":[{"platform":"kick","url":"https://kick.com/a"}]},
-                {"id":3,"zoom":1.0,"streams_only":true},{"id":4,"zoom":1.0,"streams_only":true,"game_only":true}]}"#,
+                {"id":3,"zoom":1.0,"streams_only":true,"bonus_estimate":{"twitch":[1,0,0]}},{"id":4,"zoom":1.0,"streams_only":true,"game_only":true}]}"#,
         )
         .unwrap();
         let cfg = cfg.normalized();
