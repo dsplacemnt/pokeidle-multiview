@@ -4,7 +4,8 @@
 
 use std::time::Duration;
 
-use crate::config::KickBonus;
+use crate::config::Bonus;
+use crate::redeem::{self, Redeemer};
 
 /// How often each background Twitch stream is visited (the bonus chest comes every ~15 min).
 pub const VISIT_EVERY: Duration = Duration::from_secs(15 * 60);
@@ -58,16 +59,16 @@ fn live_from_page(page: &str) -> Result<bool, String> {
     Ok(compact.contains("\"isLiveBroadcast\":true"))
 }
 
-/// The script run in a visited full page: claims the bonus chest, then redeems `bonus` if the
-/// points cover its cheapest reward (scripts/twitch-visit.js).
-pub fn visit_script(bonus: Option<KickBonus>) -> String {
-    let kind = match bonus {
-        Some(KickBonus::Xp) => "\"xp\"",
-        Some(KickBonus::Capture) => "\"capture\"",
-        Some(KickBonus::Lure) => "\"lure\"",
-        None => "null",
-    };
-    format!("{}\n{VISIT}\nwindow.__multiviewTwitchVisit({kind});", crate::kick::REPORT)
+/// Twitch's side of redeeming: the script run in a visited full page, which claims the bonus
+/// chest, then buys the bonus if the points cover its cheapest reward (scripts/twitch-visit.js).
+/// It runs even with no bonus to buy, for the chest.
+pub struct Redeem;
+
+impl Redeemer for Redeem {
+    fn script(&self, bonus: Option<Bonus>) -> Option<String> {
+        let kind = bonus.map_or("null".to_string(), |b| format!("{:?}", redeem::kind(b)));
+        Some(format!("{}\n{}\n{VISIT}\nwindow.__multiviewTwitchVisit({kind});", crate::kick::REPORT, redeem::COMMON))
+    }
 }
 
 #[cfg(test)]
@@ -93,12 +94,6 @@ mod tests {
         // No head at all: stops at the limit.
         let endless = vec![b'y'; HEAD_LIMIT * 2];
         assert!(read_head(&mut &endless[..]).unwrap().len() < HEAD_LIMIT + 8 * 1024);
-    }
-
-    #[test]
-    fn visit_script_names_the_bonus() {
-        assert!(visit_script(Some(KickBonus::Capture)).ends_with("__multiviewTwitchVisit(\"capture\");"));
-        assert!(visit_script(None).ends_with("__multiviewTwitchVisit(null);"));
     }
 
     /// Talks to twitch.tv: run with `cargo test -- --ignored twitch_page`.

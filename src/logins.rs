@@ -156,24 +156,27 @@ pub fn view(state: &crate::AppState) -> HashMap<u8, HashMap<Platform, bool>> {
 /// login page in front (reusing one that's already open), and checks again soon.
 #[tauri::command]
 pub async fn open_login(app: AppHandle, id: u8, platform: Platform) -> Result<(), String> {
-    let existing = {
+    let (existing, was_economy) = {
         let state = app.state::<Mutex<crate::AppState>>();
         let mut state = state.lock().unwrap();
         if !state.config.slots.iter().any(|s| s.id == id) {
             return Err("No such slot".into());
         }
-        state.config.economy = false;
+        let was_economy = std::mem::replace(&mut state.config.economy, false);
+        // Also stops a loading card that was bringing the games back (see waking.rs).
+        state.waking = None;
         if state.config.focus != Some(id) {
             if state.config.focus.is_some() {
                 state.last_focus = state.config.focus;
             }
             state.config.focus = Some(id);
         }
-        state
+        let existing = state
             .panels
             .get(&id)
             .and_then(|p| p.pages.iter().find(|pg| pg.platform == platform && pg.login.is_none()))
-            .map(|pg| pg.label.clone())
+            .map(|pg| pg.label.clone());
+        (existing, was_economy)
     };
     let label = match existing {
         Some(label) => label,
@@ -182,6 +185,10 @@ pub async fn open_login(app: AppHandle, id: u8, platform: Platform) -> Result<()
     app.state::<Mutex<crate::AppState>>().lock().unwrap().login_pages.insert(label.clone());
     crate::set_front(&app, id, Some(label)).map_err(|e| e.to_string())?;
     crate::apply_layout(&app).map_err(|e| e.to_string())?;
+    // Out of economy mode at once (the login page can't wait): the games wake up behind it.
+    if was_economy {
+        crate::waking::wake_quietly(&app);
+    }
     let state = app.state::<Mutex<crate::AppState>>();
     crate::save_and_publish(&app, &state.lock().unwrap());
     if let Some(main) = app.get_window("main") {

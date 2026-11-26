@@ -3,6 +3,30 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.28.0',
+    date: '2026-11-26',
+    notes: {
+      pt: [
+        'Modo economia mais leve: as contas escondidas agora usam o Modo ULTRA Economia do próprio jogo, que tira da tela tudo do jogo e para de redesenhar. Cada jogo escondido passou de cerca de um terço de um núcleo da CPU para quase nada. A caça, os bônus e os números do painel continuam atualizando.',
+        'Ao sair do modo economia, um loading traz as contas de volta uma de cada vez, para o PC não travar. Se mudar de ideia, "Continuar no modo economia" volta para lá.',
+        'O app só liga e desliga o que ele mesmo ligou: se você ligou a Economia ou o ULTRA do jogo por conta própria, eles ficam como estão.',
+        'Bônus separado por plataforma: no modo Fixo, cada conta escolhe um bônus para a Twitch e outro para a Kick (os pontos e os tempos de cada uma são separados). No modo Metas, dá para desligar uma das plataformas.',
+      ],
+      en: [
+        'Lighter economy mode: hidden accounts now use the game\'s own ULTRA Battery Saver, which takes the whole game off the screen and stops redrawing it. Each hidden game went from about a third of a CPU core to almost nothing. Hunting, bonuses and the panel\'s numbers keep updating.',
+        'Leaving economy mode, a loading screen brings the accounts back one at a time, so the PC doesn\'t freeze. Changed your mind? "Stay in economy mode" goes back.',
+        'The app only turns off what it turned on: a Battery Saver or ULTRA you turned on yourself in the game stays as it is.',
+        'Bonus per platform: in Fixed mode each account picks one bonus for Twitch and another for Kick (their points and bonus times are separate). In Goals mode, either platform can be turned off.',
+      ],
+      es: [
+        'Modo ahorro más liviano: las cuentas ocultas ahora usan el Modo ULTRA Ahorro del propio juego, que saca todo el juego de la pantalla y deja de redibujarlo. Cada juego oculto pasó de cerca de un tercio de un núcleo de la CPU a casi nada. La caza, los bonos y los números del panel siguen actualizándose.',
+        'Al salir del modo ahorro, una pantalla de carga trae las cuentas de vuelta una a la vez, para que la PC no se trabe. ¿Cambiaste de idea? "Seguir en modo ahorro" vuelve.',
+        'La app solo apaga lo que ella misma encendió: si encendiste el Ahorro o el ULTRA del juego por tu cuenta, quedan como están.',
+        'Bono por plataforma: en el modo Fijo, cada cuenta elige un bono para Twitch y otro para Kick (sus puntos y tiempos son separados). En el modo Metas, se puede apagar una de las plataformas.',
+      ],
+    },
+  },
+  {
     version: '0.27.0',
     date: '2026-11-26',
     notes: {

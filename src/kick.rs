@@ -5,7 +5,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::config::KickBonus;
+use crate::config::Bonus;
+use crate::redeem::{self, Redeemer};
 
 /// How often the live status is checked (and slots adjusted, bonuses redeemed).
 pub const CHECK_EVERY: Duration = Duration::from_secs(120);
@@ -82,15 +83,16 @@ pub fn pick_for_account(
     candidates.into_iter().take(n).map(|(_, c, _)| c.clone()).collect()
 }
 
-/// The script that redeems `bonus` in a Kick channel page if its points cover the cheapest
-/// reward of that kind (see scripts/kick-redeem.js).
-pub fn redeem_script(bonus: KickBonus) -> String {
-    let kind = match bonus {
-        KickBonus::Xp => "xp",
-        KickBonus::Capture => "capture",
-        KickBonus::Lure => "lure",
-    };
-    format!("{REPORT}\n{REDEEM}\nwindow.__multiviewRedeem({kind:?});")
+/// Kick's side of redeeming: the script that buys a bonus in a live Kick channel page if its
+/// points cover the cheapest reward of that kind (see scripts/kick-redeem.js). Kick pages show
+/// their points even in the background, so it runs at every check.
+pub struct Redeem;
+
+impl Redeemer for Redeem {
+    fn script(&self, bonus: Option<Bonus>) -> Option<String> {
+        let kind = redeem::kind(bonus?);
+        Some(format!("{REPORT}\n{}\n{REDEEM}\nwindow.__multiviewRedeem({kind:?});", redeem::COMMON))
+    }
 }
 
 #[cfg(test)]

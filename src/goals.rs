@@ -3,11 +3,11 @@
 //! platform runs its bonuses on its own clock (Kick points only buy Kick bonuses), so the
 //! choice is made per platform from that platform's remaining times.
 
-use crate::config::{Goals, KickBonus, WhenMet};
+use crate::config::{Bonus, Goals, WhenMet};
 
 /// What to buy now, given how many hours of each bonus are left on this platform. None = buy
 /// nothing (every goal met and the points are saved, or no goals).
-pub fn pick(goals: &Goals, hours_left: impl Fn(KickBonus) -> f64) -> Option<KickBonus> {
+pub fn pick(goals: &Goals, hours_left: impl Fn(Bonus) -> f64) -> Option<Bonus> {
     if let Some(goal) = goals.list.iter().find(|g| hours_left(g.bonus) < f64::from(g.hours)) {
         return Some(goal.bonus);
     }
@@ -30,13 +30,13 @@ pub fn hours_left(end: i64, now: i64) -> f64 {
 mod tests {
     use super::*;
     use crate::config::Goal;
-    use KickBonus::{Capture, Lure, Xp};
+    use Bonus::{Capture, Lure, Xp};
 
-    fn goals(list: &[(KickBonus, u16)], when_met: WhenMet) -> Goals {
-        Goals { list: list.iter().map(|&(bonus, hours)| Goal { bonus, hours }).collect(), when_met }
+    fn goals(list: &[(Bonus, u16)], when_met: WhenMet) -> Goals {
+        Goals { list: list.iter().map(|&(bonus, hours)| Goal { bonus, hours }).collect(), when_met, ..Goals::default() }
     }
 
-    fn left(xp: f64, capture: f64, lure: f64) -> impl Fn(KickBonus) -> f64 {
+    fn left(xp: f64, capture: f64, lure: f64) -> impl Fn(Bonus) -> f64 {
         move |b| match b {
             Xp => xp,
             Capture => capture,

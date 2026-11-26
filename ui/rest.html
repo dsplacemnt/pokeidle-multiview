@@ -225,6 +225,55 @@
     /* Game only: in the counts' place, a muted tag (as wide as the two chips). */
     .live.gonly { min-width: 98px; justify-content: center; padding: 0 10px; color: var(--muted); font-weight: 600;
       background: rgba(255, 255, 255, .05); box-shadow: inset 0 0 0 1px var(--line); white-space: nowrap; }
+    /* Leaving economy mode: the accounts come back one at a time behind this card, so the PC
+       doesn't freeze rebuilding them all at once (see waking.rs). Over the whole page. */
+    .waking { position: fixed; inset: 0; z-index: 10; display: grid; justify-items: center; align-content: safe center; padding: 20px;
+      overflow-y: auto; scrollbar-width: thin;
+      background: radial-gradient(ellipse at 50% 38%, #1c2029 0%, var(--bg) 62%); animation: wk-in .18s ease-out; }
+    .waking[hidden] { display: none; }
+    @keyframes wk-in { from { opacity: 0; } to { opacity: 1; } }
+    .waking { grid-template-columns: minmax(0, 1fr); }
+    .wk-card { width: 100%; max-width: 440px; min-width: 0; display: grid; gap: 16px; justify-items: center; text-align: center; }
+    /* The ball inside a ring that fills as the accounts come back. */
+    .wk-stage { position: relative; width: 132px; height: 132px; display: grid; place-items: center; }
+    .wk-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+    .wk-ring circle { fill: none; stroke-width: 5; }
+    .wk-ring .track { stroke: var(--line); }
+    .wk-ring .fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .5s ease; }
+    .wk-ball { width: 78px; height: 78px; transform-origin: 50% 88%; animation: wk-wobble 1.4s ease-in-out infinite; }
+    .wk-ball svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 5px 12px rgba(0, 0, 0, .45)); }
+    .wk-ball .glow { transform-origin: 32px 32px; animation: wk-glow 1.4s ease-in-out infinite; }
+    @keyframes wk-wobble { 0%, 60%, 100% { transform: rotate(0); } 12% { transform: rotate(-14deg); } 26% { transform: rotate(11deg); } 40% { transform: rotate(-5deg); } }
+    @keyframes wk-glow { 0%, 55%, 100% { opacity: 0; } 70% { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .wk-ball, .wk-ball .glow, .wk-spin { animation: none; } }
+    .wk-card h1 { margin: 0; font-size: 20px; font-weight: 600; color: var(--accent); }
+    .wk-card > p { margin: -10px 0 0; color: var(--muted); }
+    .wk-list { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; background: var(--card); border-radius: 14px; padding: 10px;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 6px 18px rgba(0, 0, 0, .18); }
+    .wk-row { display: flex; min-width: 0; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 9px; background: var(--row); }
+    .wk-row .name { flex: 1; min-width: 0; text-align: left; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wk-row .st { flex: none; display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+    .wk-row .mark { width: 16px; height: 16px; flex: none; display: grid; place-items: center; }
+    .wk-row.waiting { opacity: .6; }
+    .wk-row.waiting .mark::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #5b6170; }
+    .wk-row.loading { box-shadow: inset 0 0 0 1px rgba(242, 193, 78, .45); }
+    .wk-row.loading .st { color: var(--accent); }
+    .wk-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(242, 193, 78, .25); border-top-color: var(--accent);
+      animation: wk-spin .8s linear infinite; }
+    @keyframes wk-spin { to { transform: rotate(360deg); } }
+    .wk-row.ready .st { color: var(--ok); }
+    .wk-row.ready .mark { border-radius: 50%; background: rgba(61, 220, 132, .16); color: var(--ok); font-size: 10.5px; font-weight: 800; }
+    .wk-foot { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    /* Short windows: a smaller ball and tighter gaps, so the card fits. */
+    @media (max-height: 560px) {
+      .waking { padding: 12px; }
+      .wk-card { gap: 10px; }
+      .wk-card > p { margin-top: -6px; }
+      .wk-stage { width: 72px; height: 72px; }
+      .wk-ball { width: 44px; height: 44px; }
+      .wk-ring circle { stroke-width: 8; }
+      .wk-row { height: 32px; }
+    }
   </style>
   <script src="i18n.js"></script>
   <script src="shortcuts.js"></script>
@@ -267,6 +316,29 @@
     </section>
   </div>
 
+  <div class="waking" id="waking" hidden role="status" aria-live="polite">
+    <div class="wk-card">
+      <div class="wk-stage" aria-hidden="true">
+        <svg class="wk-ring" viewBox="0 0 132 132"><circle class="track" cx="66" cy="66" r="60"/><circle class="fill" id="wk-fill" cx="66" cy="66" r="60"/></svg>
+        <div class="wk-ball">
+          <svg viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="27" fill="#f4f6f9"/>
+            <path d="M5 32a27 27 0 0 1 54 0z" fill="#ee2b3b"/>
+            <rect x="5" y="29" width="54" height="6" fill="#1c1f26"/>
+            <circle cx="32" cy="32" r="28.5" fill="none" stroke="#1c1f26" stroke-width="3"/>
+            <circle cx="32" cy="32" r="10" fill="#1c1f26"/>
+            <circle cx="32" cy="32" r="6.5" fill="#f4f6f9"/>
+            <circle class="glow" cx="32" cy="32" r="6.5" fill="#fff6c2"/>
+            <ellipse cx="22" cy="15" rx="8" ry="4.5" fill="#fff" opacity=".35" transform="rotate(-32 22 15)"/>
+          </svg>
+        </div>
+      </div>
+      <h1 data-i18n>Bringing the accounts back</h1>
+      <p data-i18n>One at a time, so the PC doesn't freeze</p>
+      <div class="wk-list" id="wk-list"></div>
+      <div class="wk-foot"><span id="wk-count"></span><button class="small quiet" id="wk-stay" data-i18n>Stay in economy mode</button></div>
+    </div>
+  </div>
   <script>
     // Economy mode's screen: the accounts keep running hidden (no CPU spent drawing them) while
     // this light page shows what needs the player: streams with a problem and IdleHub votes
@@ -621,6 +693,7 @@
     function render() {
       const state = latest;
       if (!state) return;
+      renderWaking(state);
       const now = Date.now();
       const names = Object.fromEntries(state.slots.map((s) => [s.id, slotName(s)]));
       const streams = Object.values(state.panels || {}).reduce((n, p) => n + (p.pages || []).length, 0);
@@ -727,6 +800,35 @@
       }));
     }
 
+    // Leaving economy mode: each account as it comes back (state.waking, from waking.rs).
+    const RING = 2 * Math.PI * 60;
+    function renderWaking(state) {
+      const w = state.waking;
+      const box = document.getElementById('waking');
+      box.hidden = !w;
+      if (!w) return;
+      const names = Object.fromEntries(state.slots.map((s) => [s.id, slotName(s)]));
+      const rows = [
+        ...w.done.map((id) => [id, 'ready']),
+        ...(w.current != null ? [[w.current, 'loading']] : []),
+        ...w.waiting.map((id) => [id, 'waiting']),
+      ];
+      document.getElementById('wk-list').replaceChildren(...rows.map(([id, kind]) => {
+        const row = el('div', `wk-row ${kind}`);
+        const st = el('span', 'st');
+        const mark = el('span', kind === 'loading' ? 'wk-spin' : 'mark', kind === 'ready' ? '✓' : undefined);
+        st.append(mark, t(kind === 'ready' ? 'Ready' : kind === 'loading' ? 'Loading…' : 'Waiting'));
+        row.append(el('span', 'name', names[id] || `Slot ${id}`), st);
+        return row;
+      }));
+      const total = rows.length || 1;
+      const fill = document.getElementById('wk-fill');
+      fill.style.strokeDasharray = RING;
+      // The one loading counts as half way.
+      fill.style.strokeDashoffset = RING * (1 - (w.done.length + (w.current != null ? 0.5 : 0)) / total);
+      document.getElementById('wk-count').textContent = t('{done} of {total} ready', { done: w.done.length, total: rows.length });
+    }
+    document.getElementById('wk-stay').addEventListener('click', () => invoke('set_economy', { on: true }));
     document.getElementById('leave').addEventListener('click', () => invoke('set_economy', { on: false }));
     listen('state', (e) => { latest = e.payload; render(); });
     I18N.onChange(render);

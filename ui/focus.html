@@ -282,15 +282,20 @@
         }
         c.append(block);
       }
-      // What the points buy now: the fixed bonus, or per platform what the goals ask for.
+      // What the points buy now, per platform: its fixed bonus, or what the goals ask for there.
       const names = { xp: 'XP', capture: 'Capture Boost', lure: 'Secret Lure' };
       const target = el('div', 'target');
+      const off = (p) => t('{platform} off', { platform: PLATFORMS[p].name });
       if (v.goals) {
-        const parts = ['twitch', 'kick'].map((p) => `${PLATFORMS[p].name} ${v.next?.[p] ? `→ ${names[v.next[p]]}` : '✓'}`);
+        const parts = ['twitch', 'kick'].map((p) => (v.goals.off?.[p] ? off(p)
+          : `${PLATFORMS[p].name} ${v.next?.[p] ? `→ ${names[v.next[p]]}` : '✓'}`));
         target.append(t('Goals:') + ' ', el('b', '', parts.join(' · ')));
         target.title = t('→ = buying now · ✓ = goals met (or waiting for the game)');
+      } else if (!v.bonus?.twitch && !v.bonus?.kick) {
+        target.append(t('Redeeming:') + ' ', el('b', '', t('none (⚙ to pick)')));
       } else {
-        target.append(t('Redeeming:') + ' ', el('b', '', v.bonus ? names[v.bonus] : t('none (⚙ to pick)')));
+        const parts = ['twitch', 'kick'].map((p) => (v.bonus[p] ? `${PLATFORMS[p].name} → ${names[v.bonus[p]]}` : off(p)));
+        target.append(t('Redeeming:') + ' ', el('b', '', parts.join(' · ')));
       }
       c.append(target);
       return c;

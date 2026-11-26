@@ -430,35 +430,100 @@
   }
   setInterval(sendStats, 30000);
 
-  // The game's own Battery Saver ("Turn the scene on" to leave it): the scene stops drawing and
-  // the page tells the server. The app's economy mode turns it on in every hidden account and
-  // back off when it ends, through the game's own buttons, and only undoes what it did: a
-  // Battery Saver the player turned on stays (the game remembers it in "cfg-economia"; the
-  // app's own mark is "multiview-eco").
+  // The game's own Battery Saver ("Turn the scene on" to leave it: the scene stops drawing) and
+  // its ULTRA Battery Saver (the whole page leaves the screen for one text box, and the HUD,
+  // chat and every repaint stop). Both only change what's drawn: the hunt goes on, the page tells
+  // the server the same thing, and this script still hears every WebSocket message, so stats,
+  // bonuses and Prey keep coming. The app's economy mode turns both on in every hidden account
+  // and back off when it ends, through the game's own buttons, and only undoes what it did: one
+  // the player turned on stays ("cfg-economia" and "cfg-ultra" are the game's; "multiview-eco"
+  // and "multiview-ultra" the app's marks). ULTRA needs the account loaded, so Battery Saver goes
+  // first and stays as the fallback. When done it answers "[multiview-eco] {on, eco, ultra}"
+  // (waking.rs waits for it before bringing the next game back).
+  let ecoRun = 0;
   window.__multiviewEco = async (on) => {
+    const run = ++ecoRun;
+    const stale = () => run !== ecoRun;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const answer = (eco, ultra) => {
+      if (stale()) return;
+      queue.push(`[multiview-eco] ${JSON.stringify({ on, eco, ultra })}`);
+      if (!busy) next();
+    };
     let prefs;
-    try { prefs = await import('/preferencias.mjs'); } catch { return 'no prefs'; }
-    const mine = () => { try { return localStorage.getItem('multiview-eco') === '1'; } catch { return false; } };
-    const mark = (v) => { try { if (v) localStorage.setItem('multiview-eco', '1'); else localStorage.removeItem('multiview-eco'); } catch {} };
-    // The page may still be starting: try for up to a minute.
-    for (let i = 0; i < 30; i++) {
-      const isOn = prefs.economiaLigado();
-      if (on) {
-        if (isOn) return mine() ? 'on (ours)' : 'on (the player\'s)';
-        document.querySelector('#hunt-eco')?.click();
-        await sleep(300);
-        if (prefs.economiaLigado()) { mark(true); return 'turned on'; }
-      } else {
-        if (!mine()) return 'left as is';
-        if (!isOn) { mark(false); return 'already off'; }
-        document.querySelector('#eco-sair')?.click();
-        await sleep(300);
-        if (!prefs.economiaLigado()) { mark(false); return 'turned off'; }
+    try { prefs = await import('/preferencias.mjs'); } catch { return answer('no prefs', 'no prefs'); }
+    const mine = (key) => { try { return localStorage.getItem(key) === '1'; } catch { return false; } };
+    const mark = (key, v) => { try { if (v) localStorage.setItem(key, '1'); else localStorage.removeItem(key); } catch {} };
+    const ultraShown = () => document.documentElement.classList.contains('modo-ultra');
+    // Repeats `step` (true = done) every 2 s for up to a minute: the page may still be starting.
+    const retry = async (step) => {
+      for (let i = 0; i < 30; i++) {
+        if (stale()) return 'superseded';
+        const result = await step();
+        if (result) return result;
+        await sleep(2000);
       }
-      await sleep(2000);
+      return 'not ready';
+    };
+
+    const ecoOn = () => retry(async () => {
+      if (prefs.economiaLigado()) return mine('multiview-eco') ? 'on (ours)' : 'on (the player\'s)';
+      document.querySelector('#hunt-eco')?.click();
+      await sleep(300);
+      if (prefs.economiaLigado()) { mark('multiview-eco', true); return 'turned on'; }
+      return null;
+    });
+    const ecoOff = () => retry(async () => {
+      if (!mine('multiview-eco')) return 'left as is';
+      if (!prefs.economiaLigado()) { mark('multiview-eco', false); return 'already off'; }
+      document.querySelector('#eco-sair')?.click();
+      await sleep(300);
+      if (!prefs.economiaLigado()) { mark('multiview-eco', false); return 'turned off'; }
+      return null;
+    });
+    // ULTRA's switch lives in the game's settings (⚙ → Performance); flipping it on closes them.
+    const ultraOn = () => retry(async () => {
+      if (prefs.ultraLigado() && ultraShown()) return mine('multiview-ultra') ? 'on (ours)' : 'on (the player\'s)';
+      // Still loading: the game turns ULTRA on only once the account is in.
+      if (!document.querySelector('#app') || document.querySelector('#app').classList.contains('hidden')) return null;
+      let flipped = false;
+      if (!prefs.ultraLigado()) {
+        flipped = true;
+        document.querySelector('#btn-config')?.click();
+        await sleep(300);
+        document.querySelector('#cfg-ultra')?.click();
+        await sleep(300);
+      }
+      if (ultraShown()) { mark('multiview-ultra', true); return 'turned on'; }
+      // Switched on but not shown (the account wasn't ready): undone, tried again.
+      if (flipped && prefs.ultraLigado()) prefs.definirUltra(false);
+      return null;
+    });
+    const ultraOff = () => retry(async () => {
+      if (!mine('multiview-ultra')) return 'left as is';
+      if (!prefs.ultraLigado()) { mark('multiview-ultra', false); return 'already off'; }
+      const leave = document.querySelector('#ultra-sair');
+      // Its box only exists while ULTRA shows; otherwise the setting alone is put back.
+      if (leave) leave.click();
+      else prefs.definirUltra(false);
+      await sleep(300);
+      if (!prefs.ultraLigado()) { mark('multiview-ultra', false); return 'turned off'; }
+      return null;
+    });
+
+    if (on) {
+      const eco = await ecoOn();
+      const ultra = stale() ? 'superseded' : await ultraOn();
+      return answer(eco, ultra);
     }
-    return 'not ready';
+    const ultra = await ultraOff();
+    const eco = stale() ? 'superseded' : await ecoOff();
+    // The game rebuilds its screen and reloads the map: give it a moment before the next one.
+    if (ultra === 'turned off' || eco === 'turned off') {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await sleep(1200);
+    }
+    answer(eco, ultra);
   };
 
   // The daily Prey (renews at 18:00 Brasília): the account's cards, as the game keeps them in

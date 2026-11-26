@@ -27,7 +27,7 @@ pub struct SavedPanel {
 /// rewards).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum KickBonus {
+pub enum Bonus {
     /// "Bônus +15% XP PokeIdle"
     Xp,
     /// "Bônus de +15% Capture Boost"
@@ -36,10 +36,58 @@ pub enum KickBonus {
     Lure,
 }
 
+/// One value for each platform (e.g. the bonus each one redeems).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct PerPlatform<T> {
+    #[serde(default)]
+    pub twitch: T,
+    #[serde(default)]
+    pub kick: T,
+}
+
+impl<T: Copy + Default + PartialEq> PerPlatform<T> {
+    pub fn both(value: T) -> PerPlatform<T> {
+        PerPlatform { twitch: value, kick: value }
+    }
+
+    pub fn get(&self, platform: Platform) -> T {
+        match platform {
+            Platform::Twitch => self.twitch,
+            Platform::Kick => self.kick,
+        }
+    }
+
+    pub fn set(&mut self, platform: Platform, value: T) {
+        match platform {
+            Platform::Twitch => self.twitch = value,
+            Platform::Kick => self.kick = value,
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == PerPlatform::default()
+    }
+}
+
+/// The fixed bonus of each platform. Files from before the split hold one bonus (or null) for
+/// both: `"bonus":"capture"` (or `"kick_bonus"`) loads as Capture on Twitch and on Kick.
+fn bonus_per_platform<'de, D: serde::Deserializer<'de>>(d: D) -> Result<PerPlatform<Option<Bonus>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Saved {
+        Each(PerPlatform<Option<Bonus>>),
+        Both(Option<Bonus>),
+    }
+    Ok(match Saved::deserialize(d)? {
+        Saved::Each(each) => each,
+        Saved::Both(bonus) => PerPlatform::both(bonus),
+    })
+}
+
 /// One redeem goal: keep at least `hours` of this bonus running.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Goal {
-    pub bonus: KickBonus,
+    pub bonus: Bonus,
     pub hours: u16,
 }
 
@@ -61,6 +109,9 @@ pub struct Goals {
     pub list: Vec<Goal>,
     #[serde(default)]
     pub when_met: WhenMet,
+    /// Platforms where the goals buy nothing (the points there are kept).
+    #[serde(default, skip_serializing_if = "PerPlatform::is_default")]
+    pub off: PerPlatform<bool>,
 }
 
 /// At most this many channels in the Kick priority list.
@@ -81,10 +132,10 @@ pub struct SlotConfig {
     pub muted: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub panels: Vec<SavedPanel>,
-    /// The bonus this account redeems automatically with its channel points, on Kick and
-    /// Twitch; None = off. ("kick_bonus" is the name it had while it was Kick only.)
-    #[serde(default, alias = "kick_bonus", skip_serializing_if = "Option::is_none")]
-    pub bonus: Option<KickBonus>,
+    /// The bonus this account redeems automatically with its channel points, chosen per
+    /// platform; None = off there. ("kick_bonus" is the name it had while it was Kick only.)
+    #[serde(default, alias = "kick_bonus", deserialize_with = "bonus_per_platform", skip_serializing_if = "PerPlatform::is_default")]
+    pub bonus: PerPlatform<Option<Bonus>>,
     /// Redeem goals instead of the fixed `bonus` (Some = goals mode); see goals.rs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goals: Option<Goals>,
@@ -112,7 +163,7 @@ impl SlotConfig {
             name: None,
             muted: false,
             panels: Vec::new(),
-            bonus: None,
+            bonus: PerPlatform::default(),
             goals: None,
             streams_only: false,
             game_only: false,
@@ -657,20 +708,63 @@ mod kick_tests {
         )
         .unwrap();
         let cfg = cfg.normalized();
-        // Files from the Kick-only version keep their choice.
-        assert_eq!(cfg.slots[0].bonus, Some(KickBonus::Capture));
-        assert_eq!(cfg.slots[1].bonus, Some(KickBonus::Lure));
-        assert_eq!(cfg.slots[2].bonus, None);
+        // Files from before the split keep their choice, now on both platforms.
+        assert_eq!(cfg.slots[0].bonus, PerPlatform::both(Some(Bonus::Capture)));
+        assert_eq!(cfg.slots[1].bonus, PerPlatform::both(Some(Bonus::Lure)));
+        assert_eq!(cfg.slots[2].bonus, PerPlatform::default());
         assert_eq!(cfg.kick_priority, vec!["axt", "matta"]);
         assert_eq!(cfg.twitch_priority, vec!["rodil", "kennzy"]);
         assert_eq!(cfg.twitch_lives_per_slot, MAX_PAGES_PER_PLATFORM as u8);
         let saved = serde_json::to_string(&cfg).unwrap();
-        assert!(saved.contains("\"bonus\":\"capture\"") && !saved.contains("kick_bonus"));
+        assert!(saved.contains(r#""bonus":{"twitch":"capture","kick":"capture"}"#) && !saved.contains("kick_bonus"));
+        // A slot with no bonus writes nothing.
+        assert!(!serde_json::to_string(&cfg.slots[2]).unwrap().contains("bonus"));
         let fresh = Config::default();
         assert!(fresh.kick_priority.is_empty() && fresh.twitch_priority.is_empty());
         assert_eq!(fresh.twitch_lives_per_slot, DEFAULT_TWITCH_LIVES);
         let old: Config = serde_json::from_str(r#"{"slots":[]}"#).unwrap();
         assert_eq!(old.twitch_lives_per_slot, DEFAULT_TWITCH_LIVES);
+    }
+}
+
+#[cfg(test)]
+mod bonus_split_tests {
+    use super::*;
+
+    fn slot(json: &str) -> SlotConfig {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn each_platform_keeps_its_own_bonus() {
+        let s = slot(r#"{"id":1,"bonus":{"twitch":"capture","kick":"xp"}}"#);
+        assert_eq!(s.bonus.get(Platform::Twitch), Some(Bonus::Capture));
+        assert_eq!(s.bonus.get(Platform::Kick), Some(Bonus::Xp));
+        // One platform only; the other is off.
+        let s = slot(r#"{"id":1,"bonus":{"kick":"lure"}}"#);
+        assert_eq!((s.bonus.twitch, s.bonus.kick), (None, Some(Bonus::Lure)));
+        // Saved and loaded again unchanged.
+        let mut s = SlotConfig::new(2);
+        s.bonus.set(Platform::Twitch, Some(Bonus::Capture));
+        assert_eq!(slot(&serde_json::to_string(&s).unwrap()), s);
+    }
+
+    #[test]
+    fn old_single_bonus_goes_to_both() {
+        assert_eq!(slot(r#"{"id":1,"bonus":"xp"}"#).bonus, PerPlatform::both(Some(Bonus::Xp)));
+        assert_eq!(slot(r#"{"id":1,"kick_bonus":"lure"}"#).bonus, PerPlatform::both(Some(Bonus::Lure)));
+        assert_eq!(slot(r#"{"id":1,"bonus":null}"#).bonus, PerPlatform::default());
+    }
+
+    #[test]
+    fn goals_off_per_platform() {
+        let s = slot(r#"{"id":1,"goals":{"list":[{"bonus":"xp","hours":48}],"off":{"twitch":true}}}"#);
+        let goals = s.goals.unwrap();
+        assert!(goals.off.get(Platform::Twitch) && !goals.off.get(Platform::Kick));
+        // Older goals have no "off" and redeem on both; nothing is written while both are on.
+        let old = slot(r#"{"id":1,"goals":{"list":[],"when_met":"save"}}"#).goals.unwrap();
+        assert!(old.off.is_default());
+        assert!(!serde_json::to_string(&old).unwrap().contains("off"));
     }
 }
 

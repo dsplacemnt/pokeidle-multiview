@@ -46,6 +46,7 @@ mod streams_only;
 mod heavy;
 mod logins;
 mod prey;
+mod redeem;
 mod resources;
 mod runtime;
 mod shortcuts;
@@ -53,6 +54,7 @@ mod support;
 mod team;
 mod whatsnew;
 mod tray;
+mod waking;
 mod updater;
 
 use std::collections::HashMap;
@@ -68,7 +70,7 @@ use tauri::{
 };
 
 use config::{
-    Config, KickBonus, Platform, SavedPanel, SlotConfig, SlotMode, KICK_LIVES_PER_SLOT, MAX_PAGES_PER_PLATFORM,
+    Config, Bonus, Platform, SavedPanel, SlotConfig, SlotMode, KICK_LIVES_PER_SLOT, MAX_PAGES_PER_PLATFORM,
     MAX_SLOTS,
 };
 use layout::Rect;
@@ -142,6 +144,8 @@ struct AppState {
     prey: HashMap<u8, (prey::Report, serde_json::Value)>,
     /// Platforms whose live checks all failed last time: why, as a kind (see `CheckDown`).
     checks_down: HashMap<Platform, CheckDown>,
+    /// Leaving economy mode: the games coming back one at a time (see waking.rs).
+    waking: Option<waking::Waking>,
 }
 
 /// Why none of a platform's channels could be checked, so the pages can tell the player what to
@@ -252,6 +256,8 @@ struct StateView {
     /// Streams-only slots: the account's last seen channel points per channel, for the cards on
     /// the slot's own page ([platform, channel, points], most first).
     points: HashMap<u8, Vec<(Platform, String, u64)>>,
+    /// Leaving economy mode: which games are back, coming back and waiting (rest screen).
+    waking: Option<waking::View>,
 }
 
 fn slot_bonuses(state: &AppState) -> HashMap<u8, SlotBonuses> {
@@ -446,6 +452,7 @@ fn state_view(state: &AppState) -> StateView {
             .filter(|s| s.streams_only)
             .map(|s| (s.id, slot_points(&state.config, s.id)))
             .collect(),
+        waking: waking::view(state),
     }
 }
 
@@ -515,7 +522,7 @@ struct FocusStream {
 struct FocusView {
     slot: u8,
     name: String,
-    bonus: Option<KickBonus>,
+    bonus: config::PerPlatform<Option<Bonus>>,
     goals: Option<config::Goals>,
     /// What the next redeem buys on each platform (None = nothing now).
     next: NextRedeem,
@@ -780,13 +787,14 @@ fn layout_plan(app: &AppHandle) -> tauri::Result<Vec<(String, Placement)>> {
     ));
     let economy = app.state::<Mutex<AppState>>().lock().unwrap().config.economy;
     plan.push((REST_PAGE.to_string(), if economy { Placement::Show(area) } else { Placement::Hide(None) }));
-    let (panels, ids, light_kick) = {
+    let (panels, ids, light_kick, warm) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().unwrap();
         (
             state.panels.clone(),
             state.config.slots.iter().map(|s| s.id).collect::<Vec<u8>>(),
             state.config.light_kick_background,
+            waking::warm(&state),
         )
     };
     let layout = current_layout(app)?;
@@ -832,6 +840,10 @@ fn layout_plan(app: &AppHandle) -> tauri::Result<Vec<(String, Placement)>> {
                     tile_or_full
                 };
                 Placement::Park(parked(size))
+            } else if tile.is_none() && warm.contains(&id) {
+                // Leaving economy mode: a game that came back draws its screen off-screen,
+                // one at a time behind the loading card, instead of all at once when shown.
+                Placement::Park(parked(tile_or_full))
             } else {
                 // The game behind a shown panel, or a slot behind a focused one.
                 Placement::Hide(tile)
@@ -1086,6 +1098,8 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
                 prey::reported(&title_app, id, json);
             } else if let Some(json) = title.strip_prefix("[multiview-mons] ") {
                 game::mons_reported(&title_app, id, json);
+            } else if let Some(json) = title.strip_prefix("[multiview-eco] ") {
+                waking::reported(&title_app, id, json);
             }
         })
         .on_navigation(move |url| {
@@ -2001,8 +2015,13 @@ fn toggle_focus(app: &AppHandle, id: Option<u8>) {
         if state.config.focus.is_some() {
             state.last_focus = state.config.focus;
         }
-        let was_economy = std::mem::replace(&mut state.config.economy, false);
-        state.config.focus = if !exists || (state.config.focus == id && !was_economy) { None } else { id };
+        // Economy mode: the slot (or the grid) shows once the games are back (see waking.rs).
+        if state.config.economy {
+            drop(state);
+            waking::leave(app, Some(if exists { id } else { None }));
+            return;
+        }
+        state.config.focus = if !exists || state.config.focus == id { None } else { id };
     }
     if let Err(e) = apply_layout(app) {
         eprintln!("[layout] {e}");
@@ -2039,9 +2058,33 @@ fn shortcut_from_page(app: &AppHandle, keys: &str) {
 
 /// Economy mode on or off (toolbar ECO button, the rest screen's button and the shortcut).
 fn set_economy_mode(app: &AppHandle, on: bool) {
+    // Leaving: the games come back one at a time behind a loading card (see waking.rs).
+    if !on {
+        waking::leave(app, None);
+        return;
+    }
     {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().unwrap();
+        // Back on while the games were coming back: the ones already back go to sleep again.
+        if waking::cancel(&mut state) {
+            println!("[economy] on again before every game was back");
+            drop(state);
+            // The games that came back stop drawing off-screen.
+            if let Err(e) = apply_layout(app) {
+                eprintln!("[layout] {e}");
+            }
+            let ids: Vec<u8> = {
+                let state = app.state::<Mutex<AppState>>();
+                let state = state.lock().unwrap();
+                save_and_publish(app, &state);
+                state.config.slots.iter().filter(|s| !s.streams_only).map(|s| s.id).collect()
+            };
+            for id in ids {
+                sync_game_economy(app, id, true);
+            }
+            return;
+        }
         if state.config.economy == on {
             return;
         }
@@ -2062,11 +2105,17 @@ fn set_economy_mode(app: &AppHandle, on: bool) {
     }
 }
 
-/// The game's own Battery Saver follows the app's economy mode in every hidden account (see
-/// game-watch.js: it only undoes what the app turned on).
-fn sync_game_economy(app: &AppHandle, id: u8, on: bool) {
+/// The game's own Battery Saver (scene off) and ULTRA Battery Saver (nothing drawn at all)
+/// follow the app's economy mode in every hidden account (see game-watch.js: it only undoes
+/// what the app turned on). The page answers "[multiview-eco] {…}" when it's done; one without
+/// the script (still loading, or not the game) answers at once, so waking.rs doesn't wait on it.
+pub(crate) fn sync_game_economy(app: &AppHandle, id: u8, on: bool) {
     if let Some(game) = app.get_webview(&slot_label(id)) {
-        let js = format!("window.__multiviewEco && window.__multiviewEco({on})");
+        let js = format!(
+            "if (window.__multiviewEco) window.__multiviewEco({on}); else {{ const t = document.title; \
+             document.title = '[multiview-eco] {{\"on\":{on},\"eco\":\"no script\",\"ultra\":\"no script\"}}'; \
+             setTimeout(() => {{ document.title = t; }}, 200); }}"
+        );
         if let Err(e) = game.eval(&js) {
             eprintln!("[economy] slot {id}: could not reach the game's battery saver: {e}");
         }
@@ -2074,8 +2123,14 @@ fn sync_game_economy(app: &AppHandle, id: u8, on: bool) {
 }
 
 fn toggle_economy(app: &AppHandle) {
-    let on = app.state::<Mutex<AppState>>().lock().unwrap().config.economy;
-    set_economy_mode(app, !on);
+    // While the games are coming back, economy mode still counts as on: the shortcut takes it
+    // back to economy.
+    let (on, waking) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
+        (state.config.economy, state.waking.is_some())
+    };
+    set_economy_mode(app, waking || !on);
 }
 
 #[tauri::command]
@@ -3288,14 +3343,14 @@ fn manage_slot_streams(app: &AppHandle, id: u8, platform: Platform, wanted: &[St
     apply_layout(app)
 }
 
-/// Background pages of `platform` on a channel, per account with a bonus chosen (or every
-/// account with `all`), leaving out the page being shown: (slot, label, login, bonus).
-fn background_channel_pages(app: &AppHandle, platform: Platform, all: bool) -> Vec<(u8, String, String, Option<KickBonus>)> {
+/// Background pages of `platform` on a channel, per account that redeems on that platform (or
+/// every account with `all`), leaving out the page being shown: (slot, label, login, bonus).
+fn background_channel_pages(app: &AppHandle, platform: Platform, all: bool) -> Vec<(u8, String, String, Option<Bonus>)> {
     let state = app.state::<Mutex<AppState>>();
     let state = state.lock().unwrap();
     let mut out = Vec::new();
     for slot in &state.config.slots {
-        if !all && slot.bonus.is_none() && slot.goals.is_none() {
+        if !all && !redeem::redeems_on(slot, platform) {
             continue;
         }
         let bonus = bonus_now(&state, slot, platform);
@@ -3313,25 +3368,24 @@ fn background_channel_pages(app: &AppHandle, platform: Platform, all: bool) -> V
 /// After a redeem, goals mode waits this long at most for the game to report the new time.
 const REDEEM_SETTLE: std::time::Duration = std::time::Duration::from_secs(180);
 
-/// The bonus an account's points buy now on `platform`: its fixed bonus, or in goals mode
-/// the first goal not met there (None = nothing to buy: every goal met and points saved, the
-/// game hasn't reported the times yet, or a redeem is still being counted).
-fn bonus_now(state: &AppState, slot: &SlotConfig, platform: Platform) -> Option<KickBonus> {
-    // Streams only: a fixed bonus (without the game there are no bonus times).
-    let Some(goals) = slot.goals.as_ref().filter(|_| !slot.streams_only) else { return slot.bonus };
-    let ends = state.bonus_ends.get(&(slot.id, platform))?;
-    if state.redeemed.get(&(slot.id, platform)).is_some_and(|at| at.elapsed() < REDEEM_SETTLE) {
-        return None;
-    }
+/// The bonus an account's points buy now on `platform` (see redeem::bonus_now), with the times
+/// this platform's bonuses have left. They count as unknown until the game reports them, and
+/// for a while after a redeem, until the game reports the new time.
+fn bonus_now(state: &AppState, slot: &SlotConfig, platform: Platform) -> Option<Bonus> {
+    let settling = state.redeemed.get(&(slot.id, platform)).is_some_and(|at| at.elapsed() < REDEEM_SETTLE);
+    let ends = state.bonus_ends.get(&(slot.id, platform)).filter(|_| !settling);
     let now = now_ms();
-    goals::pick(goals, |bonus| {
-        let end = match bonus {
-            KickBonus::Xp => ends.xp,
-            KickBonus::Capture => ends.capture,
-            KickBonus::Lure => ends.lure,
-        };
-        goals::hours_left(end, now)
-    })
+    let hours_left = ends.map(|ends| {
+        move |bonus: Bonus| {
+            let end = match bonus {
+                Bonus::Xp => ends.xp,
+                Bonus::Capture => ends.capture,
+                Bonus::Lure => ends.lure,
+            };
+            goals::hours_left(end, now)
+        }
+    });
+    redeem::bonus_now(slot, platform, hours_left.as_ref().map(|f| f as &dyn Fn(Bonus) -> f64))
 }
 
 /// Asks the live Kick pages of accounts that redeem to buy their bonus if the points are
@@ -3349,7 +3403,7 @@ fn redeem_kick_bonuses(app: &AppHandle) {
         )
     };
     let points = |id: u8, login: &str| balances.get(&config::balance_key(id, Platform::Kick, login)).copied().unwrap_or(0);
-    let mut chosen: Vec<&(u8, String, String, Option<KickBonus>)> = Vec::new();
+    let mut chosen: Vec<&(u8, String, String, Option<Bonus>)> = Vec::new();
     for page in &pages {
         let (id, _, login, _) = page;
         if !goal_slots.contains(id) {
@@ -3363,8 +3417,8 @@ fn redeem_kick_bonuses(app: &AppHandle) {
         }
     }
     for (_, label, _, bonus) in chosen {
-        let (Some(page), Some(bonus)) = (app.get_webview(label), bonus) else { continue };
-        if let Err(e) = page.eval(kick::redeem_script(*bonus)) {
+        let (Some(page), Some(script)) = (app.get_webview(label), redeem::redeemer(Platform::Kick).script(*bonus)) else { continue };
+        if let Err(e) = page.eval(script) {
             eprintln!("[auto] {label}: could not run the redeem script: {e}");
         }
     }
@@ -3450,8 +3504,8 @@ fn twitch_visit_loaded(app: &AppHandle, webview: &tauri::Webview, url: &Url) {
     };
     let on_full_page = url.host_str().is_some_and(|h| h.ends_with("twitch.tv") && h != "player.twitch.tv")
         && channels::channel_from_url(url).is_some();
-    if on_full_page {
-        if let Err(e) = webview.eval(twitch::visit_script(bonus)) {
+    if let (true, Some(script)) = (on_full_page, redeem::redeemer(Platform::Twitch).script(bonus)) {
+        if let Err(e) = webview.eval(script) {
             eprintln!("[auto] {}: could not run the visit script: {e}", webview.label());
         }
     }
@@ -3461,7 +3515,7 @@ fn twitch_visit_loaded(app: &AppHandle, webview: &tauri::Webview, url: &Url) {
 struct BonusSlotView {
     id: u8,
     name: String,
-    bonus: Option<KickBonus>,
+    bonus: config::PerPlatform<Option<Bonus>>,
     goals: Option<config::Goals>,
     /// What the next redeem buys on each platform (None = nothing now).
     next: NextRedeem,
@@ -3483,8 +3537,8 @@ struct BonusSlotView {
 
 #[derive(Serialize, Clone, Copy, Default, Debug)]
 struct NextRedeem {
-    kick: Option<KickBonus>,
-    twitch: Option<KickBonus>,
+    kick: Option<Bonus>,
+    twitch: Option<Bonus>,
 }
 
 fn next_redeem(state: &AppState, slot: &SlotConfig) -> NextRedeem {
@@ -3868,11 +3922,12 @@ fn set_twitch_lives(app: AppHandle, count: u8) -> AutomationView {
     })
 }
 
+/// The fixed bonus an account redeems on one platform (None = nothing there).
 #[tauri::command]
-fn set_bonus(app: AppHandle, id: u8, bonus: Option<KickBonus>) -> AutomationView {
+fn set_bonus(app: AppHandle, id: u8, platform: Platform, bonus: Option<Bonus>) -> AutomationView {
     automation_changed(&app, |state| {
         if let Some(slot) = state.config.slots.iter_mut().find(|s| s.id == id) {
-            slot.bonus = bonus;
+            slot.bonus.set(platform, bonus);
         }
     })
 }
@@ -4029,6 +4084,7 @@ fn main() {
                 discord_sent: discord::Sent::default(),
                 prey: HashMap::new(),
                 checks_down: HashMap::new(),
+                waking: None,
             }));
 
             // Hidden until the games have loaded (splash.rs shows it); the splash window is

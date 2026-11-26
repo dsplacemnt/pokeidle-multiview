@@ -13,23 +13,12 @@
 (() => {
   if (window.__multiviewTwitchVisit) return;
 
-  // Every size of each kind ("…", "… (3h)", "… (5h)", "… (10h)"); the cheapest wins.
-  const KINDS = {
-    xp: /\+15% XP PokeIdle/i,
-    capture: /\+15% Capture Boost/i,
-    lure: /\+15% Secret Lure/i,
-  };
+  // The rewards' names (every size of each kind; the cheapest wins) and how points read
+  // (scripts/redeem-common.js, loaded first).
+  const { KINDS, amount } = window.__multiviewRewards;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const text = (el) => (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
   const shown = (el) => el.getClientRects().length > 0;
-
-  // "350", "1.500", "2,5 mil", "12,3 mil", "1.2K" → points.
-  function amount(raw) {
-    const m = String(raw).trim().toLowerCase().match(/^([\d.,]+)\s*(mil|k)?/);
-    if (!m) return NaN;
-    if (m[2]) return Math.round(parseFloat(m[1].replace(',', '.')) * 1000);
-    return Number(m[1].replace(/[.,]/g, ''));
-  }
 
   async function waitFor(find, ms) {
     for (let waited = 0; waited < ms; waited += 500) {

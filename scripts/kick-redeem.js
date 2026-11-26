@@ -14,21 +14,10 @@
 (() => {
   if (window.__multiviewRedeem) return;
 
-  const KINDS = {
-    xp: /\+15% XP PokeIdle/i,
-    capture: /\+15% Capture Boost/i,
-    lure: /\+15% Secret Lure/i,
-  };
+  // The rewards' names and how points read (scripts/redeem-common.js, loaded first).
+  const { KINDS, amount } = window.__multiviewRewards;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const text = (el) => (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
-
-  // "210", "1.000", "2,500", "1,8 mil", "12 mil", "1.2K" → a number of points.
-  function amount(raw) {
-    const m = String(raw).trim().toLowerCase().match(/^([\d.,]+)\s*(mil|k)?/);
-    if (!m) return NaN;
-    if (m[2]) return Math.round(parseFloat(m[1].replace(',', '.')) * 1000);
-    return Number(m[1].replace(/[.,]/g, ''));
-  }
 
   const dialogs = () => [...document.querySelectorAll('[role="dialog"]')].filter((d) => d.getClientRects().length);
   async function closeAll() {

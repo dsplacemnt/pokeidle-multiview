@@ -161,6 +161,14 @@
     .tm.kick::before { background: #53fc18; }
     .tm.met { color: #8fe0b0; }
     .tm.now { color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+    .tm.off { opacity: .4; }
+    /* Goals: the platforms they spend points on. */
+    .goal-plats { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+    .goal-plats .hint { margin: 0; }
+    .goal-plats .seg button { padding: 3px 10px; }
+    /* Fixed: per platform, its choice and what's running there below it. */
+    .account .fixed .plat { line-height: 32px; }
+    .account .fixed .what { display: grid; gap: 6px; min-width: 0; }
     .goal button.icon { width: 26px; height: 26px; padding: 0; font-size: 13px; border-radius: 7px; }
     .goal-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
     .goal-foot .add { padding: 5px 10px; font-size: 12.5px; }
@@ -333,7 +341,7 @@
    <div class="pane accounts" data-pane="accounts">
     <section>
       <h2 data-i18n>Bonus per account</h2>
-      <span class="hint" data-i18n>Spends each account's channel points on PokeIdle bonuses, on its live Kick and Twitch channels. <b>Fixed</b>: always the same bonus. <b>Goals</b>: keeps each bonus above its hours, top first.</span>
+      <span class="hint" data-i18n>Spends each account's channel points on PokeIdle bonuses, on its live Kick and Twitch channels. <b>Fixed</b>: always the same bonus, one for Twitch and one for Kick. <b>Goals</b>: keeps each bonus above its hours, top first.</span>
       <div id="kbonus" style="display: grid;"></div>
     </section>
 
@@ -790,32 +798,46 @@
     }
 
     function fixedEditor(slot) {
+      // Each platform buys its own bonus (their points and bonus times are separate): one line
+      // per platform with its choice and, below it, what's running there.
       const box = el('div', 'fixed');
-      const select = document.createElement('select');
-      for (const [value, text] of [['', t('Nothing')], ['xp', '+15% XP'], ['capture', '+15% Capture Boost'], ['lure', '+15% Secret Lure']]) {
-        select.append(Object.assign(document.createElement('option'), { value, textContent: text }));
+      for (const [platform, name] of [['twitch', 'Twitch'], ['kick', 'Kick']]) {
+        const select = document.createElement('select');
+        for (const [value, text] of [['', t('Nothing')], ['xp', '+15% XP'], ['capture', '+15% Capture Boost'], ['lure', '+15% Secret Lure']]) {
+          select.append(Object.assign(document.createElement('option'), { value, textContent: text }));
+        }
+        select.value = slot.bonus?.[platform] || '';
+        select.title = t('What this account\'s {platform} points buy', { platform: name });
+        select.addEventListener('change', () => apply(invoke('set_bonus', { id: slot.id, platform, bonus: select.value || null })));
+        const what = el('div', 'what');
+        // Streams only: no bonus times here (the game on the other computer has them).
+        what.append(select, ...(slot.streams_only ? [] : [runningChips(slot, platform)]));
+        const line = el('div', 'bline');
+        line.append(el('span', 'plat', name), what);
+        box.append(line);
       }
-      select.value = slot.bonus || '';
-      select.addEventListener('change', () => apply(invoke('set_bonus', { id: slot.id, bonus: select.value || null })));
-      // Streams only: no bonus times here (the game on the other computer has them).
-      box.append(select, ...(slot.streams_only ? [] : [runningLines(slot)]));
       return box;
     }
 
-    // Bonuses running now, one line per platform (each runs on its own clock).
+    // Bonuses running now on one platform (each runs on its own clock).
+    function runningChips(slot, platform) {
+      const now = Date.now();
+      const chips = KINDS
+        .map(([key, label]) => [key, label, (slot.running?.[platform]?.[key] || 0) - now])
+        .filter(([, , ms]) => ms > 0)
+        .map(([key, label, ms]) => el('span', `bonus ${key}`, `${label} ${leftText(ms)}`));
+      if (!chips.length) chips.push(el('span', 'bonus none', slot.running?.[platform] ? t('no bonus') : '?'));
+      const items = el('span', 'items');
+      items.append(...chips);
+      return items;
+    }
+
+    // Bonuses running now, one line per platform.
     function runningLines(slot) {
       const running = el('div', 'running');
-      const now = Date.now();
       for (const [platform, name] of [['twitch', 'Twitch'], ['kick', 'Kick']]) {
-        const chips = KINDS
-          .map(([key, label]) => [key, label, (slot.running?.[platform]?.[key] || 0) - now])
-          .filter(([, , ms]) => ms > 0)
-          .map(([key, label, ms]) => el('span', `bonus ${key}`, `${label} ${leftText(ms)}`));
-        if (!chips.length) chips.push(el('span', 'bonus none', slot.running?.[platform] ? t('no bonus') : '?'));
         const line = el('div', 'bline');
-        const items = el('span', 'items');
-        items.append(...chips);
-        line.append(el('span', 'plat', name), items);
+        line.append(el('span', 'plat', name), runningChips(slot, platform));
         running.append(line);
       }
       return running;
@@ -854,9 +876,23 @@
 
     function goalsEditor(slot, setGoals) {
       const goals = slot.goals;
-      const save = (list, whenMet = goals.when_met) => setGoals({ list, when_met: whenMet });
+      const off = { twitch: !!goals.off?.twitch, kick: !!goals.off?.kick };
+      const save = (list, whenMet = goals.when_met, offNow = off) => setGoals({ list, when_met: whenMet, off: offNow });
       const box = el('div', 'goals');
       const now = Date.now();
+      // Where the goals spend points: each platform can be left out (its points are kept).
+      const where = el('div', 'goal-plats');
+      const plats = el('div', 'seg');
+      for (const [platform, name] of [['twitch', 'Twitch'], ['kick', 'Kick']]) {
+        const b = el('button', off[platform] ? '' : 'on', `${off[platform] ? '✕' : '✓'} ${name}`);
+        b.title = off[platform]
+          ? `${t('Goals off on {platform}: its points are kept.', { platform: name })} ${t('Click to turn them on.')}`
+          : t('Goals on for {platform}. Click to keep its points instead.', { platform: name });
+        b.addEventListener('click', () => save(goals.list, goals.when_met, { ...off, [platform]: !off[platform] }));
+        plats.append(b);
+      }
+      where.append(el('span', 'hint', t('Redeem on')), plats);
+      box.append(where);
       // The row each platform is buying now: the first goal not met there whose bonus is the
       // app's pick (the app decides; this only shows it).
       const buying = {};
@@ -888,11 +924,13 @@
           const known = !!slot.running?.[platform];
           const met = known && ms / 3600000 >= goal.hours;
           const now_ = buying[platform] === i;
-          const badge = el('span', `tm ${platform}${met ? ' met' : ''}${now_ ? ' now' : ''}`, known ? leftText(ms) : '?');
-          badge.title = known
+          // A platform with the goals off still shows its time, dimmed.
+          const badge = el('span', `tm ${platform}${off[platform] ? ' off' : met ? ' met' : ''}${now_ ? ' now' : ''}`, known ? leftText(ms) : '?');
+          badge.title = (known
             ? t('{platform}: {left} of {bonus} (goal {hours}h)', { platform: name, left: leftText(ms), bonus: KINDS.find(([k]) => k === goal.bonus)[1], hours: goal.hours })
               + (now_ ? `\n${t('Buying this now')}` : '')
-            : t('Not reported by the game yet');
+            : t('Not reported by the game yet'))
+            + (off[platform] ? `\n${t('Goals off on {platform}: its points are kept.', { platform: name })}` : '');
           status.append(badge);
         }
         // Drag this handle up or down to change the order.
