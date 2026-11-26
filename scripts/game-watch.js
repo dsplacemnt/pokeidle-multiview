@@ -199,6 +199,31 @@
     return [...mons.values()].find((p) => p && p.slot === 0) || null;
   }
 
+  // The whole Pokémon list as the game sends it, for the app to keep in a local file (team
+  // analysis): "[multiview-mons] 1/3 {"activeId":…,"mons":[…],"collection":[…]}" in pieces.
+  // "collection" = the ids in the Collection ★ (the game's automation.pokemonTravado); a
+  // Pokémon with no team slot that isn't there is in the Depot. Sent 5 s after the first list,
+  // then at most once a minute (a hunt levels up often), only when it really changed.
+  let welcomeKeys = [];
+  let collection = null;
+  let monsSent = '';
+  let monsTimer = null;
+  function monsChanged() {
+    if (monsTimer) return;
+    monsTimer = setTimeout(() => {
+      monsTimer = null;
+      if (!mons.size) return;
+      const text = JSON.stringify({ activeId, mons: [...mons.values()], collection, welcomeKeys });
+      if (text === monsSent) return;
+      monsSent = text;
+      // In pieces: the browser cuts page titles at a few thousand characters.
+      const SIZE = 3000;
+      const n = Math.ceil(text.length / SIZE);
+      for (let i = 0; i < n; i++) queue.push(`[multiview-mons] ${i + 1}/${n} ${text.slice(i * SIZE, (i + 1) * SIZE)}`);
+      if (!busy) next();
+    }, monsSent ? 60000 : 5000);
+  }
+
   // full: a whole state (the welcome, or a "cheio" snapshot), not just what changed.
   function onState(state, full) {
     if (typeof state.huntSlug === 'string' && state.huntSlug !== game.hunt) {
@@ -654,9 +679,13 @@
       onBattle(message.ev);
       return;
     }
+    if (message.t === 'welcome') welcomeKeys = Object.keys(message).filter((k) => k !== 'estado');
     const state = message.estado;
     if (!state) return;
     onState(state, message.t === 'welcome' || !!state.cheio);
+    const locked = state.automation?.pokemonTravado;
+    if (Array.isArray(locked)) collection = locked.map(Number).filter(Number.isFinite);
+    if (state.pokemons || state.pkMud || state.pkFora || 'activeId' in state || Array.isArray(locked)) monsChanged();
     if (!data.includes('"oficiais"')) return;
     for (const platform of ['kick', 'twitch']) {
       const info = state[platform];

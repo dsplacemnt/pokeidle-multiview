@@ -50,6 +50,7 @@ mod resources;
 mod runtime;
 mod shortcuts;
 mod support;
+mod team;
 mod whatsnew;
 mod tray;
 mod updater;
@@ -623,6 +624,7 @@ fn set_language(app: AppHandle, lang: config::Language) {
         "settings".to_string(),
         "support".to_string(),
         "whatsnew".to_string(),
+        team::WINDOW.to_string(),
     ];
     pages.extend((1..=MAX_SLOTS).map(header_label));
     // The streams-only slots' own page (the other slots hold the game, a remote site).
@@ -641,6 +643,9 @@ fn set_language(app: AppHandle, lang: config::Language) {
     }
     if let Some(w) = app.get_webview_window("support") {
         let _ = w.set_title(support::title(lang));
+    }
+    if let Some(w) = app.get_webview_window(team::WINDOW) {
+        let _ = w.set_title(team::title(lang));
     }
 }
 
@@ -1079,6 +1084,8 @@ fn create_slot_webview(app: &AppHandle, slot: &SlotConfig) -> tauri::Result<()> 
                 game::sprite_reported(&title_app, json);
             } else if let Some(json) = title.strip_prefix("[multiview-prey] ") {
                 prey::reported(&title_app, id, json);
+            } else if let Some(json) = title.strip_prefix("[multiview-mons] ") {
+                game::mons_reported(&title_app, id, json);
             }
         })
         .on_navigation(move |url| {
@@ -4221,6 +4228,9 @@ fn main() {
             shortcuts::reset_shortcuts,
             whatsnew::get_whats_new,
             whatsnew::open_whats_new,
+            team::open_team,
+            team::get_team_lists,
+            team::get_game_data,
             support::open_github,
             support::open_referral,
             support::open_discord,

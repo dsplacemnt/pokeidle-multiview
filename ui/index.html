@@ -74,6 +74,24 @@
       background: transparent; color: #ff6b81; }
     #support:hover { background: var(--chip); color: #ff8fa0; }
     #support svg { width: 17px; height: 17px; display: block; }
+    /* Team analysis: a Pokéball line icon, the size and look of ⚙ beside it. */
+    #team { display: inline-flex; align-items: center; justify-content: center; position: relative; }
+    #team svg { width: 16px; height: 16px; display: block; }
+    /* New feature: the Pokéball glows gold (a slow pulse) until it's opened once. */
+    #team.is-new { color: var(--accent); animation: team-glow 2.2s ease-in-out infinite; }
+    #team.is-new svg { animation: team-glow-icon 2.2s ease-in-out infinite; }
+    @keyframes team-glow {
+      0%, 100% { box-shadow: 0 0 0 1px rgba(242, 193, 78, .35), 0 0 4px rgba(242, 193, 78, .15); }
+      50% { box-shadow: 0 0 0 1px rgba(242, 193, 78, .85), 0 0 7px 1px rgba(242, 193, 78, .6); }
+    }
+    @keyframes team-glow-icon {
+      0%, 100% { filter: drop-shadow(0 0 1px rgba(242, 193, 78, .4)); }
+      50% { filter: drop-shadow(0 0 5px rgba(242, 193, 78, .95)); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #team.is-new, #team.is-new svg { animation: none; }
+      #team.is-new { box-shadow: 0 0 0 1px rgba(242, 193, 78, .7), 0 0 8px rgba(242, 193, 78, .4); }
+    }
     .error { color: #ff8a80; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .status { color: var(--muted); }
     /* A platform's live checks all fail: red like a slot's game warning; click checks again. */
@@ -144,6 +162,7 @@
     <span class="section options">
       <button id="update" class="update" hidden></button>
       <button id="support" data-i18n-title title="Support the dev: Pix and Discord" aria-label="Support the dev"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21.2 10.6 20C5.4 15.4 2 12.4 2 8.6 2 5.5 4.4 3.2 7.4 3.2c1.7 0 3.4.8 4.6 2.1 1.2-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.3 5.4 5.4 0 3.8-3.4 6.8-8.6 11.4z"/></svg></button>
+      <button id="team" class="icon" title="Team analysis: which Pokémon are worth leveling" aria-label="Team analysis"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h6m6 0h6"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button id="settings" class="icon" data-i18n-title title="Settings">⚙</button>
     </span>
     </div>
@@ -303,6 +322,24 @@
     document.getElementById('grid').addEventListener('click', () => invoke('focus_slot', { id: null }).catch(showError));
     document.getElementById('eco').addEventListener('click', () => invoke('set_economy', { on: !(latest && latest.economy) }).catch(showError));
     document.getElementById('settings').addEventListener('click', () => invoke('open_settings').catch(showError));
+    // Team analysis is new: marked until it's opened once (remembered by this page).
+    const teamBtn = document.getElementById('team');
+    let teamSeen = false;
+    try { teamSeen = localStorage.getItem('team-seen') === '1'; } catch {}
+    const teamTitle = () => {
+      teamBtn.classList.toggle('is-new', !teamSeen);
+      teamBtn.title = t('Team analysis: which Pokémon are worth leveling') + (teamSeen ? '' : ` — ${t('New!')}`);
+    };
+    teamTitle();
+    I18N.onChange(teamTitle);
+    teamBtn.addEventListener('click', () => {
+      if (!teamSeen) {
+        teamSeen = true;
+        try { localStorage.setItem('team-seen', '1'); } catch {}
+        teamTitle();
+      }
+      invoke('open_team').catch(showError);
+    });
     document.getElementById('support').addEventListener('click', () => invoke('open_support').catch(showError));
     document.getElementById('hide').addEventListener('click', () => invoke('set_toolbar_hidden', { hidden: true }).catch(showError));
     Shortcuts.onChange(() => { if (latest) render(latest); });

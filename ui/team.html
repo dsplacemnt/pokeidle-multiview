@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Team analysis</title>
+  <style>
+    :root {
+      --bg: #14161b;
+      --card: #1d2027;
+      --card-2: #191c22;
+      --chip: #262a33;
+      --chip-active: #333845;
+      --line: #2a2f38;
+      --line-strong: #3a4150;
+      --text: #e6e8ee;
+      --muted: #8b91a1;
+      --dim: #626878;
+      --accent: #f2c14e;
+      --good: #5fd08a;
+      --bad: #ff8a7a;
+      --phys: #f0975a;
+      --spec: #7fa8ff;
+    }
+    * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #3a4150 transparent; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 16px 20px 12px; display: grid; gap: 3px; flex: none; }
+    h1 { margin: 0; font-size: 18px; color: var(--accent); }
+    header p { margin: 0; color: var(--muted); }
+
+    /* Top: two sections, one under the other and left-aligned. What to show (the accounts, then
+       Ranking on its own) and, below it, the filters in a box of the same look. */
+    .top { flex: none; display: grid; gap: 8px; padding: 0 20px 12px; }
+    .toprow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+    /* A section box. Baseline-aligned: the small caps label sits on the same line as the texts
+       next to it (centring the boxes left it looking low). */
+    .sect { display: flex; align-items: baseline; gap: 2px; padding: 3px; min-height: 36px; background: var(--card);
+      border: 1px solid var(--line); border-radius: 10px; min-width: 0; flex-wrap: wrap; }
+    .sect .label { color: var(--muted); font-size: 11px; font-weight: 700; padding: 0 8px 0 7px; text-transform: uppercase;
+      letter-spacing: .05em; }
+    .filters { gap: 14px; padding-right: 12px; height: 36px; flex-wrap: nowrap; }
+    .filters .label { padding-right: 0; }
+    .sect .vsep { align-self: center; width: 1px; height: 18px; background: var(--line-strong); }
+    .toprow .end { margin-left: auto; }
+    .tab { background: transparent; color: var(--muted); border: 0; border-radius: 7px; height: 28px; padding: 0 12px;
+      font: inherit; font-weight: 600; cursor: pointer; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab:hover { color: var(--text); background: var(--chip); }
+    .tab.on { background: var(--chip-active); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+    .divider { width: 1px; height: 24px; background: var(--line-strong); flex: none; }
+    .rank-tab { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 10px;
+      background: var(--card); border: 1px solid var(--line); color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
+    .rank-tab svg { width: 16px; height: 16px; color: var(--accent); }
+    .rank-tab:hover { background: var(--chip); }
+    .rank-tab.on { background: var(--accent); border-color: var(--accent); color: #1a1408; }
+    .rank-tab.on svg { color: #1a1408; }
+    .field { display: inline-flex; align-items: baseline; gap: 7px; color: var(--muted); white-space: nowrap; }
+    .field input { width: 68px; height: 28px; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+      border-radius: 7px; padding: 0 8px; font: inherit; text-align: right; font-variant-numeric: tabular-nums; }
+    .field input:focus { outline: none; border-color: var(--accent); }
+    /* On/off switch (Megas) */
+    .switch { display: inline-flex; align-items: baseline; gap: 8px; color: var(--muted); white-space: nowrap; cursor: pointer; user-select: none;
+      line-height: 28px; }
+    .switch .track { align-self: center; }
+    .switch input { position: absolute; opacity: 0; pointer-events: none; }
+    .switch .track { width: 30px; height: 17px; border-radius: 9px; background: var(--chip-active); position: relative; flex: none;
+      transition: background .15s; box-shadow: inset 0 0 0 1px var(--line-strong); }
+    .switch .track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%;
+      background: var(--muted); transition: transform .15s, background .15s; }
+    .switch input:checked ~ .track { background: rgba(242, 193, 78, .35); box-shadow: inset 0 0 0 1px var(--accent); }
+    .switch input:checked ~ .track::after { transform: translateX(13px); background: var(--accent); }
+    .switch input:focus-visible ~ .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .switch:hover { color: var(--text); }
+    button.icon { width: 30px; height: 30px; padding: 0; background: var(--card); color: var(--text); border: 1px solid var(--line);
+      border-radius: 8px; cursor: pointer; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; }
+    button.icon:hover { background: var(--chip); }
+    button.icon.spin span { display: inline-block; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .notice { flex: none; margin: 0 20px 10px; padding: 8px 12px; border-radius: 8px; background: rgba(255, 138, 122, .1);
+      color: var(--bad); }
+    .notice.soft { background: rgba(242, 193, 78, .08); color: var(--accent); }
+
+    main { flex: 1; min-height: 0; overflow: auto; padding: 0 20px 14px; }
+
+    /* Tables: fixed columns so every group lines up, numbers right-aligned in tabular figures. */
+    table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-variant-numeric: tabular-nums; }
+    th { position: sticky; top: 0; z-index: 2; background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11.5px;
+      text-align: left; padding: 8px 10px 7px; border-bottom: 1px solid var(--line-strong); vertical-align: bottom;
+      text-transform: uppercase; letter-spacing: .03em; line-height: 1.3; }
+    th[title] { cursor: help; }
+    th[title] .h { text-decoration: underline dotted rgba(139, 145, 161, .55); text-underline-offset: 3px; }
+    .r { text-align: right; }
+    .c { text-align: center; }
+    th.tight, td.tight { padding-left: 4px; padding-right: 4px; }
+    td { padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    td + td, th + th { border-left: 1px solid transparent; }
+    td.sep, th.sep { border-left-color: var(--line); }
+    tbody tr.row:hover td { background: rgba(255, 255, 255, .025); }
+
+    /* A group (Team, Collection ★, Depot): a band across the table. */
+    tr.group td { padding: 16px 0 0; border-bottom: 0; background: transparent !important; }
+    .band { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--card); border-radius: 8px 8px 0 0;
+      border-bottom: 1px solid var(--line-strong); font-weight: 700; color: var(--accent); font-size: 12px; letter-spacing: .02em; }
+    .band .count { min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; background: var(--chip-active);
+      color: var(--text); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+    .band .hint { margin-left: auto; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+    tr.hidden-note td { color: var(--muted); font-size: 12px; border-bottom: 0; padding: 12px 2px 0; }
+
+    /* Pokémon cell */
+    .name { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; font-weight: 600; font-size: 13.5px; }
+    .name .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .name .lv { color: var(--muted); font-weight: 500; font-size: 12px; flex: none; }
+    .where { color: var(--muted); font-size: 12px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+    .type, .tag { font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 4px; line-height: 16px; white-space: nowrap; }
+    .type { color: #fff; letter-spacing: .02em; }
+    .tag { background: var(--chip); color: var(--muted); }
+    .tag.active { background: rgba(95, 208, 138, .14); color: var(--good); }
+    .tag.shiny { background: rgba(242, 193, 78, .14); color: var(--accent); }
+
+    /* Score: now, and the potential below it */
+    .score { display: grid; justify-items: end; line-height: 1.25; }
+    .score b { font-size: 13.5px; }
+    .score .pot { color: var(--good); font-size: 12px; }
+    .score .pot.same { color: var(--dim); }
+
+    /* Damage per category: a line each, the best one bright */
+    .cats { display: grid; gap: 3px; }
+    .cat { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 8px; color: var(--dim); white-space: nowrap; }
+    .cat .kind { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+    .cat .stat { font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+    .cat .dps { font-weight: 600; min-width: 46px; text-align: right; }
+    .cat.best { color: var(--text); }
+    .cat.best .dps { font-weight: 700; font-size: 14px; }
+    .cat.phys .kind { color: var(--phys); }
+    .cat.spec .kind { color: var(--spec); }
+    .cat:not(.best) .kind { opacity: .6; }
+    .cat.none .stat { color: var(--dim); }
+    .cat .stat b { font-weight: 700; }
+
+    /* The game's own colours. A stat's IV (app.js classeIvStat): red, orange, yellow, green,
+       bright green. */
+    .iv1 { color: #ff6b6b; }
+    .iv2 { color: #ff9a3c; }
+    .iv3 { color: #ffd93d; }
+    .iv4 { color: #2ecc71; }
+    .iv5 { color: #7dff9a; text-shadow: 0 0 6px rgba(125, 255, 154, .6); }
+    .cat:not(.best) .stat b { opacity: .75; }
+    /* P · Q · IV badges: the game's metal plates (estilo.css .pk-selo t1–t5, its rarity scale:
+       grey, green, blue, purple, gold). */
+    .selo { --selo: #b9aeb3; --selo-luz: #ded6da; --selo-esc: #70666a; --selo-glint: transparent; --selo-halo: 0 0 0 transparent;
+      display: inline-block; min-width: 30px; text-align: center; font: 700 11px/1 Tahoma, Verdana, "Segoe UI", sans-serif;
+      padding: 4px 6px; border-radius: 4px; color: #2b2135; text-shadow: 0 1px 0 #ffffff66; white-space: nowrap;
+      background:
+        linear-gradient(107deg, transparent 0 34%, var(--selo-glint) 44% 52%, transparent 62% 100%),
+        linear-gradient(180deg, var(--selo-luz) 0 1px, color-mix(in srgb, var(--selo) 72%, var(--selo-luz)) 1px 42%,
+          var(--selo) 42% 84%, color-mix(in srgb, var(--selo) 72%, var(--selo-esc)) 84% 100%);
+      box-shadow: inset 0 0 0 1px var(--selo-esc), var(--selo-halo); cursor: help; }
+    .selo.t2 { --selo: #6bc96b; --selo-luz: #a9e8a2; --selo-esc: #2c7a36; }
+    .selo.t3 { --selo: #1fa5f5; --selo-luz: #b6e6ff; --selo-esc: #0a5496; --selo-glint: #ffffff4d; }
+    .selo.t4 { --selo: #be66ff; --selo-luz: #ebcaff; --selo-esc: #5c13a8; --selo-glint: #ffffff66;
+      --selo-halo: 0 0 7px color-mix(in srgb, #be66ff 60%, transparent); }
+    .selo.t5 { --selo: #ffc02e; --selo-luz: #fff0b4; --selo-esc: #7d5313; --selo-glint: #fffdf0a6; --selo-halo: 0 0 7px #ffc02e66; }
+
+    .num { font-weight: 600; }
+    .num.dim { color: var(--dim); font-weight: 500; }
+    .low { color: var(--bad); }
+
+    /* Final forms: name · stone · best damage, aligned like the damage column */
+    .forms { display: grid; gap: 3px; }
+    .form { display: grid; grid-template-columns: minmax(0, 1fr) 12px auto; align-items: baseline; gap: 8px; white-space: nowrap; color: var(--muted); }
+    .form .fn { display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; }
+    /* The form's name keeps its room; the stone shrinks (and ellipsizes) first. */
+    .form .fname { overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+    .form .stone { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; flex: 0 1000 auto; min-width: 0; }
+    .form .fdps { min-width: 46px; text-align: right; font-weight: 600; }
+    .form .fk { font-size: 10px; font-weight: 700; width: 12px; text-align: center; }
+    .form .fk.phys { color: var(--phys); }
+    .form .fk.spec { color: var(--spec); }
+    .form.best { color: var(--text); }
+    .form.best .fname { font-weight: 600; }
+    .form.best .fdps { font-weight: 700; }
+    .none { color: var(--dim); }
+    .rank { color: var(--muted); font-weight: 700; font-size: 14px; }
+    .rank.top { color: var(--accent); }
+
+    .empty { display: grid; place-items: center; gap: 6px; text-align: center; color: var(--muted); padding: 60px 20px; }
+    .empty b { color: var(--text); font-size: 14px; }
+
+    footer { flex: none; padding: 9px 20px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+
+    /* A narrow window: the Mega stone goes into the form's tooltip, "Power now" goes away. */
+    @media (max-width: 1040px) { .form .stone { display: none; } }
+  </style>
+  <script src="i18n.js"></script>
+  <script src="team-analysis.js"></script>
+</head>
+<body>
+  <header>
+    <h1 data-i18n>Team analysis</h1>
+    <p data-i18n>How strong each Pokémon is and what it becomes when it evolves, with the game's own formulas. Use it to pick who to level with Exp. Share and House posts.</p>
+  </header>
+  <div class="top">
+    <div class="toprow">
+      <div class="sect" id="tabs"></div>
+      <span class="divider"></span>
+      <button id="ranking" class="rank-tab" data-i18n-title title="Everyone from every account, strongest first"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M12 14v4M8 20h8"/></svg><span data-i18n>Ranking</span></button>
+      <button id="refresh" class="icon end" data-i18n-title title="Download the game's data again"><span>↻</span></button>
+    </div>
+    <div class="toprow">
+      <div class="sect filters">
+        <span class="label" data-i18n>Filters</span>
+        <label class="field" data-i18n-title title="Everyone is compared as if at this level: what counts is the species and how it was born, not how much it was leveled"><span data-i18n>Compare at Lv</span> <input id="level" type="number" min="1" max="99999" step="50"></label>
+        <span class="vsep"></span>
+        <label class="field" data-i18n-title title="Leaves out Pokémon whose best final form (last evolution or Mega) has a lower Score. 0 shows everyone."><span data-i18n>Min. final Score</span> <input id="min" type="number" min="0" max="10" step="0.1"></label>
+        <span class="vsep"></span>
+        <label class="switch" data-i18n-title title="Count Mega Evolutions (they need the Mega stone): in the final forms, the Score Potential and the ranking"><input id="megas" type="checkbox"><span data-i18n>Megas</span><span class="track"></span></label>
+      </div>
+    </div>
+  </div>
+  <div class="notice" id="notice" hidden></div>
+  <main id="main"></main>
+  <footer id="foot"></footer>
+  <script>
+    const { invoke } = window.__TAURI__.core;
+    const { listen } = window.__TAURI__.event;
+    const { t } = I18N;
+
+    const TYPE_COLOR = {
+      NORMAL: '#9099a1', FIRE: '#e8743b', WATER: '#3f8ce0', GRASS: '#3fa75a', ELECTRIC: '#d9b622', ICE: '#4fc1c4',
+      FIGHTING: '#ce4069', POISON: '#a259c8', GROUND: '#d27a40', FLYING: '#7f9bd9', PSYCHIC: '#ef6f7a', BUG: '#8cb030',
+      ROCK: '#b9a96b', GHOST: '#5869b0', DRAGON: '#3a6ec4', DARK: '#5a5366', STEEL: '#5a8ea2', FAIRY: '#d47fcf',
+    };
+    const RANKING = 'ranking';
+    const narrow = () => window.innerWidth <= 1040;
+    let engine = null;
+    let gameInfo = null;
+    let slots = [];
+    let listsLoaded = false;
+    let tab = null;
+    let loadingData = false;
+    let dataError = null;
+
+    const store = {
+      get: (k, d) => { try { const v = localStorage.getItem(`team-${k}`); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set: (k, v) => { try { localStorage.setItem(`team-${k}`, JSON.stringify(v)); } catch {} },
+    };
+    const levelInput = document.getElementById('level');
+    const minInput = document.getElementById('min');
+    levelInput.value = store.get('level', 1000);
+    minInput.value = store.get('min', 3.5);
+    const level = () => Math.max(1, Math.min(99999, Math.round(Number(levelInput.value) || 1000)));
+    const minScore = () => Math.max(0, Math.min(10, Number(minInput.value) || 0));
+    const megasInput = document.getElementById('megas');
+    megasInput.checked = store.get('megas', true);
+    const megas = () => megasInput.checked;
+    const tiers = TeamAnalysis.tiers;
+
+    const locale = () => ({ pt: 'pt-BR', es: 'es' })[I18N.lang] || 'en';
+    const big = (n) => (n >= 1e6
+      ? `${(n / 1e6).toLocaleString(locale(), { maximumFractionDigits: 2 })}M`
+      : n >= 1e4 ? `${Math.round(n / 1e3).toLocaleString(locale())}k` : Math.round(n).toLocaleString(locale()));
+    const sc = (n) => Number(n).toLocaleString(locale(), { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+    const el = (tag, cls, text) => {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    };
+    const td = (cls, ...kids) => { const c = el('td', cls); c.append(...kids); return c; };
+
+    // Where a Pokémon is, as the game shows it.
+    function placeOf(list, pk) {
+      if (pk.slot != null) return 'team';
+      if (!Array.isArray(list.collection)) return 'out';
+      return list.collection.map(Number).includes(Number(pk.id)) ? 'collection' : 'depot';
+    }
+    const PLACE_NAME = () => ({ team: t('Team'), collection: t('Collection ★'), depot: t('Depot'), out: t('Not on the team') });
+
+    // Every analysed Pokémon of a slot (the filter applied), with how many were left out.
+    function rowsOf(slot) {
+      const list = slot.list;
+      if (!engine || !list?.mons) return { rows: [], hidden: 0 };
+      const rows = [];
+      let hidden = 0;
+      for (const pk of list.mons) {
+        const a = engine.analyse(pk, level(), { megas: megas() });
+        if (!a) continue;
+        if (a.potential < minScore() - 1e-9) { hidden++; continue; }
+        rows.push({ pk, a, place: placeOf(list, pk), active: pk.id === list.activeId, slot });
+      }
+      return { rows, hidden };
+    }
+
+    // ---- cells ----
+    function pokemonCell(r, withWhere) {
+      const { pk, a } = r;
+      const cell = el('td');
+      const line = el('div', 'name');
+      const nm = el('span', 'nm', pk.nome);
+      nm.title = pk.nome;
+      line.append(nm, el('span', 'lv', `Lv ${Number(pk.level).toLocaleString(locale())}`));
+      cell.append(line);
+      if (withWhere) {
+        const where = el('div', 'where', `${r.slot.name} · ${PLACE_NAME()[r.place]}`);
+        where.title = where.textContent;
+        cell.append(where);
+      }
+      const chips = el('div', 'chips');
+      for (const ty of a.types) {
+        const c = el('span', 'type', ty);
+        c.style.background = TYPE_COLOR[ty] || '#555';
+        chips.append(c);
+      }
+      if (r.active) chips.append(el('span', 'tag active', t('fighting')));
+      if (pk.starter) chips.append(el('span', 'tag', t('starter')));
+      if (pk.shiny) chips.append(el('span', 'tag shiny', t('shiny')));
+      cell.append(chips);
+      return cell;
+    }
+
+    function scoreCell(a) {
+      const box = el('div', 'score');
+      box.append(el('b', '', sc(a.score)));
+      const grows = a.potential > a.score + 1e-9;
+      const pot = el('span', 'pot' + (grows ? '' : ' same'), grows ? `→ ${sc(a.potential)}` : t('final'));
+      pot.title = grows ? t('Score Potential: its best final form or Mega') : t('Already at its best Score');
+      box.append(pot);
+      return td('r', box);
+    }
+
+    // Best damage of each category: physical moves use ATK, special ones SP.ATK; the best line
+    // is the one its fights use.
+    function catsBox(pk, cats) {
+      const box = el('div', 'cats');
+      const best = [cats.PHYSICAL, cats.SPECIAL].filter(Boolean).sort((x, y) => y.dps - x.dps)[0];
+      for (const [key, cls, label, stat, ivKey] of [['PHYSICAL', 'phys', t('Physical'), 'ATK', 'atk'], ['SPECIAL', 'spec', t('Special'), 'SP.ATK', 'spAtk']]) {
+        const c = cats[key];
+        const line = el('div', `cat ${cls}` + (c && c === best ? ' best' : '') + (c ? '' : ' none'));
+        line.append(el('span', 'kind', label));
+        if (c) {
+          // The stat's IV in the game's colours (red ≤ 5 … bright green ≥ 25).
+          const iv = pk.ivs?.[ivKey];
+          const tier = tiers.ivStat(iv);
+          const s = el('span', 'stat', `${t('{stat} IV', { stat })} `);
+          s.append(el('b', `iv${tier}`, String(iv ?? '?')));
+          s.title = `${c.golpe.name} · ${c.golpe.power} / ${(c.golpe.cooldownMs / 1000).toLocaleString(locale())} s`
+            + (tier <= 2 ? `\n${t('Low IV in the stat its moves use: it hits much weaker than its Score suggests')}` : '');
+          line.append(s, el('span', 'dps', big(c.dps)));
+        } else {
+          line.append(el('span', 'stat', t('no moves')), el('span', 'dps', '—'));
+        }
+        box.append(line);
+      }
+      return box;
+    }
+
+    // The game's metal badges for Potency, Quality and IV total, in its colours.
+    function badge(text, tier, title) {
+      const b = el('span', `selo t${tier}`, text);
+      b.title = title;
+      return b;
+    }
+    const POT_BONUS = [0, 5, 10, 25, 100];
+    const potencyBadge = (p) => {
+      const n = tiers.potency(p);
+      return badge(`P${n}`, n, n === 1 ? t('Potency 1: no stat bonus') : t('Potency {n}: +{b}% to every stat', { n, b: POT_BONUS[n - 1] }));
+    };
+    const qualityText = (q) => Number(q).toLocaleString(locale(), { maximumFractionDigits: 3 });
+    const qualityBadge = (q) => badge(qualityText(q), tiers.quality(q), t('Quality {v} (0.8 to 1.8)', { v: qualityText(q) }));
+    const ivBadge = (iv) => badge(String(iv), tiers.ivTotal(iv), t('IV total {v} out of 192', { v: iv }));
+
+    function formsBox(forms) {
+      const box = el('div', 'forms');
+      forms.forEach((f, i) => {
+        const row = el('div', 'form' + (i === 0 ? ' best' : ''));
+        const name = el('span', 'fname', f.name);
+        name.title = `${f.name}${f.mega ? ` (${f.mega.stone})` : ''} · ${t('Score')} ${sc(f.score)} · ${f.golpe.name}`;
+        const special = f.golpe.category === 'SPECIAL';
+        const kind = el('span', `fk ${special ? 'spec' : 'phys'}`, special ? t('S') : t('P'));
+        kind.title = special ? t('Special') : t('Physical');
+        const fn = el('span', 'fn');
+        fn.append(name);
+        if (f.mega) fn.append(el('span', 'stone', f.mega.stone));
+        row.append(fn, kind, el('span', 'fdps', big(f.dps)));
+        box.append(row);
+      });
+      return box;
+    }
+
+    // A header cell; `title` makes it explain itself on hover.
+    function th(text, cls, title) {
+      const h = el('th', cls || '');
+      const s = el('span', title ? 'h' : '', text);
+      h.append(s);
+      if (title) h.title = title;
+      return h;
+    }
+    function table(widths, heads) {
+      const tbl = el('table');
+      const cg = el('colgroup');
+      for (const [w, cls] of widths) { const c = el('col', cls || ''); if (w) c.style.width = w; cg.append(c); }
+      const thead = el('thead');
+      const tr = el('tr');
+      tr.append(...heads);
+      thead.append(tr);
+      tbl.append(cg, thead);
+      return tbl;
+    }
+    const DMG_TITLE = () => t('Damage per second against a neutral target at the comparison level, with the stat each category uses (Physical → ATK, Special → SP.ATK). The bright line is the one its fights use.');
+    const SCORE_TITLE = () => t("The game's Score now → the best Score among its final forms and Megas (Score Potential)");
+    const FORMS_TITLE = () => t('What it can become (every branch and Mega, Megas need their stone) and its best damage there, at the comparison level');
+    const POWER_TITLE = () => t("The game's own PvE power now, at its current level");
+
+    function groupRow(label, count, cols, hint) {
+      const tr = el('tr', 'group');
+      const c = el('td');
+      c.colSpan = cols;
+      const band = el('div', 'band');
+      band.append(el('span', '', label), el('span', 'count', String(count)));
+      if (hint) band.append(el('span', 'hint', hint));
+      c.append(band);
+      tr.append(c);
+      return tr;
+    }
+
+    function renderSlot(slot) {
+      const main = document.getElementById('main');
+      if (slot.mode === 'streams' && !slot.list) {
+        main.replaceChildren(empty(t('Streams only'), t("This slot doesn't open the game, so it can't read this account's Pokémon.")));
+        return;
+      }
+      if (!slot.list) {
+        main.replaceChildren(empty(t('No list yet'), t("The game sends this account's Pokémon a few seconds after it loads. Keep the slot's game open.")));
+        return;
+      }
+      const { rows, hidden } = rowsOf(slot);
+      if (!rows.length) {
+        main.replaceChildren(empty(t('Nobody reaches the minimum Score'), t('{n} with a final Score below {min} left out.', { n: hidden, min: sc(minScore()) })));
+        return;
+      }
+      const lv = level().toLocaleString(locale());
+      // A narrow window leaves "Power now" out (the forms and the name need the room).
+      const power = !narrow();
+      const cols = power ? 8 : 7;
+      const tbl = table(
+        [[null], ['86px'], ['232px'], ['62px'], ['48px'], ['54px'], ...(power ? [['78px']] : []), ['25%']],
+        [
+          th(t('Pokémon')),
+          th(t('Score'), 'r', SCORE_TITLE()),
+          th(t('Damage @Lv {lv}', { lv }), 'sep', DMG_TITLE()),
+          th('Q', 'c sep tight', t('Quality (0.8 to 1.8)')),
+          th('P', 'c tight', t('Potency (1 to 5)')),
+          th('IV', 'c tight', t('IV total (out of 192)')),
+          ...(power ? [th(t('Power now'), 'r sep', POWER_TITLE())] : []),
+          th(t('Final forms · damage'), 'sep', FORMS_TITLE()),
+        ],
+      );
+      const body = el('tbody');
+      for (const place of ['team', 'collection', 'depot', 'out']) {
+        const group = rows.filter((r) => r.place === place)
+          .sort((x, y) => (place === 'team' ? x.pk.slot - y.pk.slot : y.a.best.dps - x.a.best.dps));
+        if (!group.length) continue;
+        body.append(groupRow(PLACE_NAME()[place], group.length, cols));
+        for (const r of group) {
+          const { pk, a } = r;
+          const ivTotal = Object.values(pk.ivs || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+          const tr = el('tr', 'row');
+          tr.append(
+            pokemonCell(r, false),
+            scoreCell(a),
+            td('sep', catsBox(pk, a.cats)),
+            td('c sep tight', qualityBadge(pk.quality)),
+            td('c tight', potencyBadge(pk.potencia)),
+            td('c tight', ivBadge(ivTotal)),
+            ...(power ? [td('r sep', el('span', 'num' + (a.powerNow < 1000 ? ' dim' : ''), big(a.powerNow)))] : []),
+            td('sep', a.forms.length ? formsBox(a.forms) : el('span', 'none', t('final form'))),
+          );
+          body.append(tr);
+        }
+      }
+      if (hidden) {
+        const tr = el('tr', 'hidden-note');
+        const c = el('td');
+        c.colSpan = cols;
+        c.textContent = t('{n} with a final Score below {min} left out.', { n: hidden, min: sc(minScore()) });
+        tr.append(c);
+        body.append(tr);
+      }
+      tbl.append(body);
+      main.replaceChildren(tbl);
+    }
+
+    function renderRanking() {
+      const main = document.getElementById('main');
+      const all = slots.flatMap((s) => rowsOf(s).rows);
+      if (!all.length) {
+        main.replaceChildren(empty(t('No list yet'), t("The game sends each account's Pokémon a few seconds after it loads.")));
+        return;
+      }
+      all.sort((x, y) => y.a.best.dps - x.a.best.dps);
+      const lv = level().toLocaleString(locale());
+      // "With Mega" only while Megas count.
+      const withMega = megas();
+      const tbl = table(
+        [['36px'], [null], [withMega ? '132px' : '180px'], ['232px'], ...(withMega ? [['26%']] : []), ['86px']],
+        [
+          th('#', 'c'),
+          th(t('Pokémon')),
+          th(t('Best form'), 'sep', t('Its strongest form without a Mega (itself, or what it evolves into)')),
+          th(t('Damage @Lv {lv}', { lv }), 'sep', DMG_TITLE()),
+          ...(withMega ? [th(t('With Mega'), 'sep', t('Its best Mega and the damage there (needs the Mega stone)'))] : []),
+          th(t('Score'), 'r sep', SCORE_TITLE()),
+        ],
+      );
+      const body = el('tbody');
+      all.forEach((r, i) => {
+        const { pk, a } = r;
+        const tr = el('tr', 'row');
+        const best = el('td', 'sep');
+        if (a.best.self) best.append(el('span', 'none', t('itself')));
+        else {
+          const nm = el('div', 'name');
+          const s = el('span', 'nm', a.best.name);
+          s.title = a.best.name;
+          nm.append(s);
+          best.append(nm, el('div', 'where', t('evolves from {name}', { name: pk.nome })));
+        }
+        const mega = el('td', 'sep');
+        if (a.bestMega) mega.append(formsBox([a.bestMega]));
+        else mega.append(el('span', 'none', '—'));
+        tr.append(
+          td('c', el('span', 'rank' + (i < 3 ? ' top' : ''), String(i + 1))),
+          pokemonCell(r, true),
+          best,
+          td('sep', catsBox(pk, a.best.cats)),
+          ...(withMega ? [mega] : []),
+          (() => { const c = scoreCell(a); c.classList.add('sep'); return c; })(),
+        );
+        body.append(tr);
+      });
+      tbl.append(body);
+      main.replaceChildren(tbl);
+    }
+
+    function empty(title, text) {
+      const box = el('div', 'empty');
+      box.append(el('b', '', title), el('span', '', text));
+      return box;
+    }
+
+    function renderTabs() {
+      const tabs = document.getElementById('tabs');
+      const buttons = slots.map((s) => {
+        const b = el('button', 'tab' + (tab === s.id ? ' on' : ''), s.name);
+        b.title = s.name;
+        b.addEventListener('click', () => { tab = s.id; store.set('tab', tab); render(); });
+        return b;
+      });
+      tabs.replaceChildren(el('span', 'label', t('Accounts')), ...buttons);
+      document.getElementById('ranking').classList.toggle('on', tab === RANKING);
+    }
+
+    function renderFoot() {
+      const foot = document.getElementById('foot');
+      const slot = slots.find((s) => s.id === tab);
+      const parts = [];
+      if (slot?.list?.at) parts.push(t('List from {when}.', { when: new Date(slot.list.at).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' }) }));
+      parts.push(t('Exp. Share gives 5% and a House post 25–100% of the XP your fighting Pokémon earns, without taking any from it or from the trainer.'));
+      foot.textContent = parts.join(' ');
+    }
+
+    function renderNotice() {
+      const n = document.getElementById('notice');
+      n.className = 'notice';
+      if (dataError) {
+        n.textContent = t("Couldn't load the game's data: {error}. Check the internet and use ↻.", { error: dataError });
+        n.hidden = false;
+      } else if (gameInfo?.missing?.length) {
+        n.textContent = t("Some of the game's data couldn't be downloaded, so the numbers may be off. Check the internet and use ↻.");
+        n.hidden = false;
+      } else if (gameInfo?.stale) {
+        n.className = 'notice soft';
+        n.textContent = t("Using a saved copy of the game's data (couldn't download today's).");
+        n.hidden = false;
+      } else n.hidden = true;
+    }
+
+    function render() {
+      if (listsLoaded && tab !== RANKING && !slots.some((s) => s.id === tab)) tab = slots[0]?.id ?? RANKING;
+      renderTabs();
+      renderNotice();
+      renderFoot();
+      const main = document.getElementById('main');
+      if (!engine) {
+        main.replaceChildren(empty(loadingData ? t("Loading the game's data…") : t('No data'), ''));
+        return;
+      }
+      if (!slots.length) {
+        main.replaceChildren(empty(t('No slots yet'), t('Add an account with + SLOT on the top bar.')));
+        return;
+      }
+      if (tab === RANKING) renderRanking();
+      else renderSlot(slots.find((s) => s.id === tab));
+    }
+
+    async function loadLists() {
+      try { slots = await invoke('get_team_lists'); } catch (e) { console.error(e); }
+      listsLoaded = true;
+      render();
+    }
+    async function loadData(refresh) {
+      loadingData = true;
+      const btn = document.getElementById('refresh');
+      btn.classList.add('spin');
+      render();
+      try {
+        gameInfo = await invoke('get_game_data', { refresh: !!refresh });
+        dataError = null;
+        engine = Object.keys(gameInfo.files).length ? TeamAnalysis.create(gameInfo.files) : null;
+        if (!engine) dataError = t('nothing was downloaded');
+      } catch (e) {
+        dataError = String(e);
+      }
+      loadingData = false;
+      btn.classList.remove('spin');
+      render();
+    }
+
+    let inputTimer = null;
+    for (const input of [levelInput, minInput]) {
+      input.addEventListener('input', () => {
+        clearTimeout(inputTimer);
+        inputTimer = setTimeout(() => { store.set('level', level()); store.set('min', minScore()); render(); }, 250);
+      });
+    }
+    megasInput.addEventListener('change', () => { store.set('megas', megas()); render(); });
+    document.getElementById('ranking').addEventListener('click', () => { tab = RANKING; store.set('tab', tab); render(); });
+    document.getElementById('refresh').addEventListener('click', () => loadData(true));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') invoke('close_window'); });
+    let listTimer = null;
+    listen('team-list', () => { clearTimeout(listTimer); listTimer = setTimeout(loadLists, 500); });
+    I18N.onChange(render);
+    // Crossing the narrow width changes the columns.
+    let wasNarrow = narrow();
+    window.addEventListener('resize', () => { if (narrow() !== wasNarrow) { wasNarrow = narrow(); render(); } });
+    tab = store.get('tab', null);
+    loadLists();
+    loadData(false);
+  </script>
+</body>
+</html>

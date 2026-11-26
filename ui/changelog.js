@@ -3,6 +3,33 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.27.0',
+    date: '2026-11-26',
+    notes: {
+      pt: [
+        'Novo: Análise do time (a Pokébola ao lado do ⚙). Mostra a força de cada Pokémon das suas contas e o que ele vira ao evoluir, com as fórmulas do próprio jogo, para escolher quem vale a pena upar com o Exp. Share e os postos da Casa.',
+        'Uma aba por conta, com Time, Coleção ★ e Depot separados, e um Ranking com todos de todas as contas, do mais forte ao mais fraco.',
+        'Para cada Pokémon: a Nota agora e a Nota potencial (a melhor forma final ou Mega), o dano físico (ATK) e o especial (SP.ATK) com o IV que conta em cada um, Potência, Qualidade e IV com as cores do jogo, e todas as evoluções e Megas com o dano em cada uma.',
+        'Filtros: o nível em que todos são comparados (1000 de início), a Nota final mínima (3,5 de início) e se as Megas contam.',
+        'Os dados das espécies vêm do site do jogo e ficam guardados por um dia. A lista de cada conta atualiza sozinha enquanto o jogo do slot está aberto (slots "Só lives" não têm lista).',
+      ],
+      en: [
+        'New: Team analysis (the Pokéball next to ⚙). It shows how strong each Pokémon in your accounts is and what it becomes when it evolves, with the game\'s own formulas, to pick who is worth leveling with Exp. Share and House posts.',
+        'One tab per account, with Team, Collection ★ and Depot apart, and a Ranking with everyone from every account, strongest first.',
+        'For each Pokémon: its Score now and its Score Potential (its best final form or Mega), its physical (ATK) and special (SP.ATK) damage with the IV that counts for each, Potency, Quality and IV in the game\'s colours, and every evolution and Mega with its damage there.',
+        'Filters: the level everyone is compared at (1000 to start), the minimum final Score (3.5 to start) and whether Megas count.',
+        'Species data comes from the game\'s site and is kept for a day. Each account\'s list updates by itself while the slot\'s game is open ("Streams only" slots have no list).',
+      ],
+      es: [
+        'Nuevo: Análisis del equipo (la Pokébola al lado de ⚙). Muestra la fuerza de cada Pokémon de tus cuentas y en qué se convierte al evolucionar, con las fórmulas del propio juego, para elegir a quién vale la pena subir con el Exp. Share y los puestos de la Casa.',
+        'Una pestaña por cuenta, con Equipo, Colección ★ y Depósito por separado, y un Ranking con todos los de todas las cuentas, del más fuerte al más débil.',
+        'Para cada Pokémon: su Nota ahora y su Potencial de Nota (su mejor forma final o Mega), su daño físico (ATK) y especial (SP.ATK) con el IV que cuenta en cada uno, Potencia, Calidad e IV con los colores del juego, y todas sus evoluciones y Megas con el daño en cada una.',
+        'Filtros: el nivel en que se comparan todos (1000 al inicio), la Nota final mínima (3,5 al inicio) y si cuentan las Megas.',
+        'Los datos de las especies vienen del sitio del juego y se guardan por un día. La lista de cada cuenta se actualiza sola mientras el juego del slot está abierto (los slots "Solo streams" no tienen lista).',
+      ],
+    },
+  },
+  {
     version: '0.26.2',
     date: '2026-11-25',
     notes: {

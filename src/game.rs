@@ -131,6 +131,65 @@ pub fn sprite_reported(app: &AppHandle, json: &str) {
     crate::publish(app, &state);
 }
 
+/// "[multiview-mons] i/n …": piece i of n of `{"activeId":…,"mons":[…],"collection":[…]}`, the
+/// account's whole Pokémon list as the game sends it and the ids in its Collection ★ (page
+/// titles get cut, so it comes in pieces). Once all pieces are in, written as is to
+/// `pokemon/slot-N.json` in the app's data folder (with the slot's name and when), read by the
+/// Team analysis window (team.rs).
+pub fn mons_reported(app: &AppHandle, id: u8, piece: &str) {
+    static PIECES: Mutex<Option<HashMap<u8, Vec<String>>>> = Mutex::new(None);
+    let Some((head, text)) = piece.split_once(' ') else { return };
+    let Some((i, n)) = head.split_once('/') else { return };
+    let (Ok(i), Ok(n)) = (i.parse::<usize>(), n.parse::<usize>()) else { return };
+    if i == 0 || i > n || n > 500 {
+        return;
+    }
+    let json = {
+        let mut all = PIECES.lock().unwrap();
+        let parts = all.get_or_insert_with(HashMap::new).entry(id).or_default();
+        // A first piece starts over (a list cut short by a reload is dropped).
+        if i == 1 {
+            parts.clear();
+        }
+        if parts.len() != i - 1 {
+            parts.clear();
+            return;
+        }
+        parts.push(text.to_string());
+        if i < n {
+            return;
+        }
+        std::mem::take(parts).concat()
+    };
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&json) else {
+        println!("[game] slot {id}: Pokémon list didn't parse");
+        return;
+    };
+    if !value.get("mons").is_some_and(|m| m.is_array()) {
+        return;
+    }
+    let name = {
+        let state = app.state::<Mutex<crate::AppState>>();
+        let state = state.lock().unwrap();
+        state.config.slots.iter().find(|s| s.id == id).and_then(|s| s.name.clone())
+    };
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    value["slot"] = id.into();
+    value["name"] = name.unwrap_or_else(|| format!("Slot {id}")).into();
+    value["at"] = at.into();
+    let Ok(dir) = app.path().app_local_data_dir().map(|d| d.join("pokemon")) else { return };
+    let Ok(text) = serde_json::to_string_pretty(&value) else { return };
+    let path = dir.join(format!("slot-{id}.json"));
+    // Off the UI thread (title reports arrive there).
+    let app = app.clone();
+    std::thread::spawn(move || match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text)) {
+        Ok(()) => crate::team::list_saved(&app, id),
+        Err(e) => println!("[game] couldn't save {}: {e}", path.display()),
+    });
+}
 #[cfg(test)]
 mod tests {
     use super::*;

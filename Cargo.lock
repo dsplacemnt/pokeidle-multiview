@@ -2816,7 +2816,7 @@ dependencies = [
 
 [[package]]
 name = "pokeidle-multiview"
-version = "0.26.2"
+version = "0.27.0"
 dependencies = [
  "gtk",
  "qrcode",
