@@ -3,6 +3,21 @@
 // English).
 window.CHANGELOG = [
   {
+    version: '0.26.2',
+    date: '2026-11-25',
+    notes: {
+      pt: [
+        'Painel de estatísticas: depois de uma captura, o Pokémon capturado aparecia como se fosse o seu em campo (ex.: "Snover Lv 40 vs Snover"). Agora o painel segue o Pokémon que o jogo diz estar em campo, e as capturas não trocam mais ele.',
+      ],
+      en: [
+        'Stats panel: after a catch, the Pokémon just caught showed as if it were yours on the field (e.g. "Snover Lv 40 vs Snover"). The panel now follows the Pokémon the game says is on the field, and catches no longer swap it.',
+      ],
+      es: [
+        'Panel de estadísticas: después de una captura, el Pokémon recién capturado aparecía como si fuera el tuyo en campo (ej.: "Snover Lv 40 vs Snover"). Ahora el panel sigue al Pokémon que el juego dice que está en campo, y las capturas ya no lo cambian.',
+      ],
+    },
+  },
+  {
     version: '0.26.1',
     date: '2026-11-25',
     notes: {
