@@ -181,7 +181,26 @@
   let statsSent = '';
   let statsAt = 0;
 
-  function onState(state) {
+  // The account's Pokémon by id, kept the way the game merges its own state
+  // (shared/estado-delta.mjs): a full list in "pokemons" (always in a full state), the ones that
+  // changed in "pkMud" (a new capture, a level up), the ones gone in "pkFora". The one on the
+  // field is "activeId". Never "the first one that changed": a capture's pkMud holds only the
+  // Pokémon just caught, which isn't the one fighting.
+  const mons = new Map();
+  let activeId = null;
+  function activeMon(state, full) {
+    if (full || Array.isArray(state.pokemons)) mons.clear();
+    for (const p of Array.isArray(state.pokemons) ? state.pokemons : []) if (p && p.id != null) mons.set(p.id, p);
+    for (const p of Array.isArray(state.pkMud) ? state.pkMud : []) if (p && p.id != null) mons.set(p.id, p);
+    for (const id of Array.isArray(state.pkFora) ? state.pkFora : []) mons.delete(id);
+    if ('activeId' in state) activeId = state.activeId;
+    if (activeId != null) return mons.get(activeId) || null;
+    // No active id from the game yet: the first of the team.
+    return [...mons.values()].find((p) => p && p.slot === 0) || null;
+  }
+
+  // full: a whole state (the welcome, or a "cheio" snapshot), not just what changed.
+  function onState(state, full) {
     if (typeof state.huntSlug === 'string' && state.huntSlug !== game.hunt) {
       // A new hunt: its own numbers.
       if (game.hunt !== null) run = newRun();
@@ -204,7 +223,7 @@
     if (Number.isFinite(Number(state.xpNivel))) game.xpStart = Number(state.xpNivel);
     if (Number.isFinite(Number(state.level))) game.level = Number(state.level);
     if (Number.isFinite(Number(state.gold))) game.gold = Number(state.gold);
-    const pk = Array.isArray(state.pkMud) ? state.pkMud.find((p) => p && p.slot === 0) || state.pkMud[0] : null;
+    const pk = activeMon(state, full);
     if (pk && pk.nome) {
       // A shiny shows with its own look when it has one.
       const look = Number(pk.shiny && pk.lookShiny ? pk.lookShiny : pk.looktype) || null;
@@ -637,7 +656,7 @@
     }
     const state = message.estado;
     if (!state) return;
-    onState(state);
+    onState(state, message.t === 'welcome' || !!state.cheio);
     if (!data.includes('"oficiais"')) return;
     for (const platform of ['kick', 'twitch']) {
       const info = state[platform];
